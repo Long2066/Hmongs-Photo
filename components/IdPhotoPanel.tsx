@@ -1,0 +1,196 @@
+import React, { useState, useEffect } from 'react';
+import { UserCircleIcon } from './Icons';
+
+interface IdPhotoPanelProps {
+  onGenerate: (clothing: string, bgColor: string, aspectRatio: string, gender: string, hairstyle: string) => void;
+  isLoading: boolean;
+  isDisabled: boolean;
+  hasApiKey: boolean;
+  hasInputImage: boolean;
+}
+
+// --- CONFIGURATION DATA ---
+
+const genders = [
+    { id: 'male', label: 'Nam' },
+    { id: 'female', label: 'Nữ' }
+];
+
+const hairstyles = {
+    male: [
+        { id: 'original', label: 'Giữ nguyên tóc gốc' },
+        { id: 'side_part', label: 'Side Part (7/3)' },
+        { id: 'undercut', label: 'Undercut gọn gàng' },
+        { id: 'pompadour', label: 'Vuốt ngược (Pompadour)' },
+        { id: 'buzz_cut', label: 'Đầu đinh (Buzz Cut)' },
+        { id: 'korean_layer', label: 'Layer Hàn Quốc' },
+    ],
+    female: [
+        { id: 'original', label: 'Giữ nguyên tóc gốc' },
+        { id: 'long_straight', label: 'Dài thẳng tự nhiên' },
+        { id: 'bob_cut', label: 'Tóc ngắn (Bob)' },
+        { id: 'bun', label: 'Búi cao gọn gàng' },
+        { id: 'ponytail', label: 'Buộc đuôi ngựa' },
+        { id: 'wavy', label: 'Xoăn sóng nhẹ' },
+    ]
+};
+
+const clothingOptions = {
+    male: [
+        { id: 'shirt_white_textured', label: 'Sơ mi trắng (Gấm/Sần)' },
+        { id: 'shirt_white_tie_short', label: 'Sơ mi cộc tay + Cà vạt' },
+        { id: 'youth_union', label: 'Áo Đoàn Thanh Niên' },
+        { id: 'suit_black_striped_tie', label: 'Vest đen + Cà vạt sọc' },
+        { id: 'suit_no_tie', label: 'Vest đen (Không nơ)' },
+        { id: 'official', label: 'Trang phục cán bộ' },
+    ],
+    female: [
+        { id: 'ao_dai_white', label: 'Áo dài trắng' },
+        { id: 'shirt_white_female', label: 'Sơ mi trắng nữ' },
+        { id: 'suit_female', label: 'Vest nữ công sở' },
+        { id: 'youth_union_female', label: 'Áo Đoàn nữ' },
+        { id: 'coming_soon', label: 'Sắp có thêm...' },
+    ]
+};
+
+const bgColors = [
+    { id: 'blue', label: 'Xanh dương', class: 'bg-blue-600' },
+    { id: 'white', label: 'Trắng', class: 'bg-white border border-slate-200' },
+    { id: 'grey', label: 'Xám sáng', class: 'bg-gray-300' },
+    { id: 'transparent', label: 'Trong suốt', class: 'bg-[url("https://upload.wikimedia.org/wikipedia/commons/1/10/Checkerboard_pattern.svg")]' }, 
+];
+
+const aspectRatios = [
+    { label: '3x4 (Dọc)', value: '3:4' },
+    { label: '4x6 (Dọc)', value: '2:3' },
+    { label: 'Vuông (1:1)', value: '1:1' },
+];
+
+export const IdPhotoPanel: React.FC<IdPhotoPanelProps> = ({ onGenerate, isLoading, isDisabled, hasApiKey, hasInputImage }) => {
+    const [gender, setGender] = useState<'male' | 'female'>('male');
+    const [selectedClothing, setSelectedClothing] = useState('');
+    const [selectedHairstyle, setSelectedHairstyle] = useState('original');
+    const [selectedBg, setSelectedBg] = useState(bgColors[0].id);
+    const [aspectRatio, setAspectRatio] = useState('3:4');
+
+    useEffect(() => {
+        setSelectedClothing(clothingOptions[gender][0].id);
+        setSelectedHairstyle('original');
+    }, [gender]);
+
+    const handleGenerate = () => {
+        if (!isLoading && !isDisabled && hasInputImage) {
+            onGenerate(selectedClothing, selectedBg, aspectRatio, gender, selectedHairstyle);
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-5">
+            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex gap-3 backdrop-blur-sm">
+                 <div className="bg-white p-2 rounded-full shadow-sm">
+                    <UserCircleIcon className="w-5 h-5 text-indigo-600" />
+                 </div>
+                 <div>
+                     <h3 className="text-sm font-bold text-indigo-900">Chế độ Ảnh thẻ Pro</h3>
+                     <p className="text-[10px] text-indigo-700/80 mt-0.5 font-medium">Giữ nguyên khuôn mặt • Thay đổi trang phục & Tóc</p>
+                 </div>
+            </div>
+
+            {/* 1. Gender */}
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">1. Giới tính</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                    {genders.map((g) => (
+                        <button
+                            key={g.id}
+                            onClick={() => setGender(g.id as 'male' | 'female')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all
+                            ${gender === g.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            {g.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* 2. Hairstyle */}
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">2. Kiểu tóc</label>
+                <div className="relative group">
+                    <select 
+                        value={selectedHairstyle}
+                        onChange={(e) => setSelectedHairstyle(e.target.value)}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none appearance-none cursor-pointer transition-all"
+                    >
+                        {hairstyles[gender].map(h => <option key={h.id} value={h.id}>{h.label}</option>)}
+                    </select>
+                </div>
+            </div>
+
+            {/* 3. Clothing */}
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">3. Trang phục</label>
+                <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    {clothingOptions[gender].map((opt) => (
+                        <button
+                            key={opt.id}
+                            disabled={opt.id === 'coming_soon'}
+                            onClick={() => setSelectedClothing(opt.id)}
+                            className={`px-4 py-3 rounded-xl border text-left text-xs font-semibold transition-all
+                            ${selectedClothing === opt.id 
+                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' 
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}
+                            ${opt.id === 'coming_soon' ? 'opacity-50 cursor-not-allowed' : ''}    
+                            `}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* 4. Background */}
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">4. Màu nền</label>
+                <div className="flex gap-3">
+                    {bgColors.map((bg) => (
+                        <button
+                            key={bg.id}
+                            onClick={() => setSelectedBg(bg.id)}
+                            className={`w-10 h-10 rounded-full ${bg.class} shadow-sm transition-transform hover:scale-110 border border-slate-200 ring-offset-2
+                            ${selectedBg === bg.id ? 'ring-2 ring-indigo-500' : ''}`}
+                            title={bg.label}
+                        />
+                    ))}
+                </div>
+            </div>
+
+             {/* 5. Aspect Ratio */}
+             <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">5. Tỷ lệ ảnh</label>
+                <div className="relative group">
+                    <select 
+                        value={aspectRatio}
+                        onChange={(e) => setAspectRatio(e.target.value)}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none appearance-none cursor-pointer transition-all"
+                    >
+                        {aspectRatios.map(ar => <option key={ar.value} value={ar.value}>{ar.label}</option>)}
+                    </select>
+                </div>
+            </div>
+
+            <button
+                onClick={handleGenerate}
+                disabled={isLoading || isDisabled || !hasInputImage}
+                className="w-full mt-4 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 animate-gradient-x text-white font-bold rounded-xl hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
+            >
+                 {isLoading ? (
+                     <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Đang xử lý...
+                     </span>
+                 ) : "TẠO ẢNH THẺ NGAY"}
+            </button>
+        </div>
+    );
+};

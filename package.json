@@ -1,0 +1,77 @@
+{
+  "name": "toolphoto2025",
+  "productName": "ToolPhoto2025",
+  "version": "1.5.0",
+  "description": "ToolPhoto2025 - AI Studio for Photo Generation",
+  "private": true,
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "electron:build:win": "vite build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@google/genai": "^1.20.0",
+    "firebase": "^12.6.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "electron-updater": "^6.1.7",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.toolphoto2025.app",
+    "productName": "ToolPhoto2025",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ToolPhoto2025"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "longk2tha-rgb",
+      "repo": "ToolPhoto2025",
+      "releaseType": "release"
+    }
+  },
+  "author": {
+    "name": "ToolPhoto2025",
+    "email": "support@toolphoto2025.com"
+  },
+  "license": "MIT"
+}
