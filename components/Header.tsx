@@ -126,8 +126,8 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
                         </div>
                     </div>
 
-                    {/* Mode Switcher - Responsive: Dropdown on mobile, tabs on larger */}
-                    {user && !isHistoryVisible && (
+                    {/* Mode Switcher - Responsive: Dropdown on mobile, tabs on larger (Always visible) */}
+                    {!isHistoryVisible && (
                         <>
                             {/* Mobile: Dropdown Selector */}
                             <div className="relative sm:hidden w-full" ref={mobileMenuRef}>
@@ -197,11 +197,9 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
 
                     {/* User & Key Actions */}
                     <div className="flex items-center gap-3 self-end md:self-auto">
-                        {user && (
-                            <button onClick={onApiKeyClick} className="p-2.5 text-slate-500 bg-white/80 border border-slate-200/50 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm backdrop-blur-sm" title="Cài đặt API Key">
-                                <KeyIcon className="w-5 h-5" />
-                            </button>
-                        )}
+                        <button onClick={onApiKeyClick} className="p-2.5 text-slate-500 bg-white/80 border border-slate-200/50 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm backdrop-blur-sm" title="Cài đặt API Key / 9Router">
+                            <KeyIcon className="w-5 h-5" />
+                        </button>
 
                         {user ? (
                             <ProfileMenu
@@ -211,7 +209,13 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
                                 isHistoryVisible={isHistoryVisible}
                             />
                         ) : (
-                            <div className="hidden"></div>
+                            <button
+                                onClick={onLoginClick}
+                                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-100 hover:shadow-indigo-200 transition-all flex items-center gap-1.5 active:scale-95"
+                            >
+                                <UserCircleIcon className="w-4 h-4" />
+                                <span>Đăng nhập</span>
+                            </button>
                         )}
                     </div>
                 </div>
