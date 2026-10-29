@@ -8,9 +8,9 @@
 import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
-const DEFAULT_NINEROUTER_URL = 'http://127.0.0.1:20128/v1';
+const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
 const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
-const DEFAULT_TEXT_MODEL = 'ag/gemini-3-flash';
+const DEFAULT_TEXT_MODEL = 'ag/gemini-3.8-flash-high';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -44,6 +44,19 @@ export interface NineRouterLabeledReferenceImage {
     label: string;
 }
 
+// --- URL Normalization Helper ---
+export const normalizeNineRouterUrl = (rawUrl: string): string => {
+    let url = (rawUrl || '').trim();
+    if (!url) return DEFAULT_NINEROUTER_URL;
+    // Remove all trailing slashes
+    url = url.replace(/\/+$/, '');
+    // Ensure it ends with /v1
+    if (!url.endsWith('/v1')) {
+        url = `${url}/v1`;
+    }
+    return url;
+};
+
 // --- Storage Functions ---
 export const setNineRouterEnabled = (value: boolean): void => {
     localStorage.setItem(NINEROUTER_ENABLED_KEY, value ? 'true' : 'false');
@@ -54,23 +67,19 @@ export const setNineRouterEnabled = (value: boolean): void => {
 };
 
 export const isNineRouterEnabled = (): boolean => {
-    return localStorage.getItem(NINEROUTER_ENABLED_KEY) === 'true';
+    const val = localStorage.getItem(NINEROUTER_ENABLED_KEY);
+    // Default to true if not explicitly set to false
+    if (val === null) return true;
+    return val === 'true';
 };
 
 export const setNineRouterUrl = (url: string): void => {
-    localStorage.setItem(NINEROUTER_URL_KEY, url.trim() || DEFAULT_NINEROUTER_URL);
+    localStorage.setItem(NINEROUTER_URL_KEY, normalizeNineRouterUrl(url));
 };
 
 export const getNineRouterUrl = (): string => {
-    let url = localStorage.getItem(NINEROUTER_URL_KEY) || DEFAULT_NINEROUTER_URL;
-    url = url.trim();
-    if (!url) return DEFAULT_NINEROUTER_URL;
-    
-    // Automatically append /v1 if missing and it's not a direct endpoint
-    if (!url.endsWith('/v1') && !url.includes('/v1/')) {
-        url = url.replace(/\/$/, '') + '/v1';
-    }
-    return url;
+    const url = localStorage.getItem(NINEROUTER_URL_KEY) || DEFAULT_NINEROUTER_URL;
+    return normalizeNineRouterUrl(url);
 };
 
 export const setNineRouterApiKey = (key: string): void => {
@@ -291,10 +300,7 @@ const extractImageFromChatResponse = (parsed: ParsedNineRouterResponse): string 
  * Check connection to 9Router
  */
 export const checkConnection = async (customUrl?: string, customApiKey?: string): Promise<NineRouterStatus> => {
-    let baseUrl = customUrl ? customUrl.trim() : getNineRouterUrl();
-    if (!baseUrl.endsWith('/v1') && !baseUrl.includes('/v1/')) {
-        baseUrl = baseUrl.replace(/\/$/, '') + '/v1';
-    }
+    const baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
     const apiKey = customApiKey !== undefined ? customApiKey.trim() : getNineRouterApiKey();
     const headers: Record<string, string> = {};
     if (apiKey) {
@@ -306,14 +312,22 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
         const resp = await fetchWithTimeout(`${baseUrl}/models`, {
             method: 'GET',
             headers
-        }, 8000);
+        }, 10000);
 
         if (!resp.ok) {
             if (resp.status === 401 || resp.status === 403) {
                 return {
                     connected: false,
                     errorType: 'auth',
-                    errorMessage: 'API Key không hợp lệ hoặc thiếu quyền truy cập.',
+                    errorMessage: 'API Key không hợp lệ hoặc thiếu quyền truy cập (HTTP 401/403). Vui lòng nhập API Key 9Router đúng.',
+                    lastChecked: Date.now()
+                };
+            }
+            if (resp.status === 404) {
+                return {
+                    connected: false,
+                    errorType: 'unknown',
+                    errorMessage: 'Không tìm thấy endpoint /models (HTTP 404). Hãy đảm bảo Endpoint URL kết thúc bằng /v1.',
                     lastChecked: Date.now()
                 };
             }
@@ -340,7 +354,7 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
         return {
             connected: false,
             errorType: 'network',
-            errorMessage: 'Không thể kết nối tới 9Router. Vui lòng đảm bảo server đang chạy và URL chính xác.',
+            errorMessage: 'Không thể kết nối tới 9Router. Vui lòng kiểm tra server 9Router hoặc URL endpoint.',
             lastChecked: Date.now()
         };
     }

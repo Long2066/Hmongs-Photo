@@ -32,6 +32,7 @@ import { subscribeToUserCredits, updateUserCredits } from './services/firebaseSe
 import { getSystemApiKey, getModelConfig, getSelectedImageModel, formatVND } from './services/geminiCoreService';
 import { deductBalance, getCachedBalance, addUsageRecord } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
+import * as nineRouterService from './services/nineRouterService';
 import { auth } from './src/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import type { User, HistoryItem } from './types';
@@ -125,8 +126,7 @@ const App: React.FC = () => {
     const currentData = modeStates[mode];
 
     const checkApiKey = useCallback(() => {
-        const key = storage.getApiKey('gemini');
-        setHasGeminiKey(!!key);
+        setHasGeminiKey(nineRouterService.isNineRouterEnabled());
     }, []);
 
     useEffect(() => {
@@ -304,86 +304,14 @@ const App: React.FC = () => {
     // --- GENERATION HANDLERS ---
 
     const getApiKeyOrAlert = () => {
-        console.log('[DEBUG] getApiKeyOrAlert called');
-        console.log('[DEBUG] isProUser:', storage.isProUser());
-        console.log('[DEBUG] getUseProApi:', storage.getUseProApi());
-
-        // Reset system key usage tracker (aiService will set it when system key is used)
         resetUsedSystemKey();
 
-        // PRIORITY -0.5: Check if 9Router is enabled
-        const nineRouterEnabled = localStorage.getItem('ninerouter_enabled') === 'true';
-        if (nineRouterEnabled) {
-            console.log('[DEBUG] NineRouter mode enabled, using 9Router for generation');
+        // 9Router Gateway is the sole AI engine
+        if (nineRouterService.isNineRouterEnabled()) {
             return 'NINEROUTER_MODE';
         }
 
-        // PRIORITY 0: Check if Antigravity is enabled
-        // Import dynamically to avoid circular dependency
-        const antigravityEnabled = localStorage.getItem('antigravity_enabled') === 'true';
-        if (antigravityEnabled) {
-            console.log('[DEBUG] Antigravity mode enabled, using Antigravity for generation');
-            // Return a dummy key - aiService will use Antigravity service instead
-            return 'ANTIGRAVITY_MODE';
-        }
-
-        // PRIORITY 0.5: Check if Google OAuth is enabled
-        const oauthEnabled = localStorage.getItem('google_oauth_enabled') === 'true';
-        if (oauthEnabled) {
-            console.log('[DEBUG] Google OAuth enabled, using OAuth for generation');
-            // Return a dummy key - aiService getEffectiveGeminiClient() will use OAuth token
-            return 'OAUTH_MODE';
-        }
-
-        const isVipMode = storage.getUseProApi() && storage.isProUser();
-        const userApiKey = storage.getApiKey('gemini');
-
-        // SMART KEY SELECTION LOGIC:
-        // 1. If user has Gemini key, try to use it first (no credits deduction)
-        // 2. If user key is invalid/quota exceeded, fallback to system key (will deduct credits)
-        // 3. If no user key and VIP mode, use system key (will deduct credits)
-
-        if (userApiKey) {
-            // User has a key - we'll try it first
-            // Key validation happens during actual API call in aiService
-            // If key fails during generation, aiService will fallback to system key
-            console.log('[DEBUG] User Gemini key found, will try user key first:', userApiKey.substring(0, 10) + '...');
-
-            // If VIP mode is also enabled, we need to check if user key is valid
-            // For now, return user key - aiService handles fallback internally
-            if (isVipMode) {
-                // In VIP mode with user key: aiService will try user key first, fallback to system key
-                // We'll check the key status from storage to determine if we should use system key
-                const keyStatus = storage.getApiKeys('gemini').find(k => k.key === userApiKey);
-                if (keyStatus && (keyStatus.status === 'invalid' || keyStatus.status === 'quota_exceeded')) {
-                    // User key is known to be bad, use system key directly
-                    const systemKey = getSystemApiKey();
-                    if (systemKey) {
-                        console.log('[DEBUG] User key is invalid/quota, using system key');
-                        return systemKey;
-                    }
-                }
-                // User key status is ok or unchecked, try user key first
-                // If it fails during generation, credits should be deducted
-                return userApiKey;
-            }
-
-            // Not in VIP mode, just use user key
-            return userApiKey;
-        }
-
-        // No user key - check VIP mode
-        if (isVipMode) {
-            const systemKey = getSystemApiKey();
-            console.log('[DEBUG] No user key, VIP mode: System key found:', !!systemKey);
-            if (systemKey) {
-                // aiService will set usedSystemKey flag when it actually uses the system key
-                return systemKey;
-            }
-        }
-
-        // No key available
-        setError(`Vui lòng thêm API Key Gemini, bật Antigravity hoặc bật 9Router để bắt đầu.`);
+        setError('Vui lòng kích hoạt và kết nối 9Router Gateway trong phần Cài đặt.');
         setApiKeyModalOpen(true);
         return null;
     };
@@ -842,6 +770,26 @@ const App: React.FC = () => {
         if (mode === 'restore') return <RestorePhotoPanel onGenerate={handleRestorePhoto} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         return null;
     };
+
+    // --- AUTH GATE: Bắt buộc đăng nhập / đăng ký mới cho vào giao diện bên trong tool ---
+    if (!currentUser) {
+        return (
+            <div className="h-screen w-screen overflow-hidden bg-slate-900 flex items-center justify-center relative select-none">
+                {/* Background ambient lighting */}
+                <div className="fixed inset-0 z-0 animate-gradient-flow opacity-30 pointer-events-none"></div>
+                <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-tr from-indigo-600/30 via-purple-600/30 to-pink-600/30 rounded-full blur-[140px] pointer-events-none"></div>
+
+                <AuthModal
+                    onAuthSuccess={(user) => {
+                        setCurrentUser(user);
+                        setAuthModalOpen(false);
+                    }}
+                    isBlocking={true}
+                    appVersion={appVersion}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="h-screen text-slate-800 font-sans antialiased flex flex-col selection:bg-indigo-100/50 relative overflow-hidden bg-slate-50">
