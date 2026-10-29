@@ -376,6 +376,45 @@ const mapRatioForNineRouter = (aspectRatio?: string): string => {
     }
 };
 
+/**
+ * Composition and camera framing directive to prevent subject cutoff when rendering non-square ratios.
+ * Directs the AI model to frame the subjects centrally with wide safety buffers so subjects are NEVER cropped.
+ */
+export const getAspectFramingDirective = (aspectRatio?: string): string => {
+    switch (aspectRatio) {
+        case '9:16':
+            return `*** MANDATORY 9:16 VERTICAL FRAMING & CAMERA COMPOSITION DIRECTIVE ***
+- TARGET RATIO: 9:16 Ultra-tall vertical portrait orientation.
+- CAMERA FRAMING: Wide environmental shot (Full-body / Wide angle). Pull camera back significantly to capture the full environment.
+- SUBJECT PLACEMENT: Keep all characters strictly centered within the central 50% width column of the frame.
+- MANDATORY SAFE ZONE: Leave generous empty margins (at least 25% empty background buffer) on BOTH the left and right sides.
+- NEVER CROP SUBJECTS: Heads, hair, entire bodies, arms, hands, accessories, and wide dresses/skirts MUST be completely contained inside the central safe zone.
+- Absolutely DO NOT place people, limbs, or garments near the outer lateral edges.`;
+
+        case '16:9':
+            return `*** MANDATORY 16:9 WIDESCREEN FRAMING & CAMERA COMPOSITION DIRECTIVE ***
+- TARGET RATIO: 16:9 Cinematic Landscape Orientation.
+- CAMERA FRAMING: Wide panoramic landscape framing with expansive horizontal views.
+- VERTICAL SAFE ZONE: Provide generous clearance above heads (headroom) and below feet (footroom).
+- NEVER CROP SUBJECTS: Never cut off the top of heads, hairstyles, hats, or bottom of shoes/feet.`;
+
+        case '3:4':
+            return `*** MANDATORY 3:4 PORTRAIT FRAMING DIRECTIVE ***
+- TARGET RATIO: 3:4 Vertical Portrait.
+- CAMERA FRAMING: Pulled-back portrait shot with at least 15% safety margins on left and right borders.
+- Keep subjects fully contained inside the frame without touching the lateral edges.`;
+
+        case '4:3':
+            return `*** MANDATORY 4:3 COMPOSITION DIRECTIVE ***
+- TARGET RATIO: 4:3 Balanced Composition.
+- Ample vertical and horizontal safety margins on all borders.`;
+
+        default:
+            return `*** ASPECT RATIO: ${aspectRatio || '1:1'} ***
+- Balanced centered composition with generous safety borders on all sides.`;
+    }
+};
+
 const aspectRatioToPixelSize = (aspectRatio?: string): string => {
     switch (aspectRatio) {
         case '16:9': return '1280x720';
@@ -485,6 +524,7 @@ export const generateImageViaNineRouter = async (
 
     const ratio = mapRatioForNineRouter(request.aspectRatio);
     const pixelSize = aspectRatioToPixelSize(request.aspectRatio);
+    const framingDirective = getAspectFramingDirective(request.aspectRatio);
 
     try {
         if (referenceImages.length > 0) {
@@ -514,7 +554,11 @@ Never swap, merge or cross-apply details between labels. Ignore all backgrounds 
 
             userContent.push({
                 type: 'text',
-                text: `FINAL GENERATION INSTRUCTIONS\nTarget aspect ratio: ${ratio}\n\n${request.prompt}`
+                text: `FINAL GENERATION INSTRUCTIONS
+Target aspect ratio: ${ratio}
+${framingDirective}
+
+${request.prompt}`
             });
 
             console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, pixelSize: ${pixelSize}, references: ${referenceImages.length}`);
@@ -557,7 +601,7 @@ Never swap, merge or cross-apply details between labels. Ignore all backgrounds 
         // Pure text-to-image path: no input pixels need to be preserved.
         const payload = {
             model: activeModel,
-            prompt: request.prompt,
+            prompt: `${framingDirective}\n\n${request.prompt}`,
             n: 1,
             response_format: 'b64_json',
             size: pixelSize,

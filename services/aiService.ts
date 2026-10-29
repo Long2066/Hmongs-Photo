@@ -1335,7 +1335,8 @@ export const generateImagesFromPromptsList = async (
             ⚠️ FINAL REMINDER: OUTPUT MUST BE EXACTLY ${aspectRatio} ASPECT RATIO - DO NOT DEVIATE ⚠️
             `;
 
-            const fullPrompt = `${masterConstraint}\n\nSCENE DESCRIPTION: ${prompt}\n\n*** FINAL COMPOSITION RULE ***\nUse the requested scene/background exactly while preserving the labeled outfits and accessories from the original reference pixels. Do not reuse the backgrounds from input reference photos.\n\n[ASPECT RATIO CHECK: Generate this image with EXACTLY ${aspectRatio} dimensions]`;
+            const framingDirective = nineRouterService.getAspectFramingDirective(aspectRatio);
+            const fullPrompt = `${masterConstraint}\n\n${framingDirective}\n\nSCENE DESCRIPTION: ${prompt}\n\n*** FINAL COMPOSITION RULE ***\nUse the requested scene/background exactly while preserving the labeled outfits and accessories from the original reference pixels. Do not reuse the backgrounds from input reference photos.\n\n[ASPECT RATIO CHECK: Generate this image with EXACTLY ${aspectRatio} dimensions]`;
 
             let base64Image: string | null = null;
             let usedVip = false;
