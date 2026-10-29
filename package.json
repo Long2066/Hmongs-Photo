@@ -1,10 +1,10 @@
 {
-  "name": "toolphoto2025",
-  "productName": "ToolPhoto2025",
-  "version": "1.5.0",
-  "description": "ToolPhoto2025 - AI Studio for Photo Generation",
+  "name": "hmongs-photo",
+  "productName": "Hmongs Photo",
+  "version": "2.25.7",
+  "description": "Hmongs Photo - AI Studio for Photo Generation",
   "private": true,
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,10 +13,18 @@
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "vite build && electron-builder",
     "electron:build:win": "vite build && electron-builder --win",
+    "update": "powershell -ExecutionPolicy Bypass -File ./publish.ps1",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.2",
+    "@capacitor/browser": "^8.0.0",
+    "@capacitor/cli": "^8.0.2",
+    "@capacitor/core": "^8.0.2",
+    "@capacitor/filesystem": "^8.1.0",
+    "@emailjs/browser": "^4.4.1",
     "@google/genai": "^1.20.0",
+    "electron-updater": "^6.1.7",
     "firebase": "^12.6.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -29,20 +37,20 @@
     "cross-env": "^7.0.3",
     "electron": "^28.1.0",
     "electron-builder": "^24.9.1",
-    "electron-updater": "^6.1.7",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.toolphoto2025.app",
-    "productName": "ToolPhoto2025",
+    "productName": "ImageTool",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "public/**/*"
     ],
     "win": {
       "target": [
@@ -52,7 +60,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "public/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -60,18 +69,18 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ToolPhoto2025"
+      "shortcutName": "Hmongs Photo"
     },
     "publish": {
       "provider": "github",
-      "owner": "longk2tha-rgb",
-      "repo": "ToolPhoto2025",
+      "owner": "Long2066",
+      "repo": "Hmongs-Photo",
       "releaseType": "release"
     }
   },
   "author": {
-    "name": "ToolPhoto2025",
-    "email": "support@toolphoto2025.com"
+    "name": "Hmongs Photo",
+    "email": "support@hmongsphoto.com"
   },
   "license": "MIT"
 }

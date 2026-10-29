@@ -119,7 +119,7 @@ Nhiệm vụ của bạn là tái tạo lại một phiên bản hoàn hảo c�
         const textPart = { text: enhancedPrompt };
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image-preview',
+            model: 'gemini-2.5-flash-image',
             contents: { parts: [...imageParts, textPart] },
             config: {
                 responseModalities: [Modality.IMAGE, Modality.TEXT]

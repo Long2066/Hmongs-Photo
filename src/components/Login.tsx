@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 import { Link, useNavigate } from 'react-router-dom';
-import { Marquee } from './Marquee';
+import { Marquee } from '../../components/Marquee';
 
 export const Login: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -38,7 +38,7 @@ export const Login: React.FC = () => {
             <div className="flex-1 flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md border border-slate-200">
                     <div className="text-center mb-8">
-                        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-2">ToolPhoto2025</h1>
+                        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-2">ImageTool</h1>
                         <p className="text-slate-500 font-medium">Đăng nhập để tiếp tục</p>
                     </div>
 

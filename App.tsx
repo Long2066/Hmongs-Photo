@@ -8,17 +8,31 @@ import { EditImagePanel } from './components/EditImagePanel';
 import { UpscalePanel } from './components/UpscalePanel';
 import { ProfileProPanel } from './components/ProfileProPanel';
 import { DreamJobPanel } from './components/DreamJobPanel';
+import { RestorePhotoPanel } from './components/RestorePhotoPanel';
+import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, upscaleImage, generateProfilePic, mixMatchOutfit, relightImage, extractClothing, generateDreamJob } from './services/aiService';
+import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, generateDreamJob, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
+import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
 import { ProfilePage } from './components/ProfilePage';
 import { ImagePreviewModal } from './components/ImagePreviewModal';
+// ImageCropModal removed - using simpler ImagePreviewModal for all modes
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { ActivityLog } from './components/ActivityLog';
 import { DownloadHelpModal } from './components/DownloadHelpModal';
 import { Marquee } from './components/Marquee';
 import { DreamJobPresentation } from './components/DreamJobPresentation';
+import { UpdateNotification } from './components/UpdateNotification';
+import { NotificationPopup } from './components/NotificationPopup';
+import { SupportHub } from './components/SupportHub';
+import { A4PrintPreview } from './components/A4PrintPreview';
+import { CreditsConfirmDialog } from './components/CreditsConfirmDialog';
+import { BottomNavigation } from './components/BottomNavigation';
+import { MobileBottomSheet } from './components/MobileBottomSheet';
 import * as storage from './services/storageService';
+import { subscribeToUserCredits, updateUserCredits } from './services/firebaseService';
+import { getSystemApiKey, getModelConfig, getSelectedImageModel, formatVND } from './services/geminiCoreService';
+import { deductBalance, getCachedBalance, addUsageRecord } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
 import { auth } from './src/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -68,7 +82,9 @@ const App: React.FC = () => {
     const [selectedImage, setSelectedImage] = useState<{ url: string, index: number } | null>(null);
     const [isDownloadHelpOpen, setDownloadHelpOpen] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [mobileActiveTab, setMobileActiveTab] = useState<'input' | 'config' | null>(null);
     const [autoDownload, setAutoDownload] = useState(false);
+    const [appVersion, setAppVersion] = useState('2.0.0'); // Default version
 
     // Loading & Error (Global mostly, but could be per mode if needed)
     const [isLoading, setIsLoading] = useState(false);
@@ -79,8 +95,20 @@ const App: React.FC = () => {
     // Presentation State
     const [isPresentationActive, setPresentationActive] = useState(false);
 
+    // Restore Mode - Comparison Slider State
+    const [isComparisonActive, setComparisonActive] = useState(false);
+    const [comparisonData, setComparisonData] = useState<{ before: string; after: string } | null>(null);
+
+    // ID Photo - A4 Print Preview State
+    const [isA4PrintPreviewOpen, setA4PrintPreviewOpen] = useState(false);
+
+    // VIP Balance State (VND instead of credits)
+    const [userBalance, setUserBalance] = useState(0); // VND
+    const [isCreditsDialogOpen, setCreditsDialogOpen] = useState(false);
+    const [pendingGeneration, setPendingGeneration] = useState<{ imageCount: number; callback: () => void } | null>(null);
+
     // --- MODE MANAGEMENT ---
-    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'dream_job'>('creative');
+    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'dream_job' | 'restore'>('creative');
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -90,15 +118,16 @@ const App: React.FC = () => {
         upscale: JSON.parse(JSON.stringify(initialModeState)),
         profile_pro: JSON.parse(JSON.stringify(initialModeState)),
         dream_job: JSON.parse(JSON.stringify(initialModeState)),
+        restore: JSON.parse(JSON.stringify(initialModeState)),
     });
 
-    // Helper to update current mode state
-    const updateModeState = (updater: (prev: ModeData) => Partial<ModeData>) => {
+    // Helper to update current mode state - memoized to avoid stale closures
+    const updateModeState = useCallback((updater: (prev: ModeData) => Partial<ModeData>) => {
         setModeStates(prev => ({
             ...prev,
             [mode]: { ...prev[mode], ...updater(prev[mode]) }
         }));
-    };
+    }, [mode]);
 
     // Helper to access current state
     const currentData = modeStates[mode];
@@ -109,29 +138,141 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+        const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
             if (fbUser) {
+                // CRITICAL: Check email verification before allowing access
+                if (!fbUser.emailVerified) {
+                    // User exists but email not verified - do NOT allow access
+                    console.log('User email not verified, signing out...');
+                    await firebaseService.logoutUser();
+                    setCurrentUser(null);
+                    setAuthModalOpen(true);
+                    return;
+                }
+
+                // Email is verified - allow access
                 const user: User = {
                     id: fbUser.uid,
                     username: fbUser.email || '',
                     name: fbUser.displayName || fbUser.email?.split('@')[0] || 'User',
                     avatar: fbUser.photoURL || `https://ui-avatars.com/api/?name=${fbUser.displayName || 'User'}&background=random`
                 };
+
+                // IMPORTANT: Save user to localStorage for PRO tier checks
+                storage.updateUser(user);
+
                 setCurrentUser(user);
                 setAuthModalOpen(false);
+
+                // Record user access for daily stats
+                firebaseService.recordUserAccess(fbUser.uid, user.name);
             } else {
                 setCurrentUser(null);
                 setAuthModalOpen(true);
             }
         });
+
+        // Check for API keys
         checkApiKey();
+
+        // Mobile viewport height fix - handles dynamic browser chrome on iOS/Android
+        const setViewportHeight = () => {
+            const vh = window.innerHeight * 0.01;
+            document.documentElement.style.setProperty('--vh', `${vh}px`);
+        };
+
+        setViewportHeight();
+        window.addEventListener('resize', setViewportHeight);
+        window.addEventListener('orientationchange', setViewportHeight);
+
+        return () => {
+            window.removeEventListener('resize', setViewportHeight);
+            window.removeEventListener('orientationchange', setViewportHeight);
+        };
+
+        // Get app version
+        const getVersion = async () => {
+            try {
+                const version = await (window as any).electronAPI?.getAppVersion?.();
+                if (version) {
+                    setAppVersion(version);
+                }
+            } catch (e) {
+                console.log('Not in Electron or version API not available');
+            }
+        };
+        getVersion();
+
+        // Add dev shortcuts for testing (access in browser console)
+        import('./services/antigravityService').then((antigravity) => {
+            (window as any).testVeo = async (prompt: string, aspectRatio: '16:9' | '9:16' = '16:9', duration = 5) => {
+                console.log('🎬 Testing Veo 3.1 generation...');
+                const result = await antigravity.testVeoGeneration(prompt, { aspectRatio, durationSeconds: duration });
+                console.log('📋 Result:', result);
+                return result;
+            };
+            (window as any).listModels = async () => {
+                console.log('📋 Fetching available models from Antigravity...');
+                const models = await antigravity.listAntigravityModels();
+                console.log('✅ Available models:', models);
+                return models;
+            };
+            (window as any).testAntigravity = async () => {
+                console.log('🔌 Checking Antigravity connection...');
+                const status = await antigravity.checkConnection();
+                console.log('✅ Connection status:', status);
+                return status;
+            };
+        });
+
+        import('./services/nineRouterService').then((ninerouter) => {
+            (window as any).testNineRouter = async (prompt: string, aspectRatio = '1:1') => {
+                console.log('🎬 Testing 9Router generation...');
+                const result = await ninerouter.generateImageViaNineRouter({ prompt, aspectRatio });
+                console.log('📋 Result:', result);
+                return result;
+            };
+            (window as any).checkNineRouter = async () => {
+                console.log('🔌 Checking 9Router connection...');
+                const status = await ninerouter.checkConnection();
+                console.log('✅ Connection status:', status);
+                return status;
+            };
+            console.log('🧪 Dev shortcuts loaded: window.testVeo(), window.listModels(), window.testAntigravity(), window.testNineRouter(), window.checkNineRouter()');
+        });
+
         return () => unsubscribe();
     }, [checkApiKey]);
 
+    // Subscribe to user balance (VND)
+    useEffect(() => {
+        if (!currentUser) {
+            setUserBalance(0);
+            return;
+        }
+        // Use local cached balance initially
+        setUserBalance(getCachedBalance());
+
+        const unsubscribe = subscribeToUserCredits(currentUser.id, (balance) => {
+            setUserBalance(balance);
+            // Cache balance to localStorage for isProUser() check
+            localStorage.setItem('user_balance_' + currentUser.id, Math.floor(balance / 100).toString());
+        });
+
+        return () => unsubscribe();
+    }, [currentUser]);
+
+    // --- UTILITY ---
     const triggerDownload = (base64: string, filename: string) => {
         try {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
             const link = document.createElement('a');
-            link.href = `data:image/png;base64,${base64}`;
+            link.href = URL.createObjectURL(blob);
             link.download = filename;
             document.body.appendChild(link);
             link.click();
@@ -144,18 +285,25 @@ const App: React.FC = () => {
     const handleDownloadConfigClick = () => setDownloadHelpOpen(true);
 
     // --- INPUT HANDLERS (PERSISTENT) ---
-
+    // Use mode in dependency array to ensure fresh closure when mode changes
     const handleImagesChange = useCallback((images: ImageState[]) => {
-        updateModeState(() => ({ inputs: images }));
+        setModeStates(prev => ({
+            ...prev,
+            [mode]: { ...prev[mode], inputs: images }
+        }));
         setError(null);
     }, [mode]);
 
     // Specific handlers for Creative Mode
     const handleCreativeChange = useCallback((type: 'male' | 'female' | 'maleAcc' | 'femaleAcc', images: ImageState[]) => {
-        updateModeState((prev) => ({
-            creativeInputs: {
-                ...prev.creativeInputs!,
-                [type]: images
+        setModeStates(prev => ({
+            ...prev,
+            [mode]: {
+                ...prev[mode],
+                creativeInputs: {
+                    ...prev[mode].creativeInputs!,
+                    [type]: images
+                }
             }
         }));
     }, [mode]);
@@ -163,13 +311,175 @@ const App: React.FC = () => {
     // --- GENERATION HANDLERS ---
 
     const getApiKeyOrAlert = () => {
-        const apiKey = storage.getApiKey('gemini');
-        if (!apiKey) {
-            setError(`Vui lòng thêm API Key Gemini để bắt đầu.`);
-            setApiKeyModalOpen(true);
-            return null;
+        console.log('[DEBUG] getApiKeyOrAlert called');
+        console.log('[DEBUG] isProUser:', storage.isProUser());
+        console.log('[DEBUG] getUseProApi:', storage.getUseProApi());
+
+        // Reset system key usage tracker (aiService will set it when system key is used)
+        resetUsedSystemKey();
+
+        // PRIORITY -0.5: Check if 9Router is enabled
+        const nineRouterEnabled = localStorage.getItem('ninerouter_enabled') === 'true';
+        if (nineRouterEnabled) {
+            console.log('[DEBUG] NineRouter mode enabled, using 9Router for generation');
+            return 'NINEROUTER_MODE';
         }
-        return apiKey;
+
+        // PRIORITY 0: Check if Antigravity is enabled
+        // Import dynamically to avoid circular dependency
+        const antigravityEnabled = localStorage.getItem('antigravity_enabled') === 'true';
+        if (antigravityEnabled) {
+            console.log('[DEBUG] Antigravity mode enabled, using Antigravity for generation');
+            // Return a dummy key - aiService will use Antigravity service instead
+            return 'ANTIGRAVITY_MODE';
+        }
+
+        // PRIORITY 0.5: Check if Google OAuth is enabled
+        const oauthEnabled = localStorage.getItem('google_oauth_enabled') === 'true';
+        if (oauthEnabled) {
+            console.log('[DEBUG] Google OAuth enabled, using OAuth for generation');
+            // Return a dummy key - aiService getEffectiveGeminiClient() will use OAuth token
+            return 'OAUTH_MODE';
+        }
+
+        const isVipMode = storage.getUseProApi() && storage.isProUser();
+        const userApiKey = storage.getApiKey('gemini');
+
+        // SMART KEY SELECTION LOGIC:
+        // 1. If user has Gemini key, try to use it first (no credits deduction)
+        // 2. If user key is invalid/quota exceeded, fallback to system key (will deduct credits)
+        // 3. If no user key and VIP mode, use system key (will deduct credits)
+
+        if (userApiKey) {
+            // User has a key - we'll try it first
+            // Key validation happens during actual API call in aiService
+            // If key fails during generation, aiService will fallback to system key
+            console.log('[DEBUG] User Gemini key found, will try user key first:', userApiKey.substring(0, 10) + '...');
+
+            // If VIP mode is also enabled, we need to check if user key is valid
+            // For now, return user key - aiService handles fallback internally
+            if (isVipMode) {
+                // In VIP mode with user key: aiService will try user key first, fallback to system key
+                // We'll check the key status from storage to determine if we should use system key
+                const keyStatus = storage.getApiKeys('gemini').find(k => k.key === userApiKey);
+                if (keyStatus && (keyStatus.status === 'invalid' || keyStatus.status === 'quota_exceeded')) {
+                    // User key is known to be bad, use system key directly
+                    const systemKey = getSystemApiKey();
+                    if (systemKey) {
+                        console.log('[DEBUG] User key is invalid/quota, using system key');
+                        return systemKey;
+                    }
+                }
+                // User key status is ok or unchecked, try user key first
+                // If it fails during generation, credits should be deducted
+                return userApiKey;
+            }
+
+            // Not in VIP mode, just use user key
+            return userApiKey;
+        }
+
+        // No user key - check VIP mode
+        if (isVipMode) {
+            const systemKey = getSystemApiKey();
+            console.log('[DEBUG] No user key, VIP mode: System key found:', !!systemKey);
+            if (systemKey) {
+                // aiService will set usedSystemKey flag when it actually uses the system key
+                return systemKey;
+            }
+        }
+
+        // No key available
+        setError(`Vui lòng thêm API Key Gemini, bật Antigravity hoặc bật 9Router để bắt đầu.`);
+        setApiKeyModalOpen(true);
+        return null;
+    };
+
+    // Check if VIP mode needs credits confirmation (skip if using own Gemini key)
+    const checkCreditsAndProceed = (imageCount: number, generationCallback: () => void) => {
+        const hasUserGeminiKey = !!storage.getApiKey('gemini');
+        const isVipMode = storage.isProUser() && storage.getUseProApi();
+
+        // If user has their own Gemini key, skip credits check
+        if (hasUserGeminiKey || !isVipMode) {
+            generationCallback();
+            return;
+        }
+
+        // VIP mode without user key - need credits
+        if (isVipMode) {
+            setPendingGeneration({ imageCount, callback: generationCallback });
+            setCreditsDialogOpen(true);
+        }
+    };
+
+    // Handle balance confirmation (VND)
+    const handleCreditsConfirm = async () => {
+        if (!pendingGeneration || !currentUser) return;
+
+        const modelId = getSelectedImageModel();
+        const model = getModelConfig(modelId);
+        const pricePerImage = model?.pricePerImage || 120;
+        const balanceNeeded = pendingGeneration.imageCount * pricePerImage;
+
+        if (userBalance < balanceNeeded) {
+            setError(`Không đủ số dư. Cần ${formatVND(balanceNeeded)}, hiện có ${formatVND(userBalance)}.`);
+            setCreditsDialogOpen(false);
+            setPendingGeneration(null);
+            return;
+        }
+
+        // Deduct balance and proceed
+        await updateUserCredits(currentUser.id, balanceNeeded, 'subtract');
+        setCreditsDialogOpen(false);
+
+        // Execute the pending generation
+        pendingGeneration.callback();
+        setPendingGeneration(null);
+    };
+
+    const handleCreditsCancel = () => {
+        setCreditsDialogOpen(false);
+        setPendingGeneration(null);
+    };
+
+    // Deduct balance for VIP generation (called after successful image generation)
+    // SMART: Only deduct if system key was actually used (tracked by aiService)
+    const deductBalanceForVIP = async (imagesCount: number = 1, generationType: string = 'image_generation') => {
+        const isVipMode = storage.isProUser() && storage.getUseProApi();
+        const systemKeyWasUsed = getUsedSystemKey();
+
+        // SMART LOGIC:
+        // - Only deduct if VIP mode is enabled AND system key was actually used
+        // - If user has valid key and it was used, NO balance deduction
+        // - If user key failed/quota and fallback to system key, DEDUCT balance
+        if (isVipMode && systemKeyWasUsed && currentUser) {
+            const modelId = getSelectedImageModel();
+            const model = getModelConfig(modelId);
+            const pricePerImage = model?.pricePerImage || 120;
+            const totalCost = imagesCount * pricePerImage;
+
+            console.log('[BALANCE] System key was used, deducting', formatVND(totalCost), 'for', imagesCount, 'images');
+
+            // Deduct from local balance and add usage record
+            deductBalance(totalCost, {
+                modelId,
+                modelName: model?.name || 'Unknown',
+                imageCount: imagesCount,
+                pricePerImage,
+                resolution: 'FHD',
+                type: generationType as any
+            });
+
+            // Also update Firestore
+            try {
+                await updateUserCredits(currentUser.id, totalCost, 'subtract');
+            } catch (err) {
+                console.error('[BALANCE] Failed to sync with Firestore:', err);
+            }
+        } else if (isVipMode && !systemKeyWasUsed) {
+            console.log('[BALANCE] User key was used successfully, no balance deducted');
+        }
     };
 
     const saveHistory = async (type: string, prompt: string, images: string[], style: string = 'General') => {
@@ -189,7 +499,7 @@ const App: React.FC = () => {
     };
 
     // 1. ID Photo
-    const handleIdPhotoGenerate = useCallback(async (clothing: string, bgColor: string, aspectRatio: string, gender: string, hairstyle: string) => {
+    const handleIdPhotoGenerate = useCallback(async (clothing: string, bgColor: string, aspectRatio: string, gender: string, hairstyle: string, clothingRef?: { data: string; mimeType: string }) => {
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
 
@@ -204,6 +514,8 @@ const App: React.FC = () => {
             const imagePart = { data: currentInputs[0].base64, mimeType: currentInputs[0].mimeType };
             setLoadingStatus('Đang xử lý ảnh thẻ...');
 
+            const localResults: (string | null)[] = Array(4).fill(null);
+
             const { prompts } = await generateIdPhotos(
                 apiKey, imagePart, clothing, bgColor, aspectRatio, gender, hairstyle,
                 (status) => setLoadingStatus(status),
@@ -211,10 +523,21 @@ const App: React.FC = () => {
                     updateModeState((prev) => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
+                    localResults[index] = base64;
                     if (autoDownload && base64) triggerDownload(base64, `IDPhoto_${index + 1}.png`);
-                }
+                },
+                clothingRef // Pass the reference image from Firestore
             );
             updateModeState(() => ({ prompts }));
+
+            // Deduct credits for VIP users based on successful images
+            const successCount = localResults.filter(img => img !== null).length;
+            const validImages = localResults.filter((img): img is string => img !== null);
+            if (successCount > 0) {
+                await deductBalanceForVIP(successCount);
+                // Save to history
+                saveHistory('ID Photo', `Ảnh thẻ - ${clothing} - Nền ${bgColor}`, validImages, 'ID Photo');
+            }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, autoDownload]);
@@ -255,93 +578,171 @@ const App: React.FC = () => {
             );
 
             const validImages = localResults.filter((img): img is string => img !== null);
-            if (validImages.length > 0) saveHistory('Creative Batch', prompts[0], validImages, outputMode);
+
+            // Deduct credits for VIP users based on successful images
+            if (validImages.length > 0) {
+                await deductBalanceForVIP(validImages.length);
+                saveHistory('Creative Batch', prompts[0], validImages, outputMode);
+            }
 
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, autoDownload]);
 
-    // 3. Edit Image
-    const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', extraData?: any) => {
+    // 3. Edit Image (Batch Support)
+    const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', outputCount: number, extraData?: any) => {
+        console.log('[DEBUG] handleEditImage called:', { prompt, type, outputCount });
+
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
 
         const inputs = modeStates['edit'].inputs;
+        console.log('[DEBUG] Edit inputs length:', inputs.length);
 
         if (type !== 'mix' && inputs.length === 0) { setError("Vui lòng tải lên ảnh."); return; }
         if (type === 'mix' && inputs.length < 2) { setError("Vui lòng tải lên 2 ảnh để phối đồ."); return; }
 
+        console.log('[DEBUG] Starting edit generation...');
         setIsLoading(true); setError(null); setIsMenuOpen(false);
-        updateModeState(() => ({ outputs: [null] }));
+        updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
+
+        const localResults: (string | null)[] = Array(outputCount).fill(null);
 
         try {
-            let result: string | null = null;
             let historyPrompt = prompt;
 
             if (type === 'general') {
-                setLoadingStatus('Đang chỉnh sửa ảnh...');
-                result = await editImage(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType }, prompt);
+                // Use batch editImages for multiple outputs
+                await editImages(
+                    apiKey,
+                    { data: inputs[0].base64, mimeType: inputs[0].mimeType },
+                    prompt,
+                    outputCount,
+                    (status) => setLoadingStatus(status),
+                    (index, base64) => {
+                        updateModeState((prev) => {
+                            const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
+                        });
+                        localResults[index] = base64;
+                        if (autoDownload && base64) triggerDownload(base64, `edited_${index + 1}.png`);
+                    }
+                );
             } else if (type === 'mix') {
                 setLoadingStatus('Đang phối đồ Mix & Match...');
-                result = await mixMatchOutfit(
+                const result = await mixMatchOutfit(
                     apiKey,
                     { data: inputs[0].base64, mimeType: inputs[0].mimeType },
                     { data: inputs[1].base64, mimeType: inputs[1].mimeType }
                 );
+                localResults[0] = result;
+                updateModeState(() => ({ outputs: [result] }));
                 historyPrompt = "Outfit Mix & Match";
+                if (autoDownload && result) triggerDownload(result, 'mix_match.png');
             } else if (type === 'relight') {
                 setLoadingStatus('Đang thay đổi ánh sáng...');
-                result = await relightImage(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType }, extraData.lighting);
+                const result = await relightImage(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType }, extraData.lighting);
+                localResults[0] = result;
+                updateModeState(() => ({ outputs: [result] }));
                 historyPrompt = `Relighting: ${extraData.lighting}`;
+                if (autoDownload && result) triggerDownload(result, 'relighted.png');
             } else if (type === 'extract') {
                 setLoadingStatus('Đang tách trang phục (Ghost Mannequin)...');
-                result = await extractClothing(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType });
+                const result = await extractClothing(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType });
+                localResults[0] = result;
+                updateModeState(() => ({ outputs: [result] }));
                 historyPrompt = "Clothing Extraction";
+                if (autoDownload && result) triggerDownload(result, 'extracted.png');
             }
 
-            updateModeState(() => ({ outputs: [result], prompts: [historyPrompt] }));
-            if (autoDownload && result) triggerDownload(result, 'edited_result.png');
-            if (result) saveHistory('Edit Tool', historyPrompt, [result], type);
+            updateModeState(() => ({ prompts: [historyPrompt] }));
+            const validImages = localResults.filter((img): img is string => img !== null);
+            // Deduct credits for VIP users
+            if (validImages.length > 0) {
+                await deductBalanceForVIP(validImages.length);
+                saveHistory('Edit Tool', historyPrompt, validImages, type);
+            }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi xử lý.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, autoDownload, currentUser]);
 
-    // 4. Upscale Image
-    const handleUpscale = useCallback(async (resolution: '2K' | '4K') => {
+    // 4. Upscale Image (Batch Support)
+    const handleUpscale = useCallback(async (resolution: '2K' | '4K', outputCount: number) => {
         const apiKey = getApiKeyOrAlert();
         const inputs = modeStates['upscale'].inputs;
         if (!apiKey || inputs.length === 0) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
-        updateModeState(() => ({ outputs: [null] }));
+        updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
+
+        const localResults: (string | null)[] = Array(outputCount).fill(null);
+
         try {
             const imagePart = { data: inputs[0].base64, mimeType: inputs[0].mimeType };
-            setLoadingStatus(`Đang nâng cấp chất lượng lên ${resolution}...`);
-            const result = await upscaleImage(apiKey, imagePart, resolution);
 
-            updateModeState(() => ({ outputs: [result], prompts: [`Upscaled to ${resolution}`] }));
-            if (autoDownload && result) triggerDownload(result, `upscale_${resolution}.png`);
-            if (result) saveHistory('Upscale', `Upscaled to ${resolution}`, [result], 'High Quality');
+            await upscaleImages(
+                apiKey,
+                imagePart,
+                resolution,
+                outputCount,
+                (status) => setLoadingStatus(status),
+                (index, base64) => {
+                    updateModeState((prev) => {
+                        const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
+                    });
+                    localResults[index] = base64;
+                    if (autoDownload && base64) triggerDownload(base64, `upscale_${resolution}_${index + 1}.png`);
+                }
+            );
+
+            updateModeState(() => ({ prompts: [`Upscaled to ${resolution}`] }));
+            const validImages = localResults.filter((img): img is string => img !== null);
+            // Deduct credits for VIP users
+            if (validImages.length > 0) {
+                await deductBalanceForVIP(validImages.length);
+                saveHistory('Upscale', `Upscaled to ${resolution}`, validImages, 'High Quality');
+            }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi nâng cấp.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, autoDownload, currentUser]);
 
-    // 5. Profile Pro
-    const handleProfilePro = useCallback(async (style: string, platform: string, resolution: '2K' | '4K') => {
+    // 5. Profile Pro (Batch Support)
+    const handleProfilePro = useCallback(async (style: string, platform: string, resolution: '2K' | '4K', outputCount: number) => {
         const apiKey = getApiKeyOrAlert();
         const inputs = modeStates['profile_pro'].inputs;
         if (!apiKey || inputs.length === 0) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
-        updateModeState(() => ({ outputs: [null] }));
+        updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
+
+        const localResults: (string | null)[] = Array(outputCount).fill(null);
+
         try {
             const imagePart = { data: inputs[0].base64, mimeType: inputs[0].mimeType };
-            setLoadingStatus(`Đang thiết kế Profile (${platform})...`);
-            const result = await generateProfilePic(apiKey, imagePart, style, platform, resolution);
 
-            updateModeState(() => ({ outputs: [result], prompts: [`Profile: ${style} for ${platform}`] }));
-            if (autoDownload && result) triggerDownload(result, `profile_${platform}.png`);
-            if (result) saveHistory('Profile Pro', `Profile: ${style} for ${platform}`, [result], style);
+            await generateProfilePics(
+                apiKey,
+                imagePart,
+                style,
+                platform,
+                resolution,
+                outputCount,
+                (status) => setLoadingStatus(status),
+                (index, base64) => {
+                    updateModeState((prev) => {
+                        const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
+                    });
+                    localResults[index] = base64;
+                    if (autoDownload && base64) triggerDownload(base64, `profile_${platform}_${index + 1}.png`);
+                }
+            );
+
+            updateModeState(() => ({ prompts: [`Profile: ${style} for ${platform}`] }));
+            const validImages = localResults.filter((img): img is string => img !== null);
+            // Deduct credits for VIP users
+            if (validImages.length > 0) {
+                await deductBalanceForVIP(validImages.length);
+                saveHistory('Profile Pro', `Profile: ${style} for ${platform}`, validImages, style);
+            }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi tạo profile.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, autoDownload, currentUser]);
@@ -396,7 +797,11 @@ const App: React.FC = () => {
             );
 
             const validImages = localResults.filter((img): img is string => img !== null);
-            if (validImages.length > 0) saveHistory('Dream Job', prompts[0], validImages, 'Future Career');
+            // Deduct credits for VIP users
+            if (validImages.length > 0) {
+                await deductBalanceForVIP(validImages.length);
+                saveHistory('Dream Job', prompts[0], validImages, 'Future Career');
+            }
 
             // Only show presentation if we have at least one successful generation or if we finished despite errors
             setPresentationActive(true);
@@ -408,6 +813,59 @@ const App: React.FC = () => {
             setLoadingStatus('');
         }
     }, [modeStates, currentUser, autoDownload]);
+
+    // 7. Restore Old Photo
+    const handleRestorePhoto = useCallback(async (options: RestoreOptions) => {
+        console.log('[DEBUG] handleRestorePhoto called with options:', options);
+
+        const apiKey = getApiKeyOrAlert();
+        const inputs = modeStates['restore'].inputs;
+        console.log('[DEBUG] Restore inputs length:', inputs.length, ', API key found:', !!apiKey);
+
+        if (!apiKey || inputs.length === 0) {
+            setError("Vui lòng tải lên ảnh cũ cần phục hồi.");
+            return;
+        }
+
+        setIsLoading(true); setError(null); setIsMenuOpen(false);
+        updateModeState(() => ({ outputs: [null] }));
+
+        try {
+            const imagePart = { data: inputs[0].base64, mimeType: inputs[0].mimeType };
+            console.log('[DEBUG] Calling restoreOldPhoto API...');
+
+            const result = await restoreOldPhoto(
+                apiKey,
+                imagePart,
+                options,
+                (status) => {
+                    console.log('[DEBUG] Status update:', status);
+                    setLoadingStatus(status);
+                }
+            );
+
+            console.log('[DEBUG] restoreOldPhoto result:', !!result, result?.substring(0, 50) + '...');
+            updateModeState(() => ({ outputs: [result], prompts: ['Phục hồi ảnh cũ'] }));
+
+            if (result) {
+                // Store comparison data for slider
+                setComparisonData({
+                    before: inputs[0].base64,
+                    after: result
+                });
+                setComparisonActive(true);
+
+                // Deduct credits for VIP users
+                await deductBalanceForVIP(1);
+                saveHistory('Phục Hồi Ảnh', 'Phục hồi ảnh cũ', [result], 'Restoration');
+            }
+        } catch (e) {
+            console.error('[DEBUG] Restore error:', e);
+            setError(e instanceof Error ? e.message : 'Lỗi phục hồi ảnh.');
+            updateModeState(() => ({ outputs: [] }));
+        }
+        finally { setIsLoading(false); setLoadingStatus(''); }
+    }, [modeStates, currentUser]);
 
     const handleLogout = async () => {
         await firebaseService.logoutUser();
@@ -422,7 +880,7 @@ const App: React.FC = () => {
 
         if (mode === 'creative') {
             return (
-                <div className="grid grid-cols-2 gap-3 p-4">
+                <div className="grid grid-cols-2 gap-2 p-3">
                     <ImageUploader label="Nam" onImagesChange={(imgs) => handleCreativeChange('male', imgs)} maxImages={1} compact />
                     <ImageUploader label="Nữ" onImagesChange={(imgs) => handleCreativeChange('female', imgs)} maxImages={1} compact />
                     <ImageUploader label="PK Nam" onImagesChange={(imgs) => handleCreativeChange('maleAcc', imgs)} maxImages={1} compact />
@@ -431,14 +889,18 @@ const App: React.FC = () => {
             );
         } else if (mode === 'dream_job') {
             return (
-                <div className="p-4">
+                <div className="p-3">
                     <ImageUploader label="Ảnh học sinh (Max 20)" onImagesChange={handleImagesChange} maxImages={20} />
                 </div>
             );
-        } else if (['id_photo', 'edit', 'upscale', 'profile_pro'].includes(mode)) {
+        } else if (['id_photo', 'edit', 'upscale', 'profile_pro', 'restore'].includes(mode)) {
             return (
-                <div className="p-4">
-                    <ImageUploader label={mode === 'edit' ? "Ảnh đầu vào (Upload 2 ảnh nếu Mix đồ)" : "Ảnh đầu vào"} onImagesChange={handleImagesChange} maxImages={mode === 'edit' ? 2 : 1} />
+                <div className="p-3">
+                    <ImageUploader
+                        label={mode === 'edit' ? "Ảnh đầu vào (Upload 2 ảnh nếu Mix đồ)" : mode === 'restore' ? "Ảnh cũ cần phục hồi" : "Ảnh đầu vào"}
+                        onImagesChange={handleImagesChange}
+                        maxImages={mode === 'edit' ? 2 : 1}
+                    />
                 </div>
             );
         }
@@ -457,11 +919,12 @@ const App: React.FC = () => {
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'profile_pro') return <ProfileProPanel onGenerate={handleProfilePro} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'dream_job') return <DreamJobPanel onGenerate={handleDreamJob} isLoading={isDreamJobLoading} isDisabled={!currentUser} inputImages={mState.inputs} />;
+        if (mode === 'restore') return <RestorePhotoPanel onGenerate={handleRestorePhoto} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         return null;
     };
 
     return (
-        <div className="min-h-screen text-slate-800 font-sans antialiased flex flex-col selection:bg-indigo-100/50 relative overflow-hidden bg-slate-50">
+        <div className="h-screen text-slate-800 font-sans antialiased flex flex-col selection:bg-indigo-100/50 relative overflow-hidden bg-slate-50">
 
             {/* Background Flow */}
             <div className="fixed inset-0 z-0 animate-gradient-flow opacity-20 pointer-events-none"></div>
@@ -479,85 +942,98 @@ const App: React.FC = () => {
                 onModeChange={setMode}
             />
 
-            <div className="flex-1 flex overflow-hidden relative z-10 h-[calc(100vh-100px)]">
+            {/* Mobile: Vertical stacked layout. Desktop: Side by side */}
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10">
 
-                {/* SIDEBAR - Completely Separated */}
-                {!isHistoryVisible && (
-                    <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-80 lg:w-[400px] bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out overflow-y-auto custom-scrollbar ${isMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} lg:block shadow-xl flex flex-col`}>
+                {/* INPUT PANEL - Always visible, collapsible on mobile */}
+                {/* Desktop Sidebar - Hidden on mobile (using bottom navigation instead) */}
+                <aside className="hidden lg:flex lg:static lg:w-[380px] lg:h-full lg:flex-shrink-0 w-full bg-white border-r border-slate-200 flex-col overflow-hidden">
 
-                        <div className="p-4 lg:p-6 space-y-6 flex-1">
-                            {/* Mode Indicator */}
-                            <div className="flex items-center gap-2 mb-2 pb-4 border-b border-slate-100">
-                                <span className="w-2 h-8 bg-indigo-600 rounded-full"></span>
-                                <h2 className="text-lg font-extrabold text-slate-800 uppercase tracking-tight">
+                    {/* Collapsible Header - Tap to expand/collapse on mobile */}
+                    <div
+                        className="p-3 border-b border-slate-100 flex-shrink-0 bg-white cursor-pointer lg:cursor-default"
+                        onClick={() => setIsMenuOpen(!isMenuOpen)}
+                    >
+                        {/* Mode Indicator with expand/collapse toggle */}
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
+                                <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-tight">
                                     {mode === 'creative' && 'Sáng tạo vô hạn'}
                                     {mode === 'id_photo' && 'Ảnh thẻ chuyên nghiệp'}
                                     {mode === 'edit' && 'Chỉnh sửa AI'}
                                     {mode === 'upscale' && 'Siêu phân giải'}
                                     {mode === 'profile_pro' && 'Xây dựng thương hiệu'}
                                     {mode === 'dream_job' && 'Ươm mầm ước mơ'}
+                                    {mode === 'restore' && 'Phục hồi ảnh cũ'}
                                 </h2>
                             </div>
+                            {/* Mobile expand/collapse indicator */}
+                            <button className="lg:hidden p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={2}
+                                    stroke="currentColor"
+                                    className={`w-5 h-5 transition-transform duration-300 ${isMenuOpen ? 'rotate-180' : ''}`}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                        </div>
 
-                            {/* Auto Download Toggle */}
-                            <div className="flex items-center justify-between bg-slate-50 border border-slate-100 p-3 rounded-xl">
-                                <div className="flex items-center gap-2">
-                                    <div className="bg-white p-1.5 rounded-lg text-indigo-600 shadow-sm border border-slate-100">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                                    </div>
-                                    <div>
-                                        <h4 className="text-xs font-bold text-slate-700">Tự động tải về</h4>
-                                        <button onClick={handleDownloadConfigClick} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium hover:underline flex items-center gap-1">Cấu hình thư mục</button>
-                                    </div>
+                        {/* Auto Download Toggle - Always visible */}
+                        <div className="flex items-center justify-between bg-slate-50 border border-slate-100 p-2 rounded-lg" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-2">
+                                <div className="bg-white p-1.5 rounded-md text-indigo-600 shadow-sm border border-slate-100">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                                 </div>
-                                <div className="relative inline-block w-9 h-5 align-middle select-none transition duration-200 ease-in">
-                                    <input type="checkbox" name="toggle" id="toggle" checked={autoDownload} onChange={(e) => setAutoDownload(e.target.checked)} className="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 right-4 checked:border-indigo-600 shadow-sm top-0.5" />
-                                    <label htmlFor="toggle" className={`toggle-label block overflow-hidden h-5 rounded-full cursor-pointer transition-colors ${autoDownload ? 'bg-indigo-600' : 'bg-slate-300'}`}></label>
+                                <div>
+                                    <h4 className="text-xs font-bold text-slate-700">Tự động tải về</h4>
+                                    <button onClick={handleDownloadConfigClick} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium hover:underline">Cấu hình thư mục</button>
                                 </div>
                             </div>
+                            <div className="relative inline-block w-9 h-5 align-middle select-none">
+                                <input type="checkbox" name="toggle" id="toggle" checked={autoDownload} onChange={(e) => setAutoDownload(e.target.checked)} className="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 right-4 checked:border-indigo-600 shadow-sm top-0.5" />
+                                <label htmlFor="toggle" className={`toggle-label block overflow-hidden h-5 rounded-full cursor-pointer transition-colors ${autoDownload ? 'bg-indigo-600' : 'bg-slate-300'}`}></label>
+                            </div>
+                        </div>
+                    </div>
 
-                            <div className="space-y-6">
-                                {/* Input Section */}
-                                <div className="space-y-2">
-                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
-                                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
-                                        Dữ liệu đầu vào
-                                    </h3>
-                                    <div className="bg-slate-50/50 rounded-2xl border border-slate-100 overflow-hidden">
-                                        {renderInputs()}
-                                    </div>
-                                </div>
-
-                                {/* Config Section */}
-                                <div className="space-y-2">
-                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 flex items-center gap-2">
-                                        <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
-                                        Cấu hình AI
-                                    </h3>
-                                    <div className="bg-white p-1">
-                                        {renderConfig()}
-                                    </div>
-                                </div>
+                    {/* Scrollable Content Area - Expandable on mobile */}
+                    <div className={`flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
+                        {/* Input Section */}
+                        <div className="space-y-2">
+                            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
+                                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                                Dữ liệu đầu vào
+                            </h3>
+                            <div className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden">
+                                {renderInputs()}
                             </div>
                         </div>
 
-                        {/* Sidebar Footer */}
-                        <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
-                            <p className="text-[10px] text-slate-400 font-medium">ToolPhoto2025 © All Rights Reserved</p>
+                        {/* Config Section */}
+                        <div className="space-y-2">
+                            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                                Cấu hình AI
+                            </h3>
+                            <div className="bg-white">
+                                {renderConfig()}
+                            </div>
                         </div>
-                    </aside>
-                )}
+                    </div>
 
-                {/* Mobile Toggle */}
-                {!isHistoryVisible && (
-                    <button onClick={() => setIsMenuOpen(true)} className="lg:hidden fixed bottom-6 right-6 z-50 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all ring-4 ring-white animate-pulse-glow">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>
-                    </button>
-                )}
-                {isMenuOpen && <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-30 lg:hidden" onClick={() => setIsMenuOpen(false)}></div>}
+                    {/* Sidebar Footer - Hidden on mobile when collapsed */}
+                    <div className={`p-3 bg-slate-50 border-t border-slate-200 text-center flex-shrink-0 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
+                        <p className="text-[10px] text-slate-400 font-medium">ImageTool v{appVersion} © All Rights Reserved</p>
+                    </div>
+                </aside>
 
-                {/* MAIN CONTENT AREA */}
-                <main className="flex-1 overflow-y-auto bg-slate-50/50 flex flex-col w-full relative custom-scrollbar">
+                {/* MAIN CONTENT AREA - Added pb-24 for mobile bottom nav */}
+                <main className="flex-1 overflow-y-auto bg-slate-50/50 flex flex-col w-full relative custom-scrollbar pb-24 lg:pb-0">
                     {isHistoryVisible && currentUser ? (
                         <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
                             <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />
@@ -575,11 +1051,38 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                     <h2 className="text-2xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-600 animate-text-shimmer mb-4 text-center">
-                                        Vui lòng chờ trong ít phút...
+                                        Vui lòng chờ ít phút
                                     </h2>
-                                    <p className="text-slate-500 text-lg font-medium">Hệ thống đang hiện thực hóa ước mơ của các em.</p>
                                 </div>
                             )}
+
+                            {/* MOBILE INLINE: Inputs + Config + Generate Button */}
+                            <div className="lg:hidden space-y-4 mb-6">
+                                {/* Mobile Inputs Section */}
+                                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                                    <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                        Ảnh đầu vào
+                                    </h3>
+                                    <div className="bg-slate-50/50 rounded-xl overflow-hidden">
+                                        {renderInputs()}
+                                    </div>
+                                </div>
+
+                                {/* Mobile Config Section */}
+                                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                                    <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                        Cấu hình AI
+                                    </h3>
+                                    {renderConfig()}
+                                </div>
+                            </div>
 
                             {/* Render Results based on CURRENT MODE State */}
                             {/* We only render OutputDisplay if not in Dream Job Loading State */}
@@ -596,9 +1099,22 @@ const App: React.FC = () => {
                                 />
                             )}
 
-                            <div className="mt-auto pt-8">
-                                <ActivityLog user={currentUser} refreshTrigger={historyRefreshTrigger} onImageClick={(url) => setSelectedImage({ url, index: 0 })} className="w-full" />
-                            </div>
+                            {/* A4 Print Button for ID Photo Mode */}
+                            {mode === 'id_photo' && !isLoading && currentData.outputs.some(img => img !== null) && (
+                                <div className="flex justify-center mt-4">
+                                    <button
+                                        onClick={() => setA4PrintPreviewOpen(true)}
+                                        className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-green-500/30 transition-all active:scale-95"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                        </svg>
+                                        📄 IN ẢNH THẺ A4
+                                    </button>
+                                </div>
+                            )}
+
+
                         </div>
                     )}
                 </main>
@@ -616,10 +1132,61 @@ const App: React.FC = () => {
                 />
             )}
 
-            {isAuthModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} onAuthSuccess={(user) => { setCurrentUser(user); setAuthModalOpen(false); }} isBlocking={!currentUser} />}
+            {/* Comparison Slider for Restore Mode */}
+            {isComparisonActive && comparisonData && (
+                <ComparisonSlider
+                    beforeImage={comparisonData.before}
+                    afterImage={comparisonData.after}
+                    onDownload={() => {
+                        const link = document.createElement('a');
+                        link.href = `data:image/png;base64,${comparisonData.after}`;
+                        link.download = 'restored_photo.png';
+                        link.click();
+                    }}
+                    onClose={() => setComparisonActive(false)}
+                />
+            )}
+
+            {/* A4 Print Preview for ID Photo Mode */}
+            {isA4PrintPreviewOpen && mode === 'id_photo' && (
+                <A4PrintPreview
+                    images={currentData.outputs.filter((img): img is string => img !== null)}
+                    onClose={() => setA4PrintPreviewOpen(false)}
+                />
+            )}
+
+            {/* Balance Confirmation Dialog */}
+            {isCreditsDialogOpen && pendingGeneration && (
+                <CreditsConfirmDialog
+                    imageCount={pendingGeneration.imageCount}
+                    currentCredits={userBalance}
+                    onConfirm={handleCreditsConfirm}
+                    onCancel={handleCreditsCancel}
+                />
+            )}
+
+            {isAuthModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} onAuthSuccess={(user) => { setCurrentUser(user); setAuthModalOpen(false); }} isBlocking={!currentUser} appVersion={appVersion} />}
             {isApiKeyModalOpen && <ApiKeyModal onClose={() => { setApiKeyModalOpen(false); checkApiKey(); }} />}
-            {selectedImage && <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />}
+            {selectedImage && (
+                <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />
+            )}
             {isDownloadHelpOpen && <DownloadHelpModal onClose={() => setDownloadHelpOpen(false)} />}
+
+            {/* Auto-update notification (only shows in Electron) */}
+            <UpdateNotification />
+
+            {/* Admin Notification Popup */}
+            {currentUser && <NotificationPopup userId={currentUser.id} />}
+
+            {/* Support Hub - Bot + Feedback - Hidden on mobile to avoid overlap */}
+            <div className="hidden lg:block">
+                <SupportHub
+                    userName={currentUser?.name}
+                    userEmail={currentUser?.username}
+                />
+            </div>
+
+
         </div>
     );
 };

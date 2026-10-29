@@ -3,12 +3,13 @@ import React, { useState } from 'react';
 import { MagicWandIcon, ShirtIcon } from './Icons';
 import * as storage from '../services/storageService';
 import { optimizePrompt } from '../services/aiService';
+import { ModelSelector } from './ModelSelector';
 
 interface EditImagePanelProps {
-  onGenerate: (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', extraData?: any) => void;
-  isLoading: boolean;
-  isDisabled: boolean;
-  hasInputImage: boolean;
+    onGenerate: (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', outputCount: number, extraData?: any) => void;
+    isLoading: boolean;
+    isDisabled: boolean;
+    hasInputImage: boolean;
 }
 
 const lightingStyles = [
@@ -19,22 +20,25 @@ const lightingStyles = [
     { id: 'ban_dem', label: 'Ban đêm (City Bokeh)' }
 ];
 
+const outputCounts = [1, 2, 4, 6, 8];
+
 export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLoading, isDisabled, hasInputImage }) => {
     const [tab, setTab] = useState<'general' | 'mix' | 'relight' | 'extract'>('general');
     const [prompt, setPrompt] = useState('');
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [selectedLight, setSelectedLight] = useState(lightingStyles[0].id);
+    const [outputCount, setOutputCount] = useState(1);
 
     const handleOptimize = async () => {
         if (!prompt.trim()) return;
         const apiKey = storage.getApiKey('gemini');
         if (!apiKey) return;
-        
+
         setIsOptimizing(true);
         try {
             const result = await optimizePrompt(apiKey, prompt);
             setPrompt(result);
-        } catch(e) {
+        } catch (e) {
             console.error(e);
         } finally {
             setIsOptimizing(false);
@@ -44,13 +48,13 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
     return (
         <div className="flex flex-col gap-6">
             <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 flex gap-3 backdrop-blur-sm">
-                 <div className="bg-white p-2 rounded-full shadow-sm">
+                <div className="bg-white p-2 rounded-full shadow-sm">
                     <MagicWandIcon className="w-5 h-5 text-emerald-600" />
-                 </div>
-                 <div>
-                     <h3 className="text-sm font-bold text-emerald-900">Studio Chỉnh Sửa AI</h3>
-                     <p className="text-[10px] text-emerald-700/80 mt-0.5 font-medium">Nano Banana Engine</p>
-                 </div>
+                </div>
+                <div>
+                    <h3 className="text-sm font-bold text-emerald-900">Studio Chỉnh Sửa AI</h3>
+                    <p className="text-[10px] text-emerald-700/80 mt-0.5 font-medium">Nano Banana Engine</p>
+                </div>
             </div>
 
             {/* Sub Tabs */}
@@ -61,12 +65,33 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                 <button onClick={() => setTab('extract')} className={`flex-1 min-w-[80px] py-2 text-xs font-bold rounded-lg transition-all ${tab === 'extract' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Tách đồ</button>
             </div>
 
+            {/* Output Count Selector */}
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Số lượng đầu ra</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                    {outputCounts.map((count) => (
+                        <button
+                            key={count}
+                            onClick={() => setOutputCount(count)}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${outputCount === count ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-emerald-200' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            {count}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* Model Selector */}
+            <div>
+                <ModelSelector className="" imageCount={outputCount} />
+            </div>
+
             {tab === 'general' && (
                 <div className="animate-fade-in">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex justify-between">
                         <span>Mô tả chỉnh sửa</span>
                         <button onClick={handleOptimize} disabled={isOptimizing} className="text-emerald-500 hover:text-emerald-700 text-[10px] flex items-center gap-1 font-bold">
-                            {isOptimizing ? '...' : 'Auto Optimize Prompt'} <MagicWandIcon className="w-3 h-3"/>
+                            {isOptimizing ? '...' : 'Auto Optimize Prompt'} <MagicWandIcon className="w-3 h-3" />
                         </button>
                     </label>
                     <textarea
@@ -76,29 +101,33 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                         rows={4}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                     />
-                    <button
-                        onClick={() => onGenerate(prompt, 'general')}
-                        disabled={isLoading || isDisabled || !hasInputImage || !prompt.trim()}
-                        className="w-full mt-4 px-6 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                    >
-                        {isLoading ? "Đang xử lý..." : "THỰC HIỆN CHỈNH SỬA"}
-                    </button>
+                    <div className="panel-action-wrapper">
+                        <button
+                            onClick={() => onGenerate(prompt, 'general', outputCount)}
+                            disabled={isLoading || isDisabled || !hasInputImage || !prompt.trim()}
+                            className="w-full px-6 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
+                        >
+                            {isLoading ? "Đang xử lý..." : `TẠO ${outputCount} ẢNH CHỈNH SỬA`}
+                        </button>
+                    </div>
                 </div>
             )}
 
             {tab === 'mix' && (
                 <div className="animate-fade-in">
                     <p className="text-xs text-slate-500 mb-4 bg-yellow-50 p-3 rounded-lg border border-yellow-100">
-                        ⚠️ Chế độ này yêu cầu bạn tải lên <strong>2 ảnh</strong> vào ô "Ảnh đầu vào" ở menu bên trái. 
+                        ⚠️ Chế độ này yêu cầu bạn tải lên <strong>2 ảnh</strong> vào ô "Ảnh đầu vào" ở menu bên trái.
                         AI sẽ lấy trang phục từ ảnh 1 và ảnh 2 để phối hợp lại.
                     </p>
-                    <button
-                        onClick={() => onGenerate('', 'mix')}
-                        disabled={isLoading || isDisabled}
-                        className="w-full mt-2 px-6 py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-xl hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                    >
-                        {isLoading ? "Đang phối đồ..." : "MIX & MATCH OUTFIT"}
-                    </button>
+                    <div className="panel-action-wrapper">
+                        <button
+                            onClick={() => onGenerate('', 'mix', outputCount)}
+                            disabled={isLoading || isDisabled}
+                            className="w-full px-6 py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-xl hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
+                        >
+                            {isLoading ? "Đang phối đồ..." : "MIX & MATCH OUTFIT"}
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -116,13 +145,15 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                             </button>
                         ))}
                     </div>
-                     <button
-                        onClick={() => onGenerate('', 'relight', { lighting: selectedLight })}
-                        disabled={isLoading || isDisabled || !hasInputImage}
-                        className="w-full mt-4 px-6 py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                    >
-                        {isLoading ? "Đang đổi ánh sáng..." : "THAY ĐỔI ÁNH SÁNG"}
-                    </button>
+                    <div className="panel-action-wrapper">
+                        <button
+                            onClick={() => onGenerate('', 'relight', outputCount, { lighting: selectedLight })}
+                            disabled={isLoading || isDisabled || !hasInputImage}
+                            className="w-full px-6 py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
+                        >
+                            {isLoading ? "Đang đổi ánh sáng..." : "THAY ĐỔI ÁNH SÁNG"}
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -130,29 +161,31 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                 <div className="animate-fade-in">
                     <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex flex-col gap-3 items-center text-center mb-4">
                         <div className="p-3 bg-white rounded-full shadow-sm text-indigo-600">
-                             <ShirtIcon className="w-8 h-8"/>
+                            <ShirtIcon className="w-8 h-8" />
                         </div>
                         <div>
                             <h4 className="font-bold text-indigo-900 text-sm">Tách Trang Phục Thông Minh</h4>
                             <p className="text-xs text-indigo-700 mt-1">
-                                AI sẽ loại bỏ người mẫu và nền, chỉ giữ lại quần áo ở dạng 
+                                AI sẽ loại bỏ người mẫu và nền, chỉ giữ lại quần áo ở dạng
                                 <strong> "Ghost Mannequin"</strong> (Ma nơ canh tàng hình).
                             </p>
                         </div>
                     </div>
-                    
-                    <button
-                        onClick={() => onGenerate('', 'extract')}
-                        disabled={isLoading || isDisabled || !hasInputImage}
-                        className="w-full mt-2 px-6 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                    >
-                        {isLoading ? (
-                            <span className="flex items-center justify-center gap-2">
-                                <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                Đang tách trang phục...
-                            </span>
-                        ) : "TÁCH TRANG PHỤC NGAY"}
-                    </button>
+
+                    <div className="panel-action-wrapper">
+                        <button
+                            onClick={() => onGenerate('', 'extract', outputCount)}
+                            disabled={isLoading || isDisabled || !hasInputImage}
+                            className="w-full px-6 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
+                        >
+                            {isLoading ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    Đang tách trang phục...
+                                </span>
+                            ) : "TÁCH TRANG PHỤC NGAY"}
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

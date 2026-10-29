@@ -22,6 +22,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
     onUpdateError: (callback) => ipcRenderer.on('update-error', (event, error) => callback(error)),
 
+    // ============ ANTIGRAVITY AUTO-UPDATE ============
+    antigravityDownloadInstaller: (downloadUrl) => ipcRenderer.invoke('antigravity:download-installer', downloadUrl),
+    antigravityInstall: (installerPath) => ipcRenderer.invoke('antigravity:install', installerPath),
+    antigravityAutoUpdate: (downloadUrl) => ipcRenderer.invoke('antigravity:auto-update', downloadUrl),
+    antigravityOpenApp: () => ipcRenderer.invoke('antigravity:open-app'),
+
+    // Antigravity update event listeners
+    onAntigravityDownloadProgress: (callback) => ipcRenderer.on('antigravity:download-progress', (event, progress) => callback(progress)),
+    onAntigravityUpdateStatus: (callback) => ipcRenderer.on('antigravity:update-status', (event, status) => callback(status)),
+
+    // ============ GOOGLE OAUTH FOR GEMINI ============
+    googleOAuthStart: () => ipcRenderer.invoke('google-oauth:start'),
+    googleOAuthGetToken: () => ipcRenderer.invoke('google-oauth:get-token'),
+    googleOAuthStatus: () => ipcRenderer.invoke('google-oauth:status'),
+    googleOAuthLogout: () => ipcRenderer.invoke('google-oauth:logout'),
+    googleOAuthCheckCli: () => ipcRenderer.invoke('google-oauth:check-cli'),
+    googleOAuthApiCall: (params) => ipcRenderer.invoke('google-oauth:api-call', params),
+
     // ============ PLATFORM INFO ============
     isElectron: true,
     platform: process.platform

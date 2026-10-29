@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { AcademicCapIcon } from './Icons';
+import { ModelSelector } from './ModelSelector';
 
 interface DreamJobPanelProps {
-  onGenerate: (prompts: string[], studentNames: string[]) => void;
-  isLoading: boolean;
-  isDisabled: boolean;
-  inputImages: { base64: string, mimeType: string, fileName?: string }[];
+    onGenerate: (prompts: string[], studentNames: string[]) => void;
+    isLoading: boolean;
+    isDisabled: boolean;
+    inputImages: { base64: string, mimeType: string, fileName?: string }[];
 }
 
 const commonJobs = [
@@ -85,13 +86,13 @@ export const DreamJobPanel: React.FC<DreamJobPanelProps> = ({ onGenerate, isLoad
     return (
         <div className="flex flex-col gap-6">
             <div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100 flex gap-3 backdrop-blur-sm neon-border">
-                 <div className="bg-white p-2 rounded-full shadow-sm">
+                <div className="bg-white p-2 rounded-full shadow-sm">
                     <AcademicCapIcon className="w-5 h-5 text-sky-600" />
-                 </div>
-                 <div>
-                     <h3 className="text-sm font-bold text-sky-900 led-text">Ước Mơ Của Em</h3>
-                     <p className="text-[10px] text-sky-700/80 mt-0.5 font-medium">Tự động nhận diện Tên & Nghề từ tên file (Ví dụ: Nguyen Van A - Cong An)</p>
-                 </div>
+                </div>
+                <div>
+                    <h3 className="text-sm font-bold text-sky-900 led-text">Ước Mơ Của Em</h3>
+                    <p className="text-[10px] text-sky-700/80 mt-0.5 font-medium">Tự động nhận diện Tên & Nghề từ tên file (Ví dụ: Nguyen Van A - Cong An)</p>
+                </div>
             </div>
 
             <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-xs text-yellow-800">
@@ -112,15 +113,15 @@ export const DreamJobPanel: React.FC<DreamJobPanelProps> = ({ onGenerate, isLoad
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ảnh #{index + 1}</span>
                             <div className="flex items-center gap-2 w-2/3">
                                 <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">Họ Tên:</span>
-                                <input 
-                                    type="text" 
-                                    value={names[index] || ''} 
+                                <input
+                                    type="text"
+                                    value={names[index] || ''}
                                     onChange={(e) => handleNameChange(index, e.target.value)}
                                     className="text-xs font-bold text-sky-700 bg-sky-50 border-none rounded px-2 py-1 w-full focus:ring-1 focus:ring-sky-500"
                                 />
                             </div>
                         </div>
-                        
+
                         <div className="relative">
                             <input
                                 type="text"
@@ -146,18 +147,25 @@ export const DreamJobPanel: React.FC<DreamJobPanelProps> = ({ onGenerate, isLoad
                 ))}
             </div>
 
-            <button
-                onClick={() => onGenerate(prompts, names)}
-                disabled={isLoading || isDisabled || inputImages.length === 0 || prompts.every(p => !p.trim())}
-                className="w-full mt-2 px-6 py-4 bg-gradient-to-r from-sky-500 to-blue-600 animate-gradient-x text-white font-bold rounded-xl hover:shadow-lg hover:shadow-sky-500/40 transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-            >
-                 {isLoading ? (
-                     <span className="flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        Đang hiện thực hóa ước mơ...
-                     </span>
-                 ) : "BẮT ĐẦU"}
-            </button>
+            {/* Model Selector */}
+            <div>
+                <ModelSelector className="" imageCount={inputImages.length || 1} />
+            </div>
+
+            <div className="panel-action-wrapper">
+                <button
+                    onClick={() => onGenerate(prompts, names)}
+                    disabled={isLoading || isDisabled || inputImages.length === 0 || prompts.every(p => !p.trim())}
+                    className="w-full px-6 py-4 bg-gradient-to-r from-sky-500 to-blue-600 animate-gradient-x text-white font-bold rounded-xl hover:shadow-lg hover:shadow-sky-500/40 transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
+                >
+                    {isLoading ? (
+                        <span className="flex items-center justify-center gap-2">
+                            <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            Đang hiện thực hóa ước mơ...
+                        </span>
+                    ) : "BẮT ĐẦU"}
+                </button>
+            </div>
         </div>
     );
 };

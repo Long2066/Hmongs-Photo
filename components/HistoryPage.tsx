@@ -53,13 +53,22 @@ const HistoryCard: React.FC<{ item: HistoryItem, onImageClick: (base64: string) 
 
 export const HistoryPage: React.FC<HistoryPageProps> = ({ user, onBack, onImageClick }) => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchHistory = async () => {
     try {
+      setIsLoading(true);
+      setError(null);
+      console.log('[HistoryPage] Fetching history for user:', user.id);
       const userHistory = await firebaseService.getHistoryFromFirestore(user.id);
+      console.log('[HistoryPage] Received', userHistory.length, 'items');
       setHistory(userHistory);
-    } catch (error) {
-      console.error("Failed to fetch history:", error);
+    } catch (err) {
+      console.error("[HistoryPage] Failed to fetch history:", err);
+      setError("Không thể tải thư viện. Vui lòng thử lại.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -105,7 +114,26 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ user, onBack, onImageC
         )}
       </div>
 
-      {history.length > 0 ? (
+      {isLoading ? (
+        <div className="bg-white rounded-2xl p-16 text-center border border-slate-100 shadow-sm">
+          <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h3 className="text-lg font-bold text-slate-700">Đang tải thư viện...</h3>
+          <p className="text-slate-500 mt-2">Vui lòng đợi trong giây lát</p>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 rounded-2xl p-16 text-center border border-red-200 shadow-sm">
+          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-4xl">⚠️</span>
+          </div>
+          <h3 className="text-lg font-bold text-red-700">{error}</h3>
+          <button
+            onClick={fetchHistory}
+            className="mt-4 px-6 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors font-bold"
+          >
+            Thử lại
+          </button>
+        </div>
+      ) : history.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {history.map(item => <HistoryCard key={item.id} item={item} onImageClick={onImageClick} onDelete={handleDelete} />)}
         </div>
@@ -116,6 +144,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ user, onBack, onImageC
           </div>
           <h3 className="text-lg font-bold text-slate-700">Chưa có dữ liệu</h3>
           <p className="text-slate-500 mt-2">Hãy bắt đầu tạo những bức ảnh đầu tiên của bạn!</p>
+          <p className="text-xs text-slate-400 mt-4">User ID: {user.id}</p>
         </div>
       )}
     </div>

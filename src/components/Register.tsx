@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 import { Link } from 'react-router-dom';
-import { Marquee } from './Marquee';
+import { Marquee } from '../../components/Marquee';
 
 export const Register: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -26,7 +26,7 @@ export const Register: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             await updateProfile(userCredential.user, { displayName: name });
             await sendEmailVerification(userCredential.user);
-            
+
             setSuccess('Đăng ký thành công! Một email xác minh đã được gửi đến hộp thư của bạn. Vui lòng kiểm tra và xác nhận trước khi đăng nhập.');
             setEmail('');
             setPassword('');
@@ -48,7 +48,7 @@ export const Register: React.FC = () => {
                 <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md border border-slate-200">
                     <div className="text-center mb-8">
                         <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-2">Tạo Tài Khoản</h1>
-                        <p className="text-slate-500 font-medium">Tham gia ToolPhoto2025</p>
+                        <p className="text-slate-500 font-medium">Tham gia ImageTool</p>
                     </div>
 
                     {error && (

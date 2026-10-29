@@ -94,6 +94,108 @@ export const removeApiKey = (service: 'gemini', index: number): void => {
     saveApiKeys(service, keys);
 };
 
+// OpenRouter management removed - transitioning to Unified Gemini system key
+
+// --- AI Provider Selection ---
+export type AIProvider = 'gemini';
+
+const AI_PROVIDER_KEY = 'selected_ai_provider';
+
+export const setSelectedProvider = (provider: AIProvider): void => {
+    localStorage.setItem(AI_PROVIDER_KEY, provider);
+};
+
+export const getSelectedProvider = (): AIProvider => {
+    return 'gemini'; // Force gemini
+};
+
+// Get the currently active API key based on selected provider
+export const getActiveApiKey = (): { provider: AIProvider; key: string | null } => {
+    return { provider: 'gemini', key: getApiKey('gemini') };
+};
+
+// --- PRO Tier Management ---
+const PRO_USERS_KEY = 'pro_users_list';
+const ADMIN_EMAILS = ['longk2tha@gmail.com']; // Admin always has PRO access
+
+// Check if current user has PRO access
+// PRO access is granted to: admins, manually added PRO users, or users with credits
+export const isProUser = (): boolean => {
+    const user = getLoggedInUser();
+    if (!user) return false;
+
+    // Get user email from both username and id fields
+    const userEmail = (user.username || user.id || '').toLowerCase().trim();
+
+    // Admin bypass - always PRO (strict equality check)
+    if (ADMIN_EMAILS.some(admin => admin.toLowerCase() === userEmail)) {
+        return true;
+    }
+
+    // Check PRO users list
+    const proUsers = getProUsers();
+    if (proUsers.includes(userEmail)) {
+        return true;
+    }
+
+    // NEW: Users who have purchased credits are also PRO
+    // Check localStorage for cached credits (faster than Firestore query)
+    const cachedCredits = localStorage.getItem('user_credits_' + user.id);
+    if (cachedCredits && parseInt(cachedCredits) > 0) {
+        return true;
+    }
+
+    return false;
+};
+
+// Get list of PRO users
+export const getProUsers = (): string[] => {
+    const stored = localStorage.getItem(PRO_USERS_KEY);
+    if (!stored) return [];
+    try {
+        return JSON.parse(stored) as string[];
+    } catch {
+        return [];
+    }
+};
+
+// Add user to PRO list (admin function)
+export const addProUser = (email: string): void => {
+    const proUsers = getProUsers();
+    const lowerEmail = email.toLowerCase().trim();
+    if (!proUsers.includes(lowerEmail)) {
+        proUsers.push(lowerEmail);
+        localStorage.setItem(PRO_USERS_KEY, JSON.stringify(proUsers));
+    }
+};
+
+// Remove user from PRO list (admin function)
+export const removeProUser = (email: string): void => {
+    const proUsers = getProUsers();
+    const lowerEmail = email.toLowerCase().trim();
+    const filtered = proUsers.filter(u => u !== lowerEmail);
+    localStorage.setItem(PRO_USERS_KEY, JSON.stringify(filtered));
+};
+
+// Check if user is admin
+export const isAdmin = (): boolean => {
+    const user = getLoggedInUser();
+    if (!user) return false;
+    return ADMIN_EMAILS.includes(user.username.toLowerCase());
+};
+
+// --- PRO API Usage Preference ---
+const USE_PRO_API_KEY = 'use_pro_api';
+
+export const setUseProApi = (value: boolean): void => {
+    localStorage.setItem(USE_PRO_API_KEY, value ? 'true' : 'false');
+    // Dispatch custom event for immediate sync across all components
+    window.dispatchEvent(new CustomEvent('vip-status-changed', { detail: { isVip: value } }));
+};
+
+export const getUseProApi = (): boolean => {
+    return localStorage.getItem(USE_PRO_API_KEY) === 'true';
+};
 
 // --- User Management (localStorage) ---
 
@@ -288,3 +390,40 @@ export const clearUserHistory = async (username: string): Promise<void> => {
         throw error;
     }
 }
+
+// --- Terms Acceptance Storage ---
+
+const TERMS_ACCEPTED_KEY = 'terms_accepted';
+
+/**
+ * Save that user accepted terms
+ */
+export const saveTermsAccepted = (email: string, version: string): void => {
+    const data = JSON.parse(localStorage.getItem(TERMS_ACCEPTED_KEY) || '{}');
+    data[email.toLowerCase()] = {
+        accepted: true,
+        version,
+        timestamp: Date.now()
+    };
+    localStorage.setItem(TERMS_ACCEPTED_KEY, JSON.stringify(data));
+};
+
+/**
+ * Check if user has accepted terms for a specific version
+ */
+export const hasAcceptedTerms = (email: string, version?: string): boolean => {
+    const data = JSON.parse(localStorage.getItem(TERMS_ACCEPTED_KEY) || '{}');
+    const record = data[email.toLowerCase()];
+
+    if (!record?.accepted) return false;
+
+    // If version specified, check if user accepted this or newer version
+    if (version && record.version !== version) {
+        // Simple version comparison (e.g., 1.0 < 2.0)
+        const recordVer = parseFloat(record.version) || 0;
+        const requiredVer = parseFloat(version) || 0;
+        return recordVer >= requiredVer;
+    }
+
+    return true;
+};

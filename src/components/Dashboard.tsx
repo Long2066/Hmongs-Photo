@@ -1,23 +1,23 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Header } from './Header';
-import { ImageUploader, ImageState } from './ImageUploader';
-import { PromptPanel } from './PromptPanel';
-import { IdPhotoPanel } from './IdPhotoPanel';
-import { EditImagePanel } from './EditImagePanel';
-import { UpscalePanel } from './UpscalePanel';
-import { ProfileProPanel } from './ProfileProPanel';
-import { DreamJobPanel } from './DreamJobPanel';
-import { OutputDisplay } from './OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, upscaleImage, generateProfilePic, mixMatchOutfit, relightImage, extractClothing, generateDreamJob } from '../services/aiService';
-import { ProfilePage } from './ProfilePage';
-import { ImagePreviewModal } from './ImagePreviewModal';
-import { ApiKeyModal } from './ApiKeyModal';
-import { ActivityLog } from './ActivityLog';
-import { DownloadHelpModal } from './DownloadHelpModal';
-import { Marquee } from './Marquee';
-import { DreamJobPresentation } from './DreamJobPresentation';
-import * as storage from '../services/storageService';
+import { Header } from '../../components/Header';
+import { ImageUploader, ImageState } from '../../components/ImageUploader';
+import { PromptPanel } from '../../components/PromptPanel';
+import { IdPhotoPanel } from '../../components/IdPhotoPanel';
+import { EditImagePanel } from '../../components/EditImagePanel';
+import { UpscalePanel } from '../../components/UpscalePanel';
+import { ProfileProPanel } from '../../components/ProfileProPanel';
+import { DreamJobPanel } from '../../components/DreamJobPanel';
+import { OutputDisplay } from '../../components/OutputDisplay';
+import { generateImagesFromPromptsList, generateIdPhotos, editImage, upscaleImage, generateProfilePic, mixMatchOutfit, relightImage, extractClothing, generateDreamJob } from '../../services/aiService';
+import { ProfilePage } from '../../components/ProfilePage';
+import { ImagePreviewModal } from '../../components/ImagePreviewModal';
+import { ApiKeyModal } from '../../components/ApiKeyModal';
+import { ActivityLog } from '../../components/ActivityLog';
+import { DownloadHelpModal } from '../../components/DownloadHelpModal';
+import { Marquee } from '../../components/Marquee';
+import { DreamJobPresentation } from '../../components/DreamJobPresentation';
+import * as storage from '../../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
 
 // Data structure for each mode to persist state
@@ -508,7 +508,7 @@ export const Dashboard: React.FC = () => {
 
                         {/* Sidebar Footer */}
                         <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
-                            <p className="text-[10px] text-slate-400 font-medium">ToolPhoto2025 © All Rights Reserved</p>
+                            <p className="text-[10px] text-slate-400 font-medium">ImageTool © All Rights Reserved</p>
                         </div>
                     </aside>
                 )}
