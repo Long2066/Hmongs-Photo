@@ -7,11 +7,10 @@ import { IdPhotoPanel } from './components/IdPhotoPanel';
 import { EditImagePanel } from './components/EditImagePanel';
 import { UpscalePanel } from './components/UpscalePanel';
 import { ProfileProPanel } from './components/ProfileProPanel';
-import { DreamJobPanel } from './components/DreamJobPanel';
 import { RestorePhotoPanel } from './components/RestorePhotoPanel';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, generateDreamJob, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
+import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
 import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
 import { ProfilePage } from './components/ProfilePage';
@@ -21,7 +20,6 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { ActivityLog } from './components/ActivityLog';
 import { DownloadHelpModal } from './components/DownloadHelpModal';
 import { Marquee } from './components/Marquee';
-import { DreamJobPresentation } from './components/DreamJobPresentation';
 import { UpdateNotification } from './components/UpdateNotification';
 import { NotificationPopup } from './components/NotificationPopup';
 import { SupportHub } from './components/SupportHub';
@@ -57,8 +55,6 @@ interface ModeData {
         maleAcc: ImageState[];
         femaleAcc: ImageState[];
     };
-    // Specific for Dream Job
-    dreamJobMetadata?: { name: string, job: string }[];
     cleanedInputs?: (string | null)[];
 }
 
@@ -67,7 +63,6 @@ const initialModeState: ModeData = {
     outputs: [],
     prompts: [],
     creativeInputs: { male: [], female: [], maleAcc: [], femaleAcc: [] },
-    dreamJobMetadata: [],
     cleanedInputs: []
 };
 
@@ -88,12 +83,10 @@ const App: React.FC = () => {
 
     // Loading & Error (Global mostly, but could be per mode if needed)
     const [isLoading, setIsLoading] = useState(false);
-    const [isDreamJobLoading, setIsDreamJobLoading] = useState(false);
     const [loadingStatus, setLoadingStatus] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
 
     // Presentation State
-    const [isPresentationActive, setPresentationActive] = useState(false);
 
     // Restore Mode - Comparison Slider State
     const [isComparisonActive, setComparisonActive] = useState(false);
@@ -108,7 +101,7 @@ const App: React.FC = () => {
     const [pendingGeneration, setPendingGeneration] = useState<{ imageCount: number; callback: () => void } | null>(null);
 
     // --- MODE MANAGEMENT ---
-    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'dream_job' | 'restore'>('creative');
+    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore'>('creative');
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -117,7 +110,6 @@ const App: React.FC = () => {
         edit: JSON.parse(JSON.stringify(initialModeState)),
         upscale: JSON.parse(JSON.stringify(initialModeState)),
         profile_pro: JSON.parse(JSON.stringify(initialModeState)),
-        dream_job: JSON.parse(JSON.stringify(initialModeState)),
         restore: JSON.parse(JSON.stringify(initialModeState)),
     });
 
@@ -747,73 +739,6 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, autoDownload, currentUser]);
 
-    // 6. Dream Job
-    const handleDreamJob = useCallback(async (prompts: string[], studentNames: string[]) => {
-        const apiKey = getApiKeyOrAlert();
-        if (!apiKey) return;
-        const inputs = modeStates['dream_job'].inputs;
-
-        if (inputs.length === 0) { setError("Vui lòng tải lên ảnh học sinh."); return; }
-        if (inputs.length !== prompts.length) { setError("Số lượng ảnh và prompt không khớp."); return; }
-
-        setIsDreamJobLoading(true);
-        setError(null);
-        setIsMenuOpen(false);
-
-        // Initialize state for dream job
-        updateModeState(() => ({
-            outputs: Array(inputs.length).fill(null),
-            cleanedInputs: Array(inputs.length).fill(null),
-            prompts: prompts,
-            dreamJobMetadata: studentNames.map((name, i) => ({ name, job: prompts[i] }))
-        }));
-
-        const localResults: (string | null)[] = Array(prompts.length).fill(null);
-
-        try {
-            const batchInputs = inputs.map((img, idx) => ({
-                image: { data: img.base64, mimeType: img.mimeType },
-                jobPrompt: prompts[idx]
-            }));
-
-            setLoadingStatus('Đang hiện thực hóa ước mơ...');
-
-            await generateDreamJob(
-                apiKey,
-                batchInputs,
-                (status) => setLoadingStatus(status),
-                (index, base64) => {
-                    updateModeState((prev) => {
-                        const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
-                    });
-                    localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `${studentNames[index]}_${prompts[index]}.png`);
-                },
-                (index, base64) => {
-                    updateModeState((prev) => {
-                        const n = [...(prev.cleanedInputs || [])]; n[index] = base64; return { cleanedInputs: n };
-                    });
-                }
-            );
-
-            const validImages = localResults.filter((img): img is string => img !== null);
-            // Deduct credits for VIP users
-            if (validImages.length > 0) {
-                await deductBalanceForVIP(validImages.length);
-                saveHistory('Dream Job', prompts[0], validImages, 'Future Career');
-            }
-
-            // Only show presentation if we have at least one successful generation or if we finished despite errors
-            setPresentationActive(true);
-
-        } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
-        finally {
-            setIsLoading(false);
-            setIsDreamJobLoading(false);
-            setLoadingStatus('');
-        }
-    }, [modeStates, currentUser, autoDownload]);
-
     // 7. Restore Old Photo
     const handleRestorePhoto = useCallback(async (options: RestoreOptions) => {
         console.log('[DEBUG] handleRestorePhoto called with options:', options);
@@ -887,12 +812,6 @@ const App: React.FC = () => {
                     <ImageUploader label="PK Nữ" onImagesChange={(imgs) => handleCreativeChange('femaleAcc', imgs)} maxImages={1} compact />
                 </div>
             );
-        } else if (mode === 'dream_job') {
-            return (
-                <div className="p-3">
-                    <ImageUploader label="Ảnh học sinh (Max 20)" onImagesChange={handleImagesChange} maxImages={20} />
-                </div>
-            );
         } else if (['id_photo', 'edit', 'upscale', 'profile_pro', 'restore'].includes(mode)) {
             return (
                 <div className="p-3">
@@ -918,7 +837,6 @@ const App: React.FC = () => {
         if (mode === 'edit') return <EditImagePanel onGenerate={handleEditImage} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'profile_pro') return <ProfileProPanel onGenerate={handleProfilePro} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
-        if (mode === 'dream_job') return <DreamJobPanel onGenerate={handleDreamJob} isLoading={isDreamJobLoading} isDisabled={!currentUser} inputImages={mState.inputs} />;
         if (mode === 'restore') return <RestorePhotoPanel onGenerate={handleRestorePhoto} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         return null;
     };
@@ -964,7 +882,6 @@ const App: React.FC = () => {
                                     {mode === 'edit' && 'Chỉnh sửa AI'}
                                     {mode === 'upscale' && 'Siêu phân giải'}
                                     {mode === 'profile_pro' && 'Xây dựng thương hiệu'}
-                                    {mode === 'dream_job' && 'Ươm mầm ước mơ'}
                                     {mode === 'restore' && 'Phục hồi ảnh cũ'}
                                 </h2>
                             </div>
@@ -1040,21 +957,6 @@ const App: React.FC = () => {
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col p-4 md:p-8 w-full h-full">
-                            {/* GLOBAL DREAM JOB LOADING OVERLAY */}
-                            {isDreamJobLoading && (
-                                <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in">
-                                    <div className="relative w-32 h-32 mb-8">
-                                        <div className="absolute inset-0 border-t-4 border-b-4 border-indigo-600 rounded-full animate-spin"></div>
-                                        <div className="absolute inset-4 border-l-4 border-r-4 border-pink-500 rounded-full animate-spin-slow"></div>
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <span className="text-3xl">🚀</span>
-                                        </div>
-                                    </div>
-                                    <h2 className="text-2xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-600 animate-text-shimmer mb-4 text-center">
-                                        Vui lòng chờ ít phút
-                                    </h2>
-                                </div>
-                            )}
 
                             {/* MOBILE INLINE: Inputs + Config + Generate Button */}
                             <div className="lg:hidden space-y-4 mb-6">
@@ -1085,19 +987,15 @@ const App: React.FC = () => {
                             </div>
 
                             {/* Render Results based on CURRENT MODE State */}
-                            {/* We only render OutputDisplay if not in Dream Job Loading State */}
-                            {!isDreamJobLoading && (
-                                <OutputDisplay
-                                    outputImages={currentData.outputs}
-                                    prompts={currentData.prompts}
-                                    isLoading={isLoading}
-                                    loadingStatus={loadingStatus}
-                                    error={error}
-                                    onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
-                                    metadata={mode === 'dream_job' ? currentData.dreamJobMetadata : undefined}
-                                    onReplaySlideshow={mode === 'dream_job' && currentData.outputs.length > 0 ? () => setPresentationActive(true) : undefined}
-                                />
-                            )}
+                            
+                            <OutputDisplay
+                                outputImages={currentData.outputs}
+                                prompts={currentData.prompts}
+                                isLoading={isLoading}
+                                loadingStatus={loadingStatus}
+                                error={error}
+                                onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
+                            />
 
                             {/* A4 Print Button for ID Photo Mode */}
                             {mode === 'id_photo' && !isLoading && currentData.outputs.some(img => img !== null) && (
@@ -1119,53 +1017,6 @@ const App: React.FC = () => {
                     )}
                 </main>
             </div>
-
-            {isPresentationActive && mode === 'dream_job' && (
-                <DreamJobPresentation
-                    inputs={modeStates['dream_job'].inputs.map((img, i) => ({
-                        base64: modeStates['dream_job'].cleanedInputs?.[i] || img.base64,
-                        name: modeStates['dream_job'].dreamJobMetadata?.[i]?.name || `Học sinh ${i + 1}`,
-                        job: modeStates['dream_job'].dreamJobMetadata?.[i]?.job || 'Ước mơ'
-                    }))}
-                    outputs={modeStates['dream_job'].outputs}
-                    onComplete={() => setPresentationActive(false)}
-                />
-            )}
-
-            {/* Comparison Slider for Restore Mode */}
-            {isComparisonActive && comparisonData && (
-                <ComparisonSlider
-                    beforeImage={comparisonData.before}
-                    afterImage={comparisonData.after}
-                    onDownload={() => {
-                        const link = document.createElement('a');
-                        link.href = `data:image/png;base64,${comparisonData.after}`;
-                        link.download = 'restored_photo.png';
-                        link.click();
-                    }}
-                    onClose={() => setComparisonActive(false)}
-                />
-            )}
-
-            {/* A4 Print Preview for ID Photo Mode */}
-            {isA4PrintPreviewOpen && mode === 'id_photo' && (
-                <A4PrintPreview
-                    images={currentData.outputs.filter((img): img is string => img !== null)}
-                    onClose={() => setA4PrintPreviewOpen(false)}
-                />
-            )}
-
-            {/* Balance Confirmation Dialog */}
-            {isCreditsDialogOpen && pendingGeneration && (
-                <CreditsConfirmDialog
-                    imageCount={pendingGeneration.imageCount}
-                    currentCredits={userBalance}
-                    onConfirm={handleCreditsConfirm}
-                    onCancel={handleCreditsCancel}
-                />
-            )}
-
-            {isAuthModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} onAuthSuccess={(user) => { setCurrentUser(user); setAuthModalOpen(false); }} isBlocking={!currentUser} appVersion={appVersion} />}
             {isApiKeyModalOpen && <ApiKeyModal onClose={() => { setApiKeyModalOpen(false); checkApiKey(); }} />}
             {selectedImage && (
                 <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />

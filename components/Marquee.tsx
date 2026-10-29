@@ -29,7 +29,6 @@ const STATIC_MESSAGES = [
   { icon: '🎨', text: 'ImageTool - Sáng tạo không giới hạn' },
   { icon: '⚡', text: 'Tạo ảnh thẻ chuyên nghiệp trong 30 giây' },
   { icon: '🔮', text: 'Phục hồi ảnh cũ - Tô màu AI thông minh' },
-  { icon: '👔', text: 'Dream Job - Hiện thực hóa ước mơ nghề nghiệp' },
 ];
 
 export const Marquee: React.FC = () => {

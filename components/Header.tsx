@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MagicWandIcon, KeyIcon, UserCircleIcon, ImageIcon, SparklesIcon, AcademicCapIcon } from './Icons';
+import { MagicWandIcon, KeyIcon, UserCircleIcon, ImageIcon, SparklesIcon } from './Icons';
 import { User } from '../types';
 
 interface HeaderProps {
@@ -10,8 +10,8 @@ interface HeaderProps {
     onHistoryClick: () => void;
     onApiKeyClick: () => void;
     isHistoryVisible: boolean;
-    currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'dream_job' | 'restore';
-    onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'dream_job' | 'restore') => void;
+    currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore';
+    onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore') => void;
 }
 
 const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible }) => {
@@ -105,7 +105,6 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
         edit: { icon: '🖌️', label: 'Chỉnh sửa', color: 'emerald' },
         upscale: { icon: '🔍', label: 'Tăng nét', color: 'cyan' },
         profile_pro: { icon: '👤', label: 'Profile Pro', color: 'fuchsia' },
-        dream_job: { icon: '🎓', label: 'Ước mơ', color: 'sky' },
         restore: { icon: '🔧', label: 'Phục hồi', color: 'amber' }
     };
 
@@ -188,9 +187,6 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
                                 </button>
                                 <button onClick={() => onModeChange('profile_pro')} className={`px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'profile_pro' ? 'bg-white text-fuchsia-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}>
                                     <UserCircleIcon className="w-3 h-3" /> Profile Pro
-                                </button>
-                                <button onClick={() => onModeChange('dream_job')} className={`px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'dream_job' ? 'bg-white text-sky-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}>
-                                    <AcademicCapIcon className="w-3 h-3" /> Ước mơ
                                 </button>
                                 <button onClick={() => onModeChange('restore')} className={`px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'restore' ? 'bg-white text-amber-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}>
                                     <SparklesIcon className="w-3 h-3" /> Phục hồi

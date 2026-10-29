@@ -7,16 +7,14 @@ import { IdPhotoPanel } from '../../components/IdPhotoPanel';
 import { EditImagePanel } from '../../components/EditImagePanel';
 import { UpscalePanel } from '../../components/UpscalePanel';
 import { ProfileProPanel } from '../../components/ProfileProPanel';
-import { DreamJobPanel } from '../../components/DreamJobPanel';
 import { OutputDisplay } from '../../components/OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, upscaleImage, generateProfilePic, mixMatchOutfit, relightImage, extractClothing, generateDreamJob } from '../../services/aiService';
+import { generateImagesFromPromptsList, generateIdPhotos, editImage, upscaleImage, generateProfilePic, mixMatchOutfit, relightImage, extractClothing } from '../../services/aiService';
 import { ProfilePage } from '../../components/ProfilePage';
 import { ImagePreviewModal } from '../../components/ImagePreviewModal';
 import { ApiKeyModal } from '../../components/ApiKeyModal';
 import { ActivityLog } from '../../components/ActivityLog';
 import { DownloadHelpModal } from '../../components/DownloadHelpModal';
 import { Marquee } from '../../components/Marquee';
-import { DreamJobPresentation } from '../../components/DreamJobPresentation';
 import * as storage from '../../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -32,8 +30,6 @@ interface ModeData {
         maleAcc: ImageState[];
         femaleAcc: ImageState[];
     };
-    // Specific for Dream Job
-    dreamJobMetadata?: { name: string, job: string }[];
     cleanedInputs?: (string | null)[];
 }
 
@@ -42,7 +38,6 @@ const initialModeState: ModeData = {
     outputs: [],
     prompts: [],
     creativeInputs: { male: [], female: [], maleAcc: [], femaleAcc: [] },
-    dreamJobMetadata: [],
     cleanedInputs: []
 };
 
@@ -60,15 +55,13 @@ export const Dashboard: React.FC = () => {
 
     // Loading & Error (Global mostly, but could be per mode if needed)
     const [isLoading, setIsLoading] = useState(false);
-    const [isDreamJobLoading, setIsDreamJobLoading] = useState(false);
     const [loadingStatus, setLoadingStatus] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
 
     // Presentation State
-    const [isPresentationActive, setPresentationActive] = useState(false);
 
     // --- MODE MANAGEMENT ---
-    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'dream_job'>('creative');
+    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro'>('creative');
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -77,7 +70,6 @@ export const Dashboard: React.FC = () => {
         edit: JSON.parse(JSON.stringify(initialModeState)),
         upscale: JSON.parse(JSON.stringify(initialModeState)),
         profile_pro: JSON.parse(JSON.stringify(initialModeState)),
-        dream_job: JSON.parse(JSON.stringify(initialModeState)),
     });
 
     // Helper to update current mode state
@@ -318,70 +310,6 @@ export const Dashboard: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, autoDownload, currentUser]);
 
-    // 6. Dream Job
-    const handleDreamJob = useCallback(async (prompts: string[], studentNames: string[]) => {
-        const apiKey = getApiKeyOrAlert();
-        if (!apiKey) return;
-        const inputs = modeStates['dream_job'].inputs;
-
-        if (inputs.length === 0) { setError("Vui lòng tải lên ảnh học sinh."); return; }
-        if (inputs.length !== prompts.length) { setError("Số lượng ảnh và prompt không khớp."); return; }
-
-        setIsDreamJobLoading(true);
-        setError(null);
-        setIsMenuOpen(false);
-
-        // Initialize state for dream job
-        updateModeState(() => ({
-            outputs: Array(inputs.length).fill(null),
-            cleanedInputs: Array(inputs.length).fill(null),
-            prompts: prompts,
-            dreamJobMetadata: studentNames.map((name, i) => ({ name, job: prompts[i] }))
-        }));
-
-        const localResults: (string | null)[] = Array(prompts.length).fill(null);
-
-        try {
-            const batchInputs = inputs.map((img, idx) => ({
-                image: { data: img.base64, mimeType: img.mimeType },
-                jobPrompt: prompts[idx]
-            }));
-
-            setLoadingStatus('Đang hiện thực hóa ước mơ...');
-
-            await generateDreamJob(
-                apiKey,
-                batchInputs,
-                (status) => setLoadingStatus(status),
-                (index, base64) => {
-                    updateModeState((prev) => {
-                        const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
-                    });
-                    localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `${studentNames[index]}_${prompts[index]}.png`);
-                },
-                (index, base64) => {
-                    updateModeState((prev) => {
-                        const n = [...(prev.cleanedInputs || [])]; n[index] = base64; return { cleanedInputs: n };
-                    });
-                }
-            );
-
-            const validImages = localResults.filter((img): img is string => img !== null);
-            if (validImages.length > 0) saveHistory('Dream Job', prompts[0], validImages, 'Future Career');
-
-            // Only show presentation if we have at least one successful generation or if we finished despite errors
-            setPresentationActive(true);
-
-        } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
-        finally {
-            setIsLoading(false);
-            setIsDreamJobLoading(false);
-            setLoadingStatus('');
-        }
-    }, [modeStates, currentUser, autoDownload]);
-
-    // --- RENDER INPUT SECTION ---
     const renderInputs = () => {
         const mState = modeStates[mode];
 
@@ -392,12 +320,6 @@ export const Dashboard: React.FC = () => {
                     <ImageUploader label="Nữ" onImagesChange={(imgs) => handleCreativeChange('female', imgs)} maxImages={1} compact />
                     <ImageUploader label="PK Nam" onImagesChange={(imgs) => handleCreativeChange('maleAcc', imgs)} maxImages={1} compact />
                     <ImageUploader label="PK Nữ" onImagesChange={(imgs) => handleCreativeChange('femaleAcc', imgs)} maxImages={1} compact />
-                </div>
-            );
-        } else if (mode === 'dream_job') {
-            return (
-                <div className="p-4">
-                    <ImageUploader label="Ảnh học sinh (Max 20)" onImagesChange={handleImagesChange} maxImages={20} />
                 </div>
             );
         } else if (['id_photo', 'edit', 'upscale', 'profile_pro'].includes(mode)) {
@@ -421,7 +343,6 @@ export const Dashboard: React.FC = () => {
         if (mode === 'edit') return <EditImagePanel onGenerate={handleEditImage} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'profile_pro') return <ProfileProPanel onGenerate={handleProfilePro} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
-        if (mode === 'dream_job') return <DreamJobPanel onGenerate={handleDreamJob} isLoading={isDreamJobLoading} isDisabled={!currentUser} inputImages={mState.inputs} />;
         return null;
     };
 
@@ -460,7 +381,6 @@ export const Dashboard: React.FC = () => {
                                     {mode === 'edit' && 'Chỉnh sửa AI'}
                                     {mode === 'upscale' && 'Siêu phân giải'}
                                     {mode === 'profile_pro' && 'Xây dựng thương hiệu'}
-                                    {mode === 'dream_job' && 'Ươm mầm ước mơ'}
                                 </h2>
                             </div>
 
@@ -529,37 +449,17 @@ export const Dashboard: React.FC = () => {
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col p-4 md:p-8 w-full h-full">
-                            {/* GLOBAL DREAM JOB LOADING OVERLAY */}
-                            {isDreamJobLoading && (
-                                <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in">
-                                    <div className="relative w-32 h-32 mb-8">
-                                        <div className="absolute inset-0 border-t-4 border-b-4 border-indigo-600 rounded-full animate-spin"></div>
-                                        <div className="absolute inset-4 border-l-4 border-r-4 border-pink-500 rounded-full animate-spin-slow"></div>
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <span className="text-3xl">🚀</span>
-                                        </div>
-                                    </div>
-                                    <h2 className="text-2xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-600 animate-text-shimmer mb-4 text-center">
-                                        Vui lòng chờ trong ít phút...
-                                    </h2>
-                                    <p className="text-slate-500 text-lg font-medium">Hệ thống đang hiện thực hóa ước mơ của các em.</p>
-                                </div>
-                            )}
 
                             {/* Render Results based on CURRENT MODE State */}
-                            {/* We only render OutputDisplay if not in Dream Job Loading State */}
-                            {!isDreamJobLoading && (
-                                <OutputDisplay
-                                    outputImages={currentData.outputs}
-                                    prompts={currentData.prompts}
-                                    isLoading={isLoading}
-                                    loadingStatus={loadingStatus}
-                                    error={error}
-                                    onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
-                                    metadata={mode === 'dream_job' ? currentData.dreamJobMetadata : undefined}
-                                    onReplaySlideshow={mode === 'dream_job' && currentData.outputs.length > 0 ? () => setPresentationActive(true) : undefined}
-                                />
-                            )}
+                            
+                            <OutputDisplay
+                                outputImages={currentData.outputs}
+                                prompts={currentData.prompts}
+                                isLoading={isLoading}
+                                loadingStatus={loadingStatus}
+                                error={error}
+                                onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
+                            />
 
                             <div className="mt-auto pt-8">
                                 <ActivityLog user={currentUser} refreshTrigger={historyRefreshTrigger} onImageClick={(url) => setSelectedImage({ url, index: 0 })} className="w-full" />
@@ -568,20 +468,6 @@ export const Dashboard: React.FC = () => {
                     )}
                 </main>
             </div>
-
-            {isPresentationActive && mode === 'dream_job' && (
-                <DreamJobPresentation
-                    inputs={modeStates['dream_job'].inputs.map((img, i) => ({
-                        base64: modeStates['dream_job'].cleanedInputs?.[i] || img.base64,
-                        name: modeStates['dream_job'].dreamJobMetadata?.[i]?.name || `Học sinh ${i + 1}`,
-                        job: modeStates['dream_job'].dreamJobMetadata?.[i]?.job || 'Ước mơ'
-                    }))}
-                    outputs={modeStates['dream_job'].outputs}
-                    onComplete={() => setPresentationActive(false)}
-                />
-            )}
-
-            {isApiKeyModalOpen && <ApiKeyModal onClose={() => { setApiKeyModalOpen(false); checkApiKey(); }} />}
             {selectedImage && <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />}
             {isDownloadHelpOpen && <DownloadHelpModal onClose={() => setDownloadHelpOpen(false)} />}
         </div>

@@ -25,7 +25,6 @@ Sáng tạo vô hạn giúp tạo ảnh từ prompt văn bản, có thể upload
 Chỉnh sửa AI giúp thay đồ, mix đồ, chỉnh sáng, xóa nền cho ảnh có sẵn.
 Siêu phân giải tăng độ nét ảnh lên 2x hoặc 4x.
 Profile Pro tạo ảnh đại diện chuyên nghiệp cho LinkedIn, mạng xã hội.
-Ươm mầm ước mơ biến ảnh học sinh thành ảnh tương lai với nghề nghiệp mơ ước.
 
 Cách sử dụng cơ bản: Chọn mode từ menu trên cùng, upload ảnh nếu cần, điền prompt và cấu hình, rồi nhấn Tạo Prompt, sau đó nhấn Tiến hành vẽ.
 

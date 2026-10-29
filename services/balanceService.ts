@@ -20,7 +20,7 @@ export interface UsageRecord {
     pricePerImage: number;
     totalCost: number; // VND
     resolution: string;
-    type: 'image_generation' | 'id_photo' | 'upscale' | 'edit' | 'profile_pro' | 'dream_job' | 'restore';
+    type: 'image_generation' | 'id_photo' | 'upscale' | 'edit' | 'profile_pro' | 'restore';
 }
 
 export interface UserBalance {

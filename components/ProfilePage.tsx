@@ -94,7 +94,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack, onImageC
         'Upscale': '🔍 Tăng nét ảnh',
         'Profile': '👤 Ảnh profile',
         'ID Photo': '🪪 Ảnh thẻ',
-        'Dream Job': '💼 Dream Job',
         'Restore': '🖼️ Phục hồi ảnh cũ',
     };
 

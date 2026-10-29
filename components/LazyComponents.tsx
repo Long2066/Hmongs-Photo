@@ -15,7 +15,6 @@ export const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Đan
 // Lazy load heavy components
 export const LazySupportHub = lazy(() => import('./SupportHub').then(m => ({ default: m.SupportHub })));
 export const LazyCreditsPurchaseModal = lazy(() => import('./CreditsPurchaseModal').then(m => ({ default: m.CreditsPurchaseModal })));
-export const LazyDreamJobPresentation = lazy(() => import('./DreamJobPresentation').then(m => ({ default: m.DreamJobPresentation })));
 export const LazyA4PrintPreview = lazy(() => import('./A4PrintPreview').then(m => ({ default: m.A4PrintPreview })));
 export const LazyComparisonSlider = lazy(() => import('./ComparisonSlider').then(m => ({ default: m.ComparisonSlider })));
 export const LazyImagePreviewModal = lazy(() => import('./ImagePreviewModal').then(m => ({ default: m.ImagePreviewModal })));
@@ -39,7 +38,6 @@ export const LazyWrapper: React.FC<LazyWrapperProps> = ({ children, fallback }) 
 export default {
     LazySupportHub,
     LazyCreditsPurchaseModal,
-    LazyDreamJobPresentation,
     LazyA4PrintPreview,
     LazyComparisonSlider,
     LazyImagePreviewModal,
