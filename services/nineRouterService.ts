@@ -5,6 +5,8 @@
  * a local/remote OpenAI-compatible routing gateway running at http://127.0.0.1:20128.
  */
 
+import { optimizeReferenceImages } from './imageOptimizer';
+
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://127.0.0.1:20128/v1';
 const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
@@ -456,7 +458,9 @@ export const generateImageViaNineRouter = async (
     const baseUrl = getNineRouterUrl();
     const apiKey = getNineRouterApiKey();
     const activeModel = request.model || getNineRouterImageModel();
-    const referenceImages = request.referenceImages || [];
+    const rawRefImages = request.referenceImages || [];
+    // Automatically downscale and compress reference images (saving ~90% bandwidth)
+    const referenceImages = await optimizeReferenceImages(rawRefImages);
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json'

@@ -4,6 +4,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import * as antigravityService from './antigravityService';
 import * as geminiOAuthService from './geminiOAuthService';
 import * as nineRouterService from './nineRouterService';
+import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- GENERATION MODE TYPES ---
 export type GenerationMode = 'ninerouter' | 'antigravity' | 'oauth' | 'vip' | 'free' | 'none';
@@ -675,7 +676,8 @@ const generateImageWithSystemKey = async (
 const generateImageUnified = async (
     options: GenerateImageOptions
 ): Promise<string | null> => {
-    const { prompt, referenceImages = [], aspectRatio, seed, onStatus } = options;
+    const { prompt, referenceImages: rawRefImages = [], aspectRatio, seed, onStatus } = options;
+    const referenceImages = await optimizeReferenceImages(rawRefImages);
 
     // PRIORITY 0: Antigravity mode (if enabled)
     if (antigravityService.isAntigravityEnabled()) {
@@ -1258,15 +1260,19 @@ export const generateImagesFromPromptsList = async (
     ];
 
     // Preserve category and gender binding in the native multimodal image request.
-    const labeledNineRouterReferences: nineRouterService.NineRouterLabeledReferenceImage[] = [
+    const rawNineRouterReferences: nineRouterService.NineRouterLabeledReferenceImage[] = [
         ...refImages.male.map((img, index) => ({ ...img, label: `MALE OUTFIT ${index + 1}` })),
         ...refImages.female.map((img, index) => ({ ...img, label: `FEMALE OUTFIT ${index + 1}` })),
         ...refImages.maleAccessories.map((img, index) => ({ ...img, label: `MALE ACCESSORY ${index + 1}` })),
         ...refImages.femaleAccessories.map((img, index) => ({ ...img, label: `FEMALE ACCESSORY ${index + 1}` }))
     ];
 
+    // Automatically optimize reference images (downsample & compress JPEG, saving ~90% bandwidth)
+    const labeledNineRouterReferences = await optimizeReferenceImages(rawNineRouterReferences);
+    const optimizedAllRefImages = await optimizeReferenceImages(allRefImages);
+
     // Gemini format
-    const allRefParts = allRefImages.map(img => ({
+    const allRefParts = optimizedAllRefImages.map(img => ({
         inlineData: {
             data: img.data,
             mimeType: img.mimeType
@@ -1276,9 +1282,9 @@ export const generateImagesFromPromptsList = async (
     // Fixed seed logic for consistency
     const sessionSeed = Math.floor(Math.random() * 1000000);
 
-    // Determine concurrency based on mode
-    // STABILITY: NineRouter/Antigravity uses 1 to avoid timeout/rate limit issues
-    const concurrency = nineRouterConnected ? 1 : antigravityConnected ? 1 : useVipMode ? 2 : 2;
+    // Determine concurrency based on mode:
+    // NineRouter runs 2 parallel workers (supported by lightweight optimized payloads)
+    const concurrency = nineRouterConnected ? 2 : antigravityConnected ? 1 : useVipMode ? 2 : 2;
     onStatusUpdate(`🚀 Đang tạo ${prompts.length} ảnh song song (x${concurrency})...`);
 
     // Create tasks for parallel execution
@@ -1393,7 +1399,7 @@ export const generateImagesFromPromptsList = async (
                         // to avoid duplicate constraints
                         base64Image = await antigravityService.generateImageViaAntigravity({
                             prompt: fullPrompt,
-                            referenceImages: allRefImages,
+                            referenceImages: optimizedAllRefImages,
                             aspectRatio: aspectRatio,
                             model: 'gemini-3-pro-image', // Correct Antigravity image model
                             useVIPPrompt: false, // fullPrompt already has VIP constraints
@@ -1458,7 +1464,7 @@ export const generateImagesFromPromptsList = async (
 
                 try {
                     base64Image = await callWithRetry(
-                        async () => generateImageWithSystemKey(systemApiKey!, fullPrompt, allRefImages, aspectRatio),
+                        async () => generateImageWithSystemKey(systemApiKey!, fullPrompt, optimizedAllRefImages, aspectRatio),
                         3,
                         5000,
                         (msg) => onStatusUpdate(`[VIP ${index + 1}] ${msg}`)

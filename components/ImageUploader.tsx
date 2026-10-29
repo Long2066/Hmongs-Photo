@@ -1,6 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { UploadIcon, XCircleIcon } from './Icons';
+import { optimizeFileForUpload } from '../services/imageOptimizer';
 
 export interface ImageState {
   base64: string;
@@ -170,24 +171,36 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
 
     const readPromises = filesToProcess
       .filter(file => file.type.startsWith('image/'))
-      .map(file => new Promise<ImageState>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            const cleanName = file.name.replace(/\.[^/.]+$/, "");
-            resolve({
-              base64: reader.result.split(',')[1],
-              mimeType: file.type,
-              id: Date.now() + Math.random(),
-              fileName: cleanName
-            });
-          } else {
-            reject(new Error('Read failed'));
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      }));
+      .map(async file => {
+        try {
+          const opt = await optimizeFileForUpload(file);
+          return {
+            base64: opt.base64,
+            mimeType: opt.mimeType,
+            id: Date.now() + Math.random(),
+            fileName: opt.fileName
+          } as ImageState;
+        } catch {
+          return new Promise<ImageState>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (typeof reader.result === 'string') {
+                const cleanName = file.name.replace(/\.[^/.]+$/, "");
+                resolve({
+                  base64: reader.result.split(',')[1],
+                  mimeType: file.type,
+                  id: Date.now() + Math.random(),
+                  fileName: cleanName
+                });
+              } else {
+                reject(new Error('Read failed'));
+              }
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        }
+      });
 
     Promise.all(readPromises).then(newImages => {
       setImages(prev => {
