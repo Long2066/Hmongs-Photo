@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, setPersistence, inMemoryPersistence } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
 
@@ -16,19 +16,21 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 
-// Initialize Auth with session-only persistence (forces login on each app open)
+// Initialize Auth
 export const auth = getAuth(app);
 
-// Set persistence to inMemory - session will NOT persist after closing app
-setPersistence(auth, inMemoryPersistence)
-  .then(() => {
-    console.log("Auth persistence set to inMemory (session-only)");
-  })
-  .catch((error) => {
-    console.error("Error setting auth persistence:", error);
-  });
+// Use browserLocalPersistence so users stay logged in across page refreshes
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence)
+    .then(() => {
+      console.log("Auth persistence set to browserLocal (stays logged in)");
+    })
+    .catch((error) => {
+      console.error("Error setting auth persistence:", error);
+    });
+}
 
 export const db = getFirestore(app);
 export { app, analytics };

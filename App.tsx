@@ -68,7 +68,7 @@ const initialModeState: ModeData = {
 
 const App: React.FC = () => {
     // --- GLOBAL STATE ---
-    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [currentUser, setCurrentUser] = useState<User | null>(() => storage.getLoggedInUser());
     const [isAuthModalOpen, setAuthModalOpen] = useState(false);
     const [isHistoryVisible, setHistoryVisible] = useState(false);
     const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
@@ -137,6 +137,7 @@ const App: React.FC = () => {
                     // User exists but email not verified - do NOT allow access
                     console.log('User email not verified, signing out...');
                     await firebaseService.logoutUser();
+                    storage.logoutUser();
                     setCurrentUser(null);
                     setAuthModalOpen(true);
                     return;
@@ -159,8 +160,8 @@ const App: React.FC = () => {
                 // Record user access for daily stats
                 firebaseService.recordUserAccess(fbUser.uid, user.name);
             } else {
+                storage.logoutUser();
                 setCurrentUser(null);
-                setAuthModalOpen(true);
             }
         });
 
@@ -794,9 +795,10 @@ const App: React.FC = () => {
 
     const handleLogout = async () => {
         await firebaseService.logoutUser();
+        storage.logoutUser();
         setCurrentUser(null);
         setHistoryVisible(false);
-        setAuthModalOpen(true);
+        setAuthModalOpen(false);
     };
 
     // --- RENDER INPUT SECTION ---
@@ -1018,6 +1020,17 @@ const App: React.FC = () => {
                 </main>
             </div>
             {isApiKeyModalOpen && <ApiKeyModal onClose={() => { setApiKeyModalOpen(false); checkApiKey(); }} />}
+            {isAuthModalOpen && (
+                <AuthModal
+                    onClose={() => setAuthModalOpen(false)}
+                    onAuthSuccess={(user) => {
+                        setCurrentUser(user);
+                        setAuthModalOpen(false);
+                    }}
+                    isBlocking={false}
+                    appVersion={appVersion}
+                />
+            )}
             {selectedImage && (
                 <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />
             )}

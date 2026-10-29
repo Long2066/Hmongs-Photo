@@ -140,6 +140,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
             <div className="hidden sm:block absolute top-[20%] right-[20%] w-[300px] h-[300px] bg-cyan-500/20 rounded-full blur-[80px] animate-float"></div>
 
             <div className="relative bg-white/95 backdrop-blur-2xl rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/40 ring-1 ring-white/50 max-h-[95vh] overflow-y-auto">
+                {/* Close Button Top Right */}
+                {!isBlocking && onClose && (
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors z-10"
+                        title="Đóng"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                )}
+
                 {/* Header - Compact on mobile */}
                 <div className="p-6 sm:p-10 pb-4 sm:pb-6 text-center">
                     <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 rounded-xl sm:rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-4 sm:mb-6 ring-2 sm:ring-4 ring-white/50">
