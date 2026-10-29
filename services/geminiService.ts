@@ -122,7 +122,8 @@ Nhiệm vụ của bạn là tái tạo lại một phiên bản hoàn hảo c�
             model: 'gemini-2.5-flash-image',
             contents: { parts: [...imageParts, textPart] },
             config: {
-                responseModalities: [Modality.IMAGE, Modality.TEXT]
+                responseModalities: [Modality.IMAGE, Modality.TEXT],
+                imageConfig: aspectRatio && aspectRatio !== '1:1' ? { aspectRatio: aspectRatio as any } : undefined
             },
         });
 

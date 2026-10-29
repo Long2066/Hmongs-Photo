@@ -500,8 +500,8 @@ export const enforceAspectRatio = async (base64Image: string, aspectRatio: strin
 
             ctx.drawImage(img, offsetX, offsetY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-            // Return base64 without the data URL prefix
-            const result = canvas.toDataURL('image/png').split(',')[1];
+            // Use JPEG format with high quality for better performance and smaller size
+            const result = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
             console.log(`[AspectRatio] Successfully enforced ${aspectRatio} ratio`);
             resolve(result);
         };
@@ -511,7 +511,7 @@ export const enforceAspectRatio = async (base64Image: string, aspectRatio: strin
             resolve(base64Image); // Return original on error
         };
 
-        img.src = `data:image/png;base64,${base64Image}`;
+        img.src = base64Image.startsWith('data:') ? base64Image : `data:image/jpeg;base64,${base64Image}`;
     });
 };
 
@@ -1553,8 +1553,15 @@ export const generateImagesFromPromptsList = async (
                 throw new Error(`${activeMode}_MODE_FAILED`);
             }
 
-            // NOTE: We don't crop post-generation as it cuts off important parts.
-            // Instead, we rely on prompt engineering to get correct composition.
+            // Post-process to ensure strict aspect ratio compliance (9:16, 16:9, etc.)
+            if (aspectRatio && aspectRatio !== '1:1') {
+                try {
+                    console.log(`[AspectRatio] Post-processing image ${index + 1} to enforce ratio ${aspectRatio}`);
+                    base64Image = await enforceAspectRatio(base64Image, aspectRatio);
+                } catch (ratioErr) {
+                    console.warn(`[AspectRatio] Could not post-process aspect ratio for image ${index + 1}:`, ratioErr);
+                }
+            }
 
             return base64Image;
         } catch (error) {
@@ -1818,6 +1825,14 @@ export const generateIdPhotos = async (
                     5000,
                     (msg) => onStatusUpdate(`[ID ${index + 1}] ${msg}`)
                 );
+            }
+
+            if (base64Image && aspectRatio && aspectRatio !== '1:1') {
+                try {
+                    base64Image = await enforceAspectRatio(base64Image, aspectRatio);
+                } catch (ratioErr) {
+                    console.warn(`[AspectRatio ID] Could not post-process aspect ratio for image ${index + 1}:`, ratioErr);
+                }
             }
 
             onImageGenerated(index, base64Image);

@@ -360,6 +360,36 @@ const mapRatioForNineRouter = (aspectRatio?: string): string => {
     }
 };
 
+const aspectRatioToPixelSize = (aspectRatio?: string): string => {
+    switch (aspectRatio) {
+        case '16:9': return '1280x720';
+        case '9:16': return '720x1280';
+        case '4:3': return '1152x864';
+        case '3:4': return '864x1152';
+        case '3:2': return '1216x816';
+        case '2:3': return '816x1216';
+        case '1:1':
+        default: return '1024x1024';
+    }
+};
+
+const getModelWithAspectSuffix = (baseModel: string, aspectRatio?: string): string => {
+    if (!aspectRatio || aspectRatio === '1:1') return baseModel;
+    const ratioMap: Record<string, string> = {
+        '16:9': '16-9',
+        '9:16': '9-16',
+        '4:3': '4-3',
+        '3:4': '3-4',
+        '3:2': '3-2',
+        '2:3': '2-3',
+        '21:9': '21-9'
+    };
+    const suffix = ratioMap[aspectRatio] || '';
+    if (!suffix) return baseModel;
+    if (baseModel.endsWith(`-${suffix}`)) return baseModel;
+    return `${baseModel}-${suffix}`;
+};
+
 /**
  * Generate Text via 9Router (/v1/chat/completions)
  */
@@ -436,6 +466,7 @@ export const generateImageViaNineRouter = async (
     }
 
     const ratio = mapRatioForNineRouter(request.aspectRatio);
+    const pixelSize = aspectRatioToPixelSize(request.aspectRatio);
 
     try {
         if (referenceImages.length > 0) {
@@ -468,7 +499,7 @@ Never swap, merge or cross-apply details between labels. Ignore all backgrounds 
                 text: `FINAL GENERATION INSTRUCTIONS\nTarget aspect ratio: ${ratio}\n\n${request.prompt}`
             });
 
-            console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, references: ${referenceImages.length}`);
+            console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, pixelSize: ${pixelSize}, references: ${referenceImages.length}`);
             const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers,
@@ -476,7 +507,19 @@ Never swap, merge or cross-apply details between labels. Ignore all backgrounds 
                     model: activeModel,
                     messages: [{ role: 'user', content: userContent }],
                     modalities: ['text', 'image'],
-                    stream: false
+                    stream: false,
+                    aspect_ratio: ratio,
+                    size: pixelSize,
+                    image_config: {
+                        aspect_ratio: ratio
+                    },
+                    extra_body: {
+                        aspect_ratio: ratio,
+                        size: pixelSize,
+                        image_config: {
+                            aspect_ratio: ratio
+                        }
+                    }
                 })
             }, 120000);
 
@@ -499,7 +542,15 @@ Never swap, merge or cross-apply details between labels. Ignore all backgrounds 
             prompt: request.prompt,
             n: 1,
             response_format: 'b64_json',
-            size: ratio
+            size: pixelSize,
+            aspect_ratio: ratio,
+            image_config: {
+                aspect_ratio: ratio
+            },
+            extra_body: {
+                aspect_ratio: ratio,
+                size: pixelSize
+            }
         };
 
         console.log(`[9Router] Sending text-to-image request to model: ${activeModel}, ratio: ${ratio}`);
