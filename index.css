@@ -420,8 +420,7 @@ body {
 /* GPU Optimization: Force hardware acceleration for key elements */
 .animate-fade-in,
 .animate-slide-in,
-.bottom-sheet,
-img {
+.bottom-sheet {
   transform: translateZ(0);
   backface-visibility: hidden;
   will-change: transform;

@@ -1,5 +1,4 @@
-
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { UploadIcon, XCircleIcon } from './Icons';
 import { optimizeFileForUpload } from '../services/imageOptimizer';
 
@@ -8,6 +7,7 @@ export interface ImageState {
   mimeType: string;
   id: number;
   fileName?: string;
+  previewUrl?: string;
 }
 
 interface ImageUploaderProps {
@@ -17,7 +17,7 @@ interface ImageUploaderProps {
   compact?: boolean;
 }
 
-const UploaderSlot: React.FC<{ onClick: () => void, isDragging: boolean, compact?: boolean }> = ({ onClick, isDragging, compact }) => (
+const UploaderSlot: React.FC<{ onClick: () => void, isDragging: boolean, compact?: boolean }> = memo(({ onClick, isDragging, compact }) => (
   <div
     onClick={onClick}
     className={`relative flex flex-col items-center justify-center w-full border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-200 group overflow-hidden
@@ -54,7 +54,9 @@ const UploaderSlot: React.FC<{ onClick: () => void, isDragging: boolean, compact
       )}
     </div>
   </div>
-);
+));
+
+UploaderSlot.displayName = 'UploaderSlot';
 
 const ImagePreviewSlot: React.FC<{
   src: string,
@@ -63,7 +65,7 @@ const ImagePreviewSlot: React.FC<{
   onToggle: () => void,
   onClear: () => void,
   index: number
-}> = ({ src, fileName, isSelected, onToggle, onClear, index }) => (
+}> = memo(({ src, fileName, isSelected, onToggle, onClear, index }) => (
   <div
     className={`relative w-full aspect-square rounded-2xl overflow-hidden group shadow-xs transition-all duration-200 cursor-pointer
       ${isSelected
@@ -71,19 +73,24 @@ const ImagePreviewSlot: React.FC<{
         : 'ring-1 ring-slate-300 hover:ring-indigo-400'
       }`}
     onClick={onToggle}
-    style={{ animationDelay: `${index * 100}ms` }}
   >
-    {/* Image with gradient overlay */}
-    <img src={src} alt="Preview" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+    {/* Image with gradient overlay - fast async decoding */}
+    <img
+      src={src}
+      alt="Preview"
+      loading="lazy"
+      decoding="async"
+      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+    />
 
     {/* Gradient overlay */}
-    <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
+    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
 
     {/* Selection indicator */}
-    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg
+    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200 shadow-md
         ${isSelected
-        ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white scale-110'
-        : 'bg-white/90 text-transparent border-2 border-slate-200 backdrop-blur-sm group-hover:border-indigo-300'
+        ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white scale-105'
+        : 'bg-white/90 text-transparent border-2 border-slate-200 backdrop-blur-xs group-hover:border-indigo-300'
       }`}>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -92,35 +99,38 @@ const ImagePreviewSlot: React.FC<{
 
     {/* File name (if available) */}
     {fileName && (
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
         <p className="text-white text-[10px] font-medium truncate">{fileName}</p>
       </div>
     )}
 
     {/* Delete button - appears on hover */}
-    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200">
       <button
         onClick={(e) => { e.stopPropagation(); onClear(); }}
-        className="p-2.5 bg-white/95 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all duration-300 shadow-xl transform scale-90 group-hover:scale-100 backdrop-blur-sm"
+        className="p-2.5 bg-white/95 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all duration-200 shadow-xl transform scale-90 group-hover:scale-100"
       >
         <XCircleIcon className="w-5 h-5" />
       </button>
     </div>
 
     {/* Number badge */}
-    <div className="absolute top-2 left-2 w-6 h-6 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center">
+    <div className="absolute top-2 left-2 w-6 h-6 bg-black/50 rounded-full flex items-center justify-center">
       <span className="text-white text-[10px] font-bold">{index + 1}</span>
     </div>
   </div>
-);
+));
 
-export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, maxImages = 4, label = "Ảnh tham khảo", compact = false }) => {
+ImagePreviewSlot.displayName = 'ImagePreviewSlot';
+
+export const ImageUploader: React.FC<ImageUploaderProps> = memo(({ onImagesChange, maxImages = 4, label = "Ảnh tham khảo", compact = false }) => {
   const [images, setImages] = useState<ImageState[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Enforce maxImages limit
   useEffect(() => {
     if (images.length > maxImages) {
       const keptImages = images.slice(0, maxImages);
@@ -131,20 +141,21 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
       });
       setSelectedIds(newSet);
     }
-  }, [maxImages, images, selectedIds]);
+  }, [maxImages, images.length, selectedIds]);
 
   const onImagesChangeRef = useRef(onImagesChange);
-
   useEffect(() => {
     onImagesChangeRef.current = onImagesChange;
   }, [onImagesChange]);
 
+  // Synchronize selected images to parent
   useEffect(() => {
     const selectedImages = images.filter(img => selectedIds.has(img.id));
     onImagesChangeRef.current(selectedImages);
   }, [images, selectedIds]);
 
-  const handleFiles = useCallback((files: FileList | null) => {
+  // Clean, non-blocking file processing
+  const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files) return;
     const remainingSlots = maxImages - images.length;
     if (remainingSlots <= 0) {
@@ -152,28 +163,38 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
       return;
     }
 
-    const filesToProcess = Array.from(files).slice(0, remainingSlots);
+    const filesToProcess = Array.from(files)
+      .filter(file => file.type.startsWith('image/'))
+      .slice(0, remainingSlots);
+
     if (filesToProcess.length === 0) return;
 
     setIsUploading(true);
 
-    const readPromises = filesToProcess
-      .filter(file => file.type.startsWith('image/'))
-      .map(async file => {
+    // Yield to the browser main thread to immediately render the uploading state
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    try {
+      const processedImages: ImageState[] = [];
+
+      for (const file of filesToProcess) {
         try {
           const opt = await optimizeFileForUpload(file);
-          return {
+          processedImages.push({
             base64: opt.base64,
             mimeType: opt.mimeType,
             id: Date.now() + Math.random(),
-            fileName: opt.fileName
-          } as ImageState;
-        } catch {
-          return new Promise<ImageState>((resolve, reject) => {
+            fileName: opt.fileName,
+            previewUrl: opt.previewUrl
+          });
+        } catch (err) {
+          console.warn('[ImageUploader] Failed to optimize image, fallback to raw FileReader:', err);
+          // Fallback only if all optimization methods fail
+          const rawResult = await new Promise<ImageState>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
               if (typeof reader.result === 'string') {
-                const cleanName = file.name.replace(/\.[^/.]+$/, "");
+                const cleanName = file.name.replace(/\.[^/.]+$/, '');
                 resolve({
                   base64: reader.result.split(',')[1],
                   mimeType: file.type,
@@ -187,23 +208,25 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
             reader.onerror = reject;
             reader.readAsDataURL(file);
           });
+          processedImages.push(rawResult);
         }
-      });
+      }
 
-    Promise.all(readPromises).then(newImages => {
-      setImages(prev => {
-        const updated = [...prev, ...newImages];
-        const newIds = new Set(selectedIds);
-        newImages.forEach(img => newIds.add(img.id));
-        setSelectedIds(newIds);
-        return updated;
-      });
+      if (processedImages.length > 0) {
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          processedImages.forEach(img => next.add(img.id));
+          return next;
+        });
+        setImages(prev => [...prev, ...processedImages]);
+      }
+    } finally {
       setIsUploading(false);
-    }).catch(() => {
-      setIsUploading(false);
-    });
-
-  }, [images.length, selectedIds, maxImages]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [images.length, maxImages]);
 
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
@@ -216,23 +239,29 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
     }
   };
 
-  const handleClear = (id: number) => {
-    setImages(prev => prev.filter(img => img.id !== id));
-    setSelectedIds(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(id);
-      return newSet;
+  const handleClear = useCallback((id: number) => {
+    setImages(prev => {
+      const target = prev.find(img => img.id === id);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter(img => img.id !== id);
     });
-  };
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
-  const toggleSelection = (id: number) => {
+  const toggleSelection = useCallback((id: number) => {
     setSelectedIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      return newSet;
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  };
+  }, []);
 
   return (
     <div
@@ -280,7 +309,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
         {images.map((image, index) => (
           <ImagePreviewSlot
             key={image.id}
-            src={`data:${image.mimeType};base64,${image.base64}`}
+            src={image.previewUrl || `data:${image.mimeType};base64,${image.base64}`}
             fileName={image.fileName}
             isSelected={selectedIds.has(image.id)}
             onToggle={() => toggleSelection(image.id)}
@@ -305,4 +334,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
       )}
     </div>
   );
-};
+});
+
+ImageUploader.displayName = 'ImageUploader';

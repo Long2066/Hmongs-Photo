@@ -79,6 +79,7 @@ const App: React.FC = () => {
     const [isDownloadHelpOpen, setDownloadHelpOpen] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [mobileActiveTab, setMobileActiveTab] = useState<'input' | 'config' | null>(null);
+    const [isMobileScreen, setIsMobileScreen] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
     const [autoDownload, setAutoDownload] = useState(false);
     const [appVersion, setAppVersion] = useState('2.0.0'); // Default version
 
@@ -172,6 +173,7 @@ const App: React.FC = () => {
         const setViewportHeight = () => {
             const vh = window.innerHeight * 0.01;
             document.documentElement.style.setProperty('--vh', `${vh}px`);
+            setIsMobileScreen(window.innerWidth < 1024);
         };
 
         setViewportHeight();
@@ -877,27 +879,31 @@ const App: React.FC = () => {
 
                     {/* Scrollable Content Area - Expandable on mobile */}
                     <div className={`flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
-                        {/* Input Section */}
-                        <div className="space-y-2">
-                            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
-                                <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
-                                Dữ liệu đầu vào
-                            </h3>
-                            <div className="bg-slate-50 rounded-xl border border-slate-200/90 p-1 overflow-hidden shadow-xs">
-                                {renderInputs()}
-                            </div>
-                        </div>
+                        {(!isMobileScreen || isMenuOpen) && (
+                            <>
+                                {/* Input Section */}
+                                <div className="space-y-2">
+                                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
+                                        <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
+                                        Dữ liệu đầu vào
+                                    </h3>
+                                    <div className="bg-slate-50 rounded-xl border border-slate-200/90 p-1 overflow-hidden shadow-xs">
+                                        {renderInputs()}
+                                    </div>
+                                </div>
 
-                        {/* Config Section */}
-                        <div className="space-y-2">
-                            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider px-1 flex items-center gap-2">
-                                <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
-                                Cấu hình AI
-                            </h3>
-                            <div className="bg-white">
-                                {renderConfig()}
-                            </div>
-                        </div>
+                                {/* Config Section */}
+                                <div className="space-y-2">
+                                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider px-1 flex items-center gap-2">
+                                        <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
+                                        Cấu hình AI
+                                    </h3>
+                                    <div className="bg-white">
+                                        {renderConfig()}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Sidebar Footer - Hidden on mobile when collapsed */}
@@ -915,33 +921,35 @@ const App: React.FC = () => {
                     ) : (
                         <div className="flex-1 flex flex-col p-4 md:p-8 w-full h-full">
 
-                            {/* MOBILE INLINE: Inputs + Config + Generate Button */}
-                            <div className="lg:hidden space-y-4 mb-6">
-                                {/* Mobile Inputs Section */}
-                                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                                    <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                                        <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                        </svg>
-                                        Ảnh đầu vào
-                                    </h3>
-                                    <div className="bg-slate-50/50 rounded-xl overflow-hidden">
-                                        {renderInputs()}
+                            {/* MOBILE INLINE: Inputs + Config + Generate Button - only mounted when actually on mobile screen */}
+                            {isMobileScreen && (
+                                <div className="lg:hidden space-y-4 mb-6">
+                                    {/* Mobile Inputs Section */}
+                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                                        <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                            <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                            </svg>
+                                            Ảnh đầu vào
+                                        </h3>
+                                        <div className="bg-slate-50/50 rounded-xl overflow-hidden">
+                                            {renderInputs()}
+                                        </div>
+                                    </div>
+
+                                    {/* Mobile Config Section */}
+                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                                        <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                            <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            </svg>
+                                            Cấu hình AI
+                                        </h3>
+                                        {renderConfig()}
                                     </div>
                                 </div>
-
-                                {/* Mobile Config Section */}
-                                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                                    <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                                        <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                        Cấu hình AI
-                                    </h3>
-                                    {renderConfig()}
-                                </div>
-                            </div>
+                            )}
 
                             {/* Render Results based on CURRENT MODE State */}
                             
