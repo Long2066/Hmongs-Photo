@@ -10,7 +10,7 @@ full = agent_client.get_instance_agent_command_execution(
     instance_id=inst_id
 ).data
 
-print(f"LIFECYCLE: {full.lifecycle_state}")
-print(f"EXIT CODE: {full.execution_exit_code}")
-print("--- FULL TEXT ---")
-print(full.content.text)
+text = full.content.text or ""
+print(f"LIFECYCLE: {full.lifecycle_state}, LENGTH: {len(text)}")
+print("--- OUTPUT ---")
+print(text)
