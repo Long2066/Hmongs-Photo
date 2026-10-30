@@ -44,6 +44,82 @@ export interface NineRouterLabeledReferenceImage {
     label: string;
 }
 
+export interface SupportedImageModel {
+    id: string;
+    name: string;
+    shortName: string;
+    icon: string;
+    tag: string;
+    tagColor: string;
+    description: string;
+    speed: 'fast' | 'medium' | 'slow';
+    isDefault?: boolean;
+}
+
+export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
+    {
+        id: 'gpt-image-2.5',
+        name: 'GPT Image 2.5',
+        shortName: 'GPT 2.5',
+        icon: '💎',
+        tag: 'Cao cấp nhất',
+        tagColor: 'purple',
+        description: 'Tái tạo ánh sáng, da dẻ và chi tiết trang phục với độ chân thực cao nhất',
+        speed: 'medium',
+        isDefault: true
+    },
+    {
+        id: 'ag/gemini-3.1-flash-image',
+        name: 'Gemini 3.1 Flash Image',
+        shortName: 'Gemini 3.1',
+        icon: '⚡',
+        tag: 'Nhanh nhất',
+        tagColor: 'emerald',
+        description: 'Tốc độ 3-5s, tối ưu chuẩn xác khuôn mặt & ghép trang phục H’Mông',
+        speed: 'fast'
+    },
+    {
+        id: 'ag/gemini-3-pro-image',
+        name: 'Gemini 3 Pro Studio',
+        shortName: 'Gemini 3 Pro',
+        icon: '⭐',
+        tag: 'Chi tiết cao',
+        tagColor: 'blue',
+        description: 'Chất lượng ảnh studio sắc nét, render text và hoa văn trang phục tinh xảo',
+        speed: 'medium'
+    },
+    {
+        id: 'imagen-3.0-generate-002',
+        name: 'Imagen 3.0 Ultra',
+        shortName: 'Imagen 3',
+        icon: '🎨',
+        tag: 'Điện ảnh',
+        tagColor: 'amber',
+        description: 'Phong cách photorealism điện ảnh, chiều sâu và màu sắc mượt mà',
+        speed: 'medium'
+    },
+    {
+        id: 'gpt-image-1.5',
+        name: 'GPT Image 1.5',
+        shortName: 'GPT 1.5',
+        icon: '✨',
+        tag: 'Cân bằng',
+        tagColor: 'indigo',
+        description: 'Cân bằng tốc độ và độ sắc nét, tiết kiệm quota',
+        speed: 'fast'
+    },
+    {
+        id: 'ag/gemini-2.5-flash-image',
+        name: 'Gemini 2.5 Flash',
+        shortName: 'Gemini 2.5',
+        icon: '🚀',
+        tag: 'Ổn định',
+        tagColor: 'slate',
+        description: 'Mô hình dự phòng ổn định cao, phản hồi nhanh',
+        speed: 'fast'
+    }
+];
+
 // --- URL Normalization Helper ---
 export const normalizeNineRouterUrl = (rawUrl: string): string => {
     let url = (rawUrl || '').trim();
@@ -91,7 +167,11 @@ export const getNineRouterApiKey = (): string => {
 };
 
 export const setNineRouterImageModel = (model: string): void => {
-    localStorage.setItem(NINEROUTER_IMAGE_MODEL_KEY, model.trim() || DEFAULT_IMAGE_MODEL);
+    const cleanModel = model.trim() || DEFAULT_IMAGE_MODEL;
+    localStorage.setItem(NINEROUTER_IMAGE_MODEL_KEY, cleanModel);
+    window.dispatchEvent(new CustomEvent('ninerouter-model-changed', {
+        detail: { model: cleanModel }
+    }));
 };
 
 export const getNineRouterImageModel = (): string => {
@@ -99,7 +179,11 @@ export const getNineRouterImageModel = (): string => {
 };
 
 export const setNineRouterTextModel = (model: string): void => {
-    localStorage.setItem(NINEROUTER_TEXT_MODEL_KEY, model.trim() || DEFAULT_TEXT_MODEL);
+    const cleanModel = model.trim() || DEFAULT_TEXT_MODEL;
+    localStorage.setItem(NINEROUTER_TEXT_MODEL_KEY, cleanModel);
+    window.dispatchEvent(new CustomEvent('ninerouter-textmodel-changed', {
+        detail: { model: cleanModel }
+    }));
 };
 
 export const getNineRouterTextModel = (): string => {

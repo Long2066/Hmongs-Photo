@@ -1,274 +1,251 @@
 import React, { memo, useMemo, useCallback, useState, useEffect } from 'react';
 import {
-    AVAILABLE_IMAGE_MODELS,
-    getSelectedImageModel,
-    setSelectedImageModel,
     getSelectedResolution,
     setSelectedResolution,
-    getSupportedResolutions,
-    calculateCost,
-    formatVND,
-    type ResolutionType,
-    type ModelConfig
+    type ResolutionType
 } from '../services/geminiCoreService';
-import { isProUser, getUseProApi } from '../services/storageService';
-import * as antigravityService from '../services/antigravityService';
+import * as nineRouterService from '../services/nineRouterService';
+import { SUPPORTED_IMAGE_MODELS, type SupportedImageModel } from '../services/nineRouterService';
 
 interface ModelSelectorProps {
     onModelChange?: (modelId: string) => void;
     onResolutionChange?: (resolution: ResolutionType) => void;
-    imageCount?: number; // For cost estimation
+    imageCount?: number;
     className?: string;
     showCostEstimate?: boolean;
-    showResolution?: boolean; // Whether to show resolution selector (default: true)
+    showResolution?: boolean;
 }
 
-// Memoized component to prevent unnecessary re-renders
 export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     onModelChange,
     onResolutionChange,
-    imageCount = 1,
     className = '',
-    showCostEstimate = true,
     showResolution = true
 }) => {
-    const [selectedModel, setSelectedModelState] = useState(getSelectedImageModel);
-    const [selectedRes, setSelectedResState] = useState<ResolutionType>(getSelectedResolution);
+    // Selected 9Router Image Model
+    const [selectedModel, setSelectedModel] = useState<string>(() =>
+        nineRouterService.getNineRouterImageModel()
+    );
 
-    // VIP status with real-time sync
-    // NOTE: Antigravity and NineRouter users are treated as VIP (can use all models/features)
-    const [isVipUser, setIsVipUser] = useState(() => {
-        const isAntigravity = antigravityService.isAntigravityEnabled();
-        const isNineRouter = localStorage.getItem('ninerouter_enabled') === 'true';
-        return isAntigravity || isNineRouter || (isProUser() && getUseProApi());
+    // Selected Resolution
+    const [selectedRes, setSelectedRes] = useState<ResolutionType>(() =>
+        getSelectedResolution()
+    );
+
+    // Custom model input state
+    const [isCustomMode, setIsCustomMode] = useState<boolean>(() => {
+        const current = nineRouterService.getNineRouterImageModel();
+        return !SUPPORTED_IMAGE_MODELS.some(m => m.id === current);
+    });
+    const [customModelText, setCustomModelText] = useState<string>(() => {
+        const current = nineRouterService.getNineRouterImageModel();
+        return SUPPORTED_IMAGE_MODELS.some(m => m.id === current) ? '' : current;
     });
 
-    // Track if specifically using Antigravity (for UI indicator)
-    const [isAntigravityActive, setIsAntigravityActive] = useState(() =>
-        antigravityService.isAntigravityEnabled()
-    );
-    const [isNineRouterActive, setIsNineRouterActive] = useState(() =>
-        localStorage.getItem('ninerouter_enabled') === 'true'
-    );
-
-    // Listen for VIP status changes, Antigravity, and NineRouter changes
+    // Listen to real-time model changes from any modal/tab
     useEffect(() => {
-        const handleVipChange = () => {
-            const isAntigravity = antigravityService.isAntigravityEnabled();
-            const isNineRouter = localStorage.getItem('ninerouter_enabled') === 'true';
-            const newVipStatus = isAntigravity || isNineRouter || (isProUser() && getUseProApi());
-            setIsVipUser(newVipStatus);
-            setIsAntigravityActive(isAntigravity);
-            setIsNineRouterActive(isNineRouter);
-            console.log('[ModelSelector] VIP status updated:', newVipStatus, '(Antigravity:', isAntigravity, ', NineRouter:', isNineRouter, ')');
+        const handleModelChange = (e: any) => {
+            const nextModel = e.detail?.model || nineRouterService.getNineRouterImageModel();
+            setSelectedModel(nextModel);
+            const isCustom = !SUPPORTED_IMAGE_MODELS.some(m => m.id === nextModel);
+            setIsCustomMode(isCustom);
+            if (isCustom) setCustomModelText(nextModel);
         };
 
-        window.addEventListener('vip-status-changed', handleVipChange);
-        window.addEventListener('antigravity-status-changed', handleVipChange);
-        window.addEventListener('ninerouter-status-changed', handleVipChange);
-        // Also listen for storage changes (for multi-tab sync)
-        window.addEventListener('storage', handleVipChange);
+        window.addEventListener('ninerouter-model-changed', handleModelChange);
+        window.addEventListener('storage', handleModelChange);
 
         return () => {
-            window.removeEventListener('vip-status-changed', handleVipChange);
-            window.removeEventListener('antigravity-status-changed', handleVipChange);
-            window.removeEventListener('ninerouter-status-changed', handleVipChange);
-            window.removeEventListener('storage', handleVipChange);
+            window.removeEventListener('ninerouter-model-changed', handleModelChange);
+            window.removeEventListener('storage', handleModelChange);
         };
     }, []);
 
-    // Get current model config
-    const currentModel = useMemo(() =>
-        AVAILABLE_IMAGE_MODELS.find(m => m.id === selectedModel),
-        [selectedModel]
-    );
+    // Active model info lookup
+    const activeModelInfo = useMemo<SupportedImageModel | undefined>(() => {
+        return SUPPORTED_IMAGE_MODELS.find(m => m.id === selectedModel);
+    }, [selectedModel]);
 
-    // Get available resolutions for current model
-    const availableResolutions = useMemo(() =>
-        getSupportedResolutions(selectedModel),
-        [selectedModel]
-    );
-
-    // Calculate cost estimate
-    const costEstimate = useMemo(() =>
-        calculateCost(selectedModel, imageCount, selectedRes),
-        [selectedModel, imageCount, selectedRes]
-    );
-
-    // Handle model change
-    const handleModelChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-        const modelId = e.target.value;
-        const model = AVAILABLE_IMAGE_MODELS.find(m => m.id === modelId);
-
-        // Prevent non-VIP users from selecting VIP-only models
-        if (model?.vipOnly && !isVipUser) {
-            return;
-        }
-
-        setSelectedImageModel(modelId);
-        setSelectedModelState(modelId);
-
-        // Auto-adjust resolution if not supported
-        const newResolutions = getSupportedResolutions(modelId);
-        if (!newResolutions.includes(selectedRes)) {
-            const newRes = newResolutions[newResolutions.length - 1]; // Pick highest available
-            setSelectedResolution(newRes);
-            setSelectedResState(newRes);
-            onResolutionChange?.(newRes);
-        }
-
+    // Choose a predefined model tab
+    const handleSelectModel = useCallback((modelId: string) => {
+        setSelectedModel(modelId);
+        setIsCustomMode(false);
+        nineRouterService.setNineRouterImageModel(modelId);
         onModelChange?.(modelId);
-    }, [isVipUser, selectedRes, onModelChange, onResolutionChange]);
+    }, [onModelChange]);
+
+    // Apply custom model
+    const handleApplyCustomModel = useCallback(() => {
+        const trimmed = customModelText.trim();
+        if (!trimmed) return;
+        setSelectedModel(trimmed);
+        nineRouterService.setNineRouterImageModel(trimmed);
+        onModelChange?.(trimmed);
+    }, [customModelText, onModelChange]);
 
     // Handle resolution change
-    const handleResolutionChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-        const res = e.target.value as ResolutionType;
+    const handleResolutionChange = useCallback((res: ResolutionType) => {
         setSelectedResolution(res);
-        setSelectedResState(res);
+        setSelectedRes(res);
         onResolutionChange?.(res);
     }, [onResolutionChange]);
 
-    // Get available models based on VIP status
-    const availableModels = useMemo(() =>
-        AVAILABLE_IMAGE_MODELS.map(model => ({
-            ...model,
-            disabled: model.vipOnly && !isVipUser
-        })),
-        [isVipUser]
-    );
-
-    // Speed icon
-    const getSpeedIcon = (speed: ModelConfig['speed']) => {
-        switch (speed) {
-            case 'fast': return '⚡';
-            case 'medium': return '🔄';
-            case 'slow': return '🎯';
-        }
-    };
-
     return (
-        <div className={`model-selector space-y-3 ${className}`}>
-            {/* Model Selection */}
+        <div className={`space-y-3.5 ${className}`}>
+            {/* Header: Title + Active Tag */}
             <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">
-                    🤖 Model AI
-                </label>
-                <div className="relative">
-                    <select
-                        value={selectedModel}
-                        onChange={handleModelChange}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 
-                                   focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none appearance-none
-                                   cursor-pointer transition-colors hover:border-slate-300"
+                <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="text-sm">🤖</span> Model Tạo Ảnh
+                    </label>
+                    <span
+                        className="text-[10px] font-mono font-medium text-slate-500 bg-slate-100/90 border border-slate-200/60 px-2 py-0.5 rounded-md truncate max-w-[160px]"
+                        title={selectedModel}
                     >
-                        {availableModels.map(model => (
-                            <option
+                        {selectedModel.replace('ag/', '')}
+                    </span>
+                </div>
+
+                {/* Model Tabs Grid */}
+                <div className="grid grid-cols-2 gap-1.5">
+                    {SUPPORTED_IMAGE_MODELS.map((model) => {
+                        const isSelected = selectedModel === model.id && !isCustomMode;
+                        return (
+                            <button
                                 key={model.id}
-                                value={model.id}
-                                disabled={model.disabled}
+                                type="button"
+                                onClick={() => handleSelectModel(model.id)}
+                                className={`group relative p-2.5 rounded-xl text-left transition-all duration-150 flex flex-col justify-between select-none ${
+                                    isSelected
+                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20 ring-1 ring-white/30 scale-[1.01]'
+                                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/80 hover:border-indigo-300 shadow-xs'
+                                }`}
                             >
-                                {getSpeedIcon(model.speed)} {model.name} - {isVipUser ? `${formatVND(model.pricePerImage)}/ảnh` : 'Miễn phí'}
-                                {model.disabled ? ' 🔒' : model.vipOnly ? ' ⭐' : ''}
-                            </option>
-                        ))}
-                    </select>
-                    <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
-                        <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
+                                <div className="flex items-center justify-between gap-1 w-full mb-1">
+                                    <span className="text-xs font-bold flex items-center gap-1.5 truncate">
+                                        <span className="text-sm">{model.icon}</span>
+                                        <span className="truncate">{model.shortName}</span>
+                                    </span>
+                                    <span
+                                        className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold whitespace-nowrap tracking-tight ${
+                                            isSelected
+                                                ? 'bg-white/20 text-white'
+                                                : model.tagColor === 'emerald'
+                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                                    : model.tagColor === 'purple'
+                                                        ? 'bg-purple-50 text-purple-700 border border-purple-200/60'
+                                                        : model.tagColor === 'blue'
+                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
+                                                            : model.tagColor === 'amber'
+                                                                ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                                                                : 'bg-slate-100 text-slate-600'
+                                        }`}
+                                    >
+                                        {model.tag}
+                                    </span>
+                                </div>
+                                <span
+                                    className={`text-[10px] line-clamp-1 leading-tight ${
+                                        isSelected ? 'text-indigo-100' : 'text-slate-400 group-hover:text-slate-500'
+                                    }`}
+                                >
+                                    {model.description}
+                                </span>
+                            </button>
+                        );
+                    })}
+
+                    {/* Custom Model Tab */}
+                    <button
+                        type="button"
+                        onClick={() => setIsCustomMode(!isCustomMode)}
+                        className={`p-2.5 rounded-xl text-left transition-all duration-150 flex flex-col justify-between col-span-2 select-none ${
+                            isCustomMode
+                                ? 'bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-md ring-1 ring-white/20'
+                                : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/80 hover:border-slate-300'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between w-full">
+                            <span className="text-xs font-bold flex items-center gap-1.5">
+                                <span>⚙️</span>
+                                <span>Model tùy chỉnh (Nhập ID từ 9Router)</span>
+                            </span>
+                            <span
+                                className={`text-[9px] px-2 py-0.5 rounded-md font-bold ${
+                                    isCustomMode ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                                }`}
+                            >
+                                {isCustomMode ? 'Đang chọn' : '+ Tùy chỉnh'}
+                            </span>
+                        </div>
+                    </button>
+                </div>
+
+                {/* Custom Model Input Drawer */}
+                {isCustomMode && (
+                    <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200/80 space-y-2 animate-fade-in">
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                            Nhập Model ID từ 9Router
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={customModelText}
+                                onChange={(e) => setCustomModelText(e.target.value)}
+                                placeholder="Ví dụ: dall-e-3, flux-pro, ag/claude-sonnet-5-5..."
+                                className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <button
+                                type="button"
+                                onClick={handleApplyCustomModel}
+                                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors"
+                            >
+                                Áp dụng
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Selected Model Description Callout */}
+                <div className="p-2.5 bg-slate-50/90 border border-slate-200/70 rounded-xl text-[11px] text-slate-600 flex items-start gap-2 shadow-2xs">
+                    <span className="text-indigo-600 text-sm flex-shrink-0">💡</span>
+                    <div className="leading-snug">
+                        <strong className="text-slate-800 font-bold">
+                            {activeModelInfo ? activeModelInfo.name : selectedModel}:{' '}
+                        </strong>
+                        <span className="text-slate-600">
+                            {activeModelInfo
+                                ? activeModelInfo.description
+                                : 'Model 9Router tùy chỉnh được lưu sẵn cho mọi tác vụ tạo ảnh.'}
+                        </span>
                     </div>
                 </div>
-                {currentModel && (
-                    <p className="text-[10px] text-slate-500 mt-1">
-                        {currentModel.description} • Max: {currentModel.maxResolution}
-                    </p>
-                )}
             </div>
 
             {/* Resolution Selection - only show if showResolution is true */}
             {showResolution && (
                 <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">
-                        📐 Độ phân giải
+                    <label className="block text-xs font-bold text-slate-800 mb-1.5 uppercase tracking-wide">
+                        📐 Độ phân giải xuất ra
                     </label>
-                    <div className="flex gap-2">
-                        {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map(res => {
-                            const isSupported = availableResolutions.includes(res);
+                    <div className="flex gap-1.5">
+                        {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map((res) => {
                             const isSelected = selectedRes === res;
                             return (
                                 <button
                                     key={res}
-                                    onClick={() => {
-                                        if (isSupported) {
-                                            setSelectedResolution(res);
-                                            setSelectedResState(res);
-                                            onResolutionChange?.(res);
-                                        }
-                                    }}
-                                    disabled={!isSupported}
-                                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all
-                                    ${isSelected
-                                            ? 'bg-indigo-600 text-white shadow-md'
-                                            : isSupported
-                                                ? 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                                                : 'bg-slate-100 text-slate-300 cursor-not-allowed'
-                                        }`}
+                                    type="button"
+                                    onClick={() => handleResolutionChange(res)}
+                                    className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                                        isSelected
+                                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm ring-1 ring-white/20'
+                                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                                    }`}
                                 >
                                     {res}
-                                    {!isSupported && <span className="ml-1">🔒</span>}
                                 </button>
                             );
                         })}
-                    </div>
-                </div>
-            )}
-
-            {/* Cost Estimate - Only show when VIP mode is enabled (not Antigravity) */}
-            {isVipUser && !isAntigravityActive && showCostEstimate && costEstimate && imageCount > 0 && (
-                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-xs font-bold text-amber-800">💰 Ước tính chi phí VIP</p>
-                            <p className="text-[10px] text-amber-600 mt-0.5">
-                                {imageCount} ảnh × {formatVND(costEstimate.pricePerImage)}
-                            </p>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-lg font-extrabold text-amber-700">
-                                {costEstimate.formattedTotal}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Antigravity VIP Mode Message */}
-            {isAntigravityActive && (
-                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-3">
-                    <div className="flex items-center gap-2">
-                        <span className="text-lg">🚀</span>
-                        <div>
-                            <p className="text-xs font-bold text-purple-700">Antigravity VIP Mode</p>
-                            <p className="text-[10px] text-purple-600 mt-0.5">
-                                Tất cả model VIP đã mở khóa! • Đang dùng Google Account miễn phí ✨
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Free Key Message - Show when not VIP and not Antigravity */}
-            {!isVipUser && !isAntigravityActive && (
-                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-3">
-                    <div className="flex items-center gap-2">
-                        <span className="text-lg">🆓</span>
-                        <div>
-                            <p className="text-xs font-bold text-green-700">Đang dùng Key miễn phí</p>
-                            <p className="text-[10px] text-green-600 mt-0.5">
-                                Tất cả tính năng đều miễn phí với API Key cá nhân •
-                                <span className="text-amber-600"> Nạp VIP để mở khóa Imagen 3.0 và Gemini 3 Pro ⭐</span>
-                            </p>
-                        </div>
                     </div>
                 </div>
             )}

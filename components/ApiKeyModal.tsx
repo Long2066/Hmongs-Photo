@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as nineRouterService from '../services/nineRouterService';
+import { SUPPORTED_IMAGE_MODELS } from '../services/nineRouterService';
 
 interface ApiKeyModalProps {
     onClose: () => void;
@@ -262,77 +263,101 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         </div>
 
                         {/* 3. Image Model & Text Model */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        <div className="space-y-3 pt-1">
                             <div>
-                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-                                    Image Model (Vẽ ảnh)
-                                </label>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                                        Image Model (Vẽ ảnh)
+                                    </label>
+                                    <span className="text-[10px] font-mono text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 truncate max-w-[200px]">
+                                        {nineRouterImageModel}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mb-2">
+                                    {SUPPORTED_IMAGE_MODELS.map((m) => {
+                                        const isSelected = nineRouterImageModel === m.id;
+                                        return (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setNineRouterImageModelState(m.id)}
+                                                className={`p-2 rounded-xl text-left transition-all flex flex-col justify-between ${
+                                                    isSelected
+                                                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold shadow-xs ring-1 ring-white/20'
+                                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between gap-1 w-full">
+                                                    <span className="text-xs truncate flex items-center gap-1">
+                                                        <span>{m.icon}</span>
+                                                        <span>{m.shortName}</span>
+                                                    </span>
+                                                    <span className={`text-[8px] px-1 py-0.5 rounded font-bold whitespace-nowrap ${
+                                                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/70 text-slate-600'
+                                                    }`}>
+                                                        {m.tag}
+                                                    </span>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                                 <input
                                     type="text"
                                     value={nineRouterImageModel}
                                     onChange={(e) => setNineRouterImageModelState(e.target.value)}
-                                    placeholder="gpt-image-2.5"
-                                    className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
+                                    placeholder="Hoặc tự gõ Model ID tùy chỉnh..."
+                                    className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
                                 />
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => setNineRouterImageModelState('gpt-image-2.5')}
-                                        className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 px-1.5 py-0.5 rounded transition-colors"
-                                    >
-                                        ⭐ GPT 2.5 (Xịn nhất)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setNineRouterImageModelState('gpt-image-1.5')}
-                                        className="text-[10px] text-slate-600 hover:text-emerald-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
-                                    >
-                                        GPT 1.5
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setNineRouterImageModelState('gemini-3.1-flash-image')}
-                                        className="text-[10px] text-slate-400 hover:text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
-                                    >
-                                        Gemini 3.1
-                                    </button>
-                                </div>
                             </div>
 
                             <div>
-                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-                                    Text Model (Soạn Prompt)
-                                </label>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                                        Text Model (Soạn Prompt)
+                                    </label>
+                                    <span className="text-[10px] font-mono text-indigo-700 font-semibold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60 truncate max-w-[200px]">
+                                        {nineRouterTextModel}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1.5 mb-2">
+                                    {[
+                                        { id: 'claude-sonnet-4-6', name: 'Claude 4.6', icon: '⭐', tag: 'Chi tiết' },
+                                        { id: 'gpt-5.6-sol', name: 'GPT 5.6', icon: '💎', tag: 'Thông minh' },
+                                        { id: 'gemini-3-flash', name: 'Flash', icon: '⚡', tag: 'Nhanh' }
+                                    ].map((m) => {
+                                        const isSelected = nineRouterTextModel === m.id;
+                                        return (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setNineRouterTextModelState(m.id)}
+                                                className={`p-2 rounded-xl text-left transition-all flex items-center justify-between ${
+                                                    isSelected
+                                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold shadow-xs'
+                                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                                                }`}
+                                            >
+                                                <span className="text-xs truncate flex items-center gap-1">
+                                                    <span>{m.icon}</span>
+                                                    <span>{m.name}</span>
+                                                </span>
+                                                <span className={`text-[8px] px-1 py-0.5 rounded font-bold whitespace-nowrap ${
+                                                    isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/70 text-slate-600'
+                                                }`}>
+                                                    {m.tag}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                                 <input
                                     type="text"
                                     value={nineRouterTextModel}
                                     onChange={(e) => setNineRouterTextModelState(e.target.value)}
-                                    placeholder="claude-sonnet-4-6"
-                                    className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
+                                    placeholder="Hoặc tự gõ Text Model ID..."
+                                    className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
                                 />
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => setNineRouterTextModelState('claude-sonnet-4-6')}
-                                        className="text-[10px] text-indigo-700 font-semibold bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 px-1.5 py-0.5 rounded transition-colors"
-                                    >
-                                        ⭐ Claude 4.6 (Chi tiết nhất)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setNineRouterTextModelState('gpt-5.6-sol')}
-                                        className="text-[10px] text-slate-600 hover:text-indigo-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
-                                    >
-                                        GPT 5.6
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setNineRouterTextModelState('gemini-3-flash')}
-                                        className="text-[10px] text-slate-400 hover:text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
-                                    >
-                                        Flash
-                                    </button>
-                                </div>
                             </div>
                         </div>
 
