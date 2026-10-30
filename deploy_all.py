@@ -54,7 +54,7 @@ except Exception as e:
 # 2. CHUAN BI SCRIPT CAI DAT LEN VPS
 print("\n[2/3] Chuan bi lenh thuc thi tren may chu...")
 bash_script = """#!/bin/bash
-curl -sSL "https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/setup_vps.sh?t=$(date +%s)" | tr -d '\\r' | bash
+curl -sSL "https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/setup_vps.sh?t=$(date +%s)" | tr -d '\\r' | sudo bash
 """
 
 # 3. GUI LENH QUA AGENT VA THEO DOI
@@ -73,7 +73,7 @@ cmd = agent_client.create_instance_agent_command(details)
 print(f"-> Lenh da duoc tiep nhan! ID: {cmd.data.id}")
 print("Dang cho may chu tai binary, cau hinh OAuth va khoi chay (khoang 30-45 giay)...\n")
 
-for i in range(24):
+for i in range(36):
     time.sleep(5)
     try:
         exs = agent_client.list_instance_agent_command_executions(

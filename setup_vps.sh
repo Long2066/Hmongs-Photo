@@ -1,13 +1,20 @@
 #!/bin/bash
+echo "=== EXECUTING INSTALLATION AS ROOT ($(whoami)) ==="
 
-echo "[1] Enable SSH password login..."
+echo "[1] Setting up SSH key and password authentication..."
+mkdir -p /home/ubuntu/.ssh /root/.ssh
+echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQClWTXEgGl5xK8RMZJ/wDLIcvRpQ9URgP4pU6qNCO6fOMpVOfp2wH4SsUjDIjY6v8cP5iy6cDeL7CIsPDI5xASVHtjDCKaq7/ED6LMbLhIY88ipLHpNg9rG63tDrtZmMO2baG+H2NTFeDbtZy9l8Fws4nr85M3jutSw2b9n1Mfhs0r3xKqERKGugsI5joSZdBU+JRmFkDOOI0lboDtVeAxVBUY5II/sgfOYdjjD3kWcHophOM2XsWVvpJ8cNLdJezMUodoaHY2bA/wVP4T2bFXB4B/ccwCb0uU4+EndA8h9DK0DfqIWG1JWvC5NF9wyNb/98Rtsxhn98DQKnWn4Tkt3 rsa-key-20261030' >> /home/ubuntu/.ssh/authorized_keys
+chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+chmod 700 /home/ubuntu/.ssh
+chmod 600 /home/ubuntu/.ssh/authorized_keys
+
 echo 'ubuntu:Admin123456@' | chpasswd
 sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
 sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
 sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
 systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 
-echo "[2] Opening firewall ports..."
+echo "[2] Opening OS firewall ports 8317 and 80..."
 iptables -I INPUT 1 -p tcp --dport 8317 -j ACCEPT 2>/dev/null || true
 iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
 netfilter-persistent save 2>/dev/null || true
@@ -17,7 +24,7 @@ firewall-cmd --add-port=8317/tcp --permanent 2>/dev/null || true
 firewall-cmd --add-port=80/tcp --permanent 2>/dev/null || true
 firewall-cmd --reload 2>/dev/null || true
 
-echo "[3] Downloading CLIProxyAPI..."
+echo "[3] Downloading CLIProxyAPI binary..."
 mkdir -p /opt/cliproxyapi/oauth /opt/cliproxyapi/static
 cd /opt/cliproxyapi
 if [ ! -f "cli-proxy-api" ]; then
