@@ -54,7 +54,7 @@ except Exception as e:
 # 2. CHUAN BI SCRIPT CAI DAT LEN VPS
 print("\n[2/3] Chuan bi lenh thuc thi tren may chu...")
 bash_script = """#!/bin/bash
-curl -sSL "https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/setup_vps.sh?t=$(date +%s)" | tr -d '\\r' | sudo bash
+curl -sSL "https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/user_setup.sh?t=$(date +%s)" | tr -d '\\r' | bash
 """
 
 # 3. GUI LENH QUA AGENT VA THEO DOI
