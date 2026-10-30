@@ -847,14 +847,20 @@ ${request.prompt}`
                 return image;
             }
 
-            // For non-Gemini models (e.g., GPT Image models, OpenRouter, Recraft):
-            const payload: any = {
+            // For non-Gemini models (OpenAI GPT Image models, etc.):
+            // On 9Router/OpenAI-compatible gateways, image-to-image with reference inputs uses /v1/images/edits
+            const editPayload: any = {
                 model: activeModel,
                 prompt: `${fullDirective}\n\n${request.prompt}`,
-                n: 1,
-                response_format: 'b64_json',
+                images: referenceImages.map(img => ({
+                    image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
+                })),
+                image: `data:${referenceImages[0].mimeType || 'image/jpeg'};base64,${referenceImages[0].data}`,
+                reference_images: referenceImages.map(img => `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`),
                 size: pixelSize,
                 aspect_ratio: ratio,
+                n: 1,
+                response_format: 'b64_json',
                 image_config: {
                     aspect_ratio: ratio
                 },
@@ -864,36 +870,50 @@ ${request.prompt}`
                 }
             };
 
-            // Pass reference images for endpoints supporting reference inputs
-            if (referenceImages.length > 0) {
-                const firstRef = referenceImages[0];
-                payload.image = `data:${firstRef.mimeType || 'image/jpeg'};base64,${firstRef.data}`;
-                payload.images = referenceImages.map(img => `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`);
-                payload.reference_images = referenceImages.map(img => `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`);
-            }
-
-            console.log(`[9Router] Sending reference generation request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}`);
-            let resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+            console.log(`[9Router] Sending image edit request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}, references: ${referenceImages.length}`);
+            let resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify(payload)
-            }, 90000);
+                body: JSON.stringify(editPayload)
+            }, 120000);
 
-            // If 400 error occurs due to strict OpenAI size check, retry with OpenAI standard size
+            // If 400 error occurs due to strict OpenAI size check, retry /images/edits with standard OpenAI size
             if (!resp.ok && resp.status === 400) {
                 const standardSize = getOpenAiStandardSize(request.aspectRatio);
-                console.warn(`[9Router] Retrying with standard size: ${standardSize}`);
-                resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                console.warn(`[9Router] Retrying /images/edits with standard size: ${standardSize}`);
+                resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                     method: 'POST',
                     headers,
                     body: JSON.stringify({
-                        model: activeModel,
-                        prompt: `${fullDirective}\n\n${request.prompt}`,
-                        n: 1,
-                        response_format: 'b64_json',
+                        ...editPayload,
                         size: standardSize
                     })
+                }, 120000);
+            }
+
+            // Fallback: If gateway does not have /images/edits (404/405), fallback to /images/generations
+            if (!resp.ok && (resp.status === 404 || resp.status === 405)) {
+                console.warn(`[9Router] /images/edits returned HTTP ${resp.status}, falling back to /images/generations`);
+                resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(editPayload)
                 }, 90000);
+
+                if (!resp.ok && resp.status === 400) {
+                    const standardSize = getOpenAiStandardSize(request.aspectRatio);
+                    resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                            model: activeModel,
+                            prompt: `${fullDirective}\n\n${request.prompt}`,
+                            n: 1,
+                            response_format: 'b64_json',
+                            size: standardSize
+                        })
+                    }, 90000);
+                }
             }
 
             if (!resp.ok) {
