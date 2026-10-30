@@ -968,6 +968,38 @@ const getStylePrompt = (style: string): string => {
     return mapping[style] || 'High quality, photorealistic, Hmong cultural elements.';
 };
 
+// --- CHARACTER AESTHETIC DIRECTIVE HELPER ---
+export const getCharacterAestheticDirective = (style?: string): string => {
+    if (!style) {
+        return [
+            'MANDATORY CHARACTER AESTHETICS:',
+            '- MALE: Handsome young man, natural charming features, healthy complexion, dignified presence.',
+            '- FEMALE: Beautiful young woman, radiant elegant features, natural makeup style, graceful proportions.'
+        ].join('\n');
+    }
+
+    const lower = style.toLowerCase();
+    if (lower.includes('h’mông') || lower.includes('hmong') || lower.includes('truyền thống') || lower.includes('bản sắc') || lower.includes('documentar')) {
+        return [
+            "MANDATORY ETHNIC CHARACTER AESTHETICS (NORTHWEST VIETNAMESE H'MONG):",
+            "- AUTHENTIC ETHNIC IDENTITY: Characters MUST authentically represent Northwestern Vietnamese H'Mong ethnic people with respectful, genuine cultural fidelity.",
+            "- MALE: Authentic Vietnamese H'Mong young man, healthy sun-kissed golden complexion, high cheekbones, dignified highland facial features, bright expressive eyes, proud and spirited cultural demeanor.",
+            "- FEMALE: Authentic Vietnamese H'Mong young woman, natural radiant complexion, charming and graceful Vietnamese highland ethnic facial features, traditional hairstyle/headwear ornamentation, modesty and highland elegance.",
+            "- STRICT CULTURAL FIDELITY: Absolutely DO NOT replace ethnic features with generic Western, generic anime, or artificial looks. Respect and showcase genuine Northwestern Vietnamese H'Mong ethnic heritage."
+        ].join('\n');
+    }
+
+    if (lower.includes('hàn quốc') || lower.includes('korean') || lower.includes('k-pop')) {
+        return KOREAN_CHARACTER_DEFAULTS;
+    }
+
+    return [
+        'MANDATORY CHARACTER AESTHETICS:',
+        '- MALE: Handsome Asian male, 17-20 years old, tall, sharp jawline, natural beauty, stylish and charismatic.',
+        '- FEMALE: Beautiful Asian female, tall and elegant, radiant skin, natural makeup style, graceful proportions.'
+    ].join('\n');
+};
+
 // --- PROMPT OPTIMIZER ---
 export const optimizePrompt = async (apiKey: string, rawInput: string): Promise<string> => {
     // Check VIP mode first
@@ -1071,14 +1103,14 @@ export const generateBatchPromptsText = async (
         if (hasMaleInput && !hasFemaleInput) {
             // ONLY MALE INPUT → ALL prompts must be MALE
             modeInstruction = `OUTPUT MODE: SINGLE (MALE ONLY). 
-            ALL ${count} prompts MUST feature ONLY handsome Korean male characters.
+            ALL ${count} prompts MUST feature ONLY handsome male characters.
             DO NOT generate ANY female characters in ANY prompt.
             Every single prompt must describe a MALE person wearing the male outfit reference.
             This is NON-NEGOTIABLE - all ${count} images will be of MALE characters only.`;
         } else if (hasFemaleInput && !hasMaleInput) {
             // ONLY FEMALE INPUT → ALL prompts must be FEMALE
             modeInstruction = `OUTPUT MODE: SINGLE (FEMALE ONLY). 
-            ALL ${count} prompts MUST feature ONLY beautiful Korean female characters.
+            ALL ${count} prompts MUST feature ONLY beautiful female characters.
             DO NOT generate ANY male characters in ANY prompt.
             Every single prompt must describe a FEMALE person wearing the female outfit reference.
             This is NON-NEGOTIABLE - all ${count} images will be of FEMALE characters only.`;
@@ -1092,6 +1124,8 @@ export const generateBatchPromptsText = async (
     }
 
     const styleDetail = getStylePrompt(style);
+    const characterAesthetics = getCharacterAestheticDirective(style);
+    const shotDirective = nineRouterService.getShotTypeDirective(shotType);
 
     const systemInstruction = `
     You are an AI Art Director for a professional Photography Studio.
@@ -1104,10 +1138,7 @@ export const generateBatchPromptsText = async (
     - MANDATORY: Include phrases like "a person wearing...", "model dressed in...", "character standing/walking/posing in..."
     
     *** MANDATORY CHARACTER AESTHETICS ***
-    - MALE CHARACTERS: Must be handsome Korean male, 17 years old, tall (180cm+), flawless porcelain skin, 
-      K-pop idol aesthetic, sharp jawline, double eyelids, tuyệt sắc mỹ nam (peak male beauty)
-    - FEMALE CHARACTERS: Must be beautiful Korean female, tall and elegant, glass skin (chok-chok), 
-      natural Korean makeup style, graceful proportions, xinh xắn cao ráo
+    ${characterAesthetics}
     
     *** ABSOLUTE RULES FOR INPUT ACCURACY (NON-NEGOTIABLE) ***
     1. REFERENCE OUTFIT CLONING: The outfit reference images are NOT inspiration - they are TEXTURES to be mapped EXACTLY.
@@ -1117,13 +1148,14 @@ export const generateBatchPromptsText = async (
        - Male Accessory: The male MUST hold/use the EXACT item shown in the reference image
        - Female Accessory: The female MUST hold/use the EXACT item shown in the reference image
     3. NO MODIFICATIONS ALLOWED: Do not change, interpret, or "improve" the outfit/accessories. Clone them EXACTLY.
-    4. STYLE: "${styleDetail}"
-    5. SHOT TYPE: "${shotType}"
+    4. STYLE COMPLIANCE: "${styleDetail}"
+    5. SHOT TYPE & CAMERA COMPOSITION: "${shotType}"
+       ${shotDirective}
     6. ${modeInstruction}
     
     *** PROMPT STRUCTURE ***
-    Each prompt should follow: "[Person description] + [wearing exact reference outfit] + [action/pose] + [scene/background] + [lighting/mood]"
-    Example: "A handsome Korean male model, 17 years old with K-pop idol features, wearing the EXACT traditional H'Mong outfit shown in reference (clone 100% the patterns), standing proudly at a mountain market, golden hour lighting"
+    Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose fitting camera shot] + [scene/background] + [lighting/mood]"
+    Example: "A handsome young ethnic H'Mong model, wearing the EXACT traditional H'Mong outfit shown in reference (clone 100% the patterns), shot with authentic photographic composition, golden hour lighting"
 
     Output format: Just the prompts, separated by double newlines. No numbering, no introduction.
     `;
@@ -1215,7 +1247,9 @@ export const generateImagesFromPromptsList = async (
     aspectRatio: string,
     resolution: string,
     onStatusUpdate: (status: string) => void,
-    onImageGenerated: (index: number, base64: string | null) => void
+    onImageGenerated: (index: number, base64: string | null) => void,
+    style?: string,
+    shotType?: string
 ): Promise<void> => {
     // Check if NineRouter mode is enabled
     const useNineRouterMode = nineRouterService.isNineRouterEnabled();
@@ -1293,25 +1327,50 @@ export const generateImagesFromPromptsList = async (
         try {
             console.log(`[Parallel] Starting image ${index + 1}/${prompts.length}`);
 
-            // MASTER CONSTRAINT PROTOCOL - Enhanced with Korean defaults and quality
-            // Check if accessories are provided
+            // MASTER CONSTRAINT PROTOCOL - Enhanced with Cultural & Technical Compliance
             const hasMaleAccessories = refImages.maleAccessories.length > 0;
             const hasFemaleAccessories = refImages.femaleAccessories.length > 0;
+
+            const characterAesthetics = getCharacterAestheticDirective(style);
+            const shotDirective = nineRouterService.getShotTypeDirective(shotType);
+            const framingDirective = nineRouterService.getAspectFramingDirective(aspectRatio, shotType);
+
+            // Dynamic resolution directive
+            const resUpper = (resolution || "FHD").toUpperCase();
+            const resolutionDirective = resUpper === "4K"
+                ? "*** MANDATORY RESOLUTION: ULTRA-HD 4K (3840px / 2160px canvas) ***\n- Microscopic detail on fabric embroidery, silver jewelry, and skin texture. Absolutely zero blur or digital compression artifacts."
+                : resUpper === "2K"
+                ? "*** MANDATORY RESOLUTION: 2K QUAD-HD (2560px / 1440px canvas) ***\n- Highly defined textures and crisp contours."
+                : "*** RESOLUTION: FULL HD 1080P (High Fidelity) ***";
+
+            // Dynamic person framing enforcement based on shotType
+            const isPortrait = shotType?.toLowerCase().includes("chân dung") || shotType?.toLowerCase().includes("portrait");
+            const isMacro = shotType?.toLowerCase().includes("cận cảnh") || shotType?.toLowerCase().includes("macro");
+            const personFramingRule = isPortrait
+                ? "- MANDATORY FRAMING: TIGHT VERTICAL PORTRAIT (Head and chest bust shot). The person MUST be wearing the upper garment and neck jewelry/accessories. DO NOT PULL BACK to full body; legs/feet must NOT be shown."
+                : isMacro
+                ? "- MANDATORY FRAMING: EXTREME CLOSE-UP (MACRO). Tight focus on the intricate embroidery craft, silver accessories, or facial details."
+                : "- MANDATORY FRAMING: FULL BODY OR THREE-QUARTER SHOT. The person MUST be wearing the complete outfit in natural environment.";
 
             const masterConstraint = `
             🚨🚨🚨 ASPECT RATIO: ${aspectRatio} - THIS IS MANDATORY AND NON-NEGOTIABLE 🚨🚨🚨
             ${ASPECT_RATIO_ENFORCEMENT}
+
+            ${resolutionDirective}
             
             *** MASTER IDENTITY & OUTFIT CONSTRAINT PROTOCOL ***
             
             *** CRITICAL: PERSON IN CLOTHING ENFORCEMENT ***
             - OUTPUT MUST BE: A COMPLETE PHOTOGRAPH of REAL PERSON(S) wearing the clothing
             - NEVER output: Just clothing without a person, mannequin displays, flat-lay product shots, or clothing on hangers
-            - MANDATORY: Every generated image MUST show a FULL HUMAN BODY (or at minimum half-body portrait) with the person WEARING the outfit
+            ${personFramingRule}
             - The person(s) should be in a NATURAL POSE in the scene, interacting with the environment
             - REJECT any output that shows only the garment/fabric without a human wearing it
             
-            ${KOREAN_CHARACTER_DEFAULTS}
+            ${characterAesthetics}
+
+            *** STRICT CAMERA & COMPOSITION INSTRUCTION ***
+            ${shotDirective}
             
             VIRTUAL TRY-ON ENFORCEMENT: 
             - The input images are NOT just inspiration. They are TEXTURES to be mapped.
@@ -1332,11 +1391,10 @@ export const generateImagesFromPromptsList = async (
             
             ${ULTRA_SHARP_QUALITY}
             
-            ⚠️ FINAL REMINDER: OUTPUT MUST BE EXACTLY ${aspectRatio} ASPECT RATIO - DO NOT DEVIATE ⚠️
+            ⚠️ FINAL REMINDER: OUTPUT MUST BE EXACTLY ${aspectRatio} ASPECT RATIO WITH ${resUpper} RESOLUTION QUALITY ⚠️
             `;
 
-            const framingDirective = nineRouterService.getAspectFramingDirective(aspectRatio);
-            const fullPrompt = `${masterConstraint}\n\n${framingDirective}\n\nSCENE DESCRIPTION: ${prompt}\n\n*** FINAL COMPOSITION RULE ***\nUse the requested scene/background exactly while preserving the labeled outfits and accessories from the original reference pixels. Do not reuse the backgrounds from input reference photos.\n\n[ASPECT RATIO CHECK: Generate this image with EXACTLY ${aspectRatio} dimensions]`;
+            const fullPrompt = `${masterConstraint}\n\n${framingDirective}\n\nSCENE DESCRIPTION: ${prompt}\n\n*** FINAL COMPOSITION RULE ***\nUse the requested scene/background exactly while preserving the labeled outfits and accessories from the original reference pixels. Do not reuse the backgrounds from input reference photos.\n\n[ASPECT RATIO CHECK: Generate this image with EXACTLY ${aspectRatio} dimensions at ${resUpper} resolution]`;
 
             let base64Image: string | null = null;
             let usedVip = false;
@@ -1351,7 +1409,10 @@ export const generateImagesFromPromptsList = async (
                         base64Image = await nineRouterService.generateImageViaNineRouter({
                             prompt: fullPrompt,
                             referenceImages: labeledNineRouterReferences,
-                            aspectRatio: aspectRatio
+                            aspectRatio: aspectRatio,
+                            resolution: resolution,
+                            shotType: shotType,
+                            style: style
                         });
                         if (base64Image) {
                             usedNineRouter = true;

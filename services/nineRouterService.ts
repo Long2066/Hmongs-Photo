@@ -30,6 +30,9 @@ export interface NineRouterImageRequest {
     prompt: string;
     referenceImages?: Array<{ data: string; mimeType: string; label?: string }>;
     aspectRatio?: string;
+    resolution?: string;
+    shotType?: string;
+    style?: string;
     model?: string;
     // VIP-related options
     useVIPPrompt?: boolean;
@@ -436,21 +439,115 @@ const mapRatioForNineRouter = (aspectRatio?: string): string => {
 };
 
 /**
- * Composition and camera framing directive to prevent subject cutoff when rendering non-square ratios.
- * Directs the AI model to frame the subjects centrally with wide safety buffers so subjects are NEVER cropped.
+ * Mapping camera angle / shot types to exact photographic technical directives
  */
-export const getAspectFramingDirective = (aspectRatio?: string): string => {
+export const getShotTypeDirective = (shotType?: string): string => {
+    if (!shotType) return '';
+    const lower = shotType.toLowerCase();
+
+    if (lower.includes('chân dung') || lower.includes('portrait')) {
+        return `*** MANDATORY CAMERA FRAMING: TIGHT PORTRAIT / BUST SHOT ***
+- LENS & OPTICS: 85mm f/1.8 telephoto portrait prime lens, creamy shallow depth of field.
+- COMPOSITION: Tight vertical head-and-shoulders to chest bust portrait. 
+- FOCUS POINT: Razor-sharp focus on subject's facial features, eyes, and intricate traditional neckwear / silver collar ornaments.
+- MANDATORY FRAMING RULE: DO NOT PULL CAMERA BACK into a full-body wide shot. The lower body and legs MUST NOT be visible.`;
+    }
+
+    if (lower.includes('cận cảnh') || lower.includes('macro')) {
+        return `*** MANDATORY CAMERA FRAMING: EXTREME CLOSE-UP (MACRO) ***
+- LENS & OPTICS: 105mm f/2.8 Macro lens, extreme micro-focus.
+- COMPOSITION: Extreme tight focus highlighting intricate hand-embroidery stitches, jewelry silver carvings, or intense eyes.
+- MANDATORY FRAMING RULE: Zero wide perspective, pure intimate close-up detail.`;
+    }
+
+    if (lower.includes('toàn cảnh') || lower.includes('landscape')) {
+        return `*** MANDATORY CAMERA FRAMING: FULL-BODY ENVIRONMENTAL LANDSCAPE ***
+- LENS & OPTICS: 35mm wide angle, f/8 deep aperture.
+- COMPOSITION: Full human figure from head to toe standing within grand panoramic mountain landscapes.`;
+    }
+
+    if (lower.includes('chụp lén') || lower.includes('candid')) {
+        return `*** MANDATORY CAMERA FRAMING: AUTHENTIC CANDID PHOTOGRAPHY ***
+- LENS & OPTICS: 50mm f/2.0 standard lens.
+- COMPOSITION: Unposed, natural snapshot capturing spontaneous emotion, candid movement, and genuine village interaction.`;
+    }
+
+    if (lower.includes('flycam') || lower.includes('drone')) {
+        return `*** MANDATORY CAMERA FRAMING: HIGH-ALTITUDE AERIAL DRONE SHOT ***
+- LENS & OPTICS: Ultra-wide drone camera looking down from high elevation.
+- COMPOSITION: Dramatic top-down bird's-eye perspective capturing subject amidst vast terraced mountains.`;
+    }
+
+    if (lower.includes('góc thấp') || lower.includes('low angle')) {
+        return `*** MANDATORY CAMERA FRAMING: LOW-ANGLE HERO PERSPECTIVE ***
+- LENS & OPTICS: 28mm wide lens placed low to ground looking upward.
+- COMPOSITION: Imposing, proud, and heroic stature against the open sky.`;
+    }
+
+    if (lower.includes('góc rộng') || lower.includes('wide angle')) {
+        return `*** MANDATORY CAMERA FRAMING: WIDE ANGLE VIEW (24mm) ***
+- LENS & OPTICS: 24mm wide angle lens.
+- COMPOSITION: Broad panoramic perspective showing both the character and extensive natural environment.`;
+    }
+
+    if (lower.includes('studio')) {
+        return `*** MANDATORY CAMERA FRAMING: HIGH-END COMMERCIAL STUDIO SHOT ***
+- LENS & OPTICS: 85mm f/5.6 commercial portrait lens.
+- COMPOSITION: 3-point key and rim studio lighting, clean background, fashion magazine aesthetic.`;
+    }
+
+    if (lower.includes('điện ảnh') || lower.includes('cinematic')) {
+        return `*** MANDATORY CAMERA FRAMING: ANAMORPHIC CINEMATIC MASTERPIECE ***
+- LENS & OPTICS: Anamorphic cinema prime lens, 2.39:1 letterbox cinematic feel, subtle horizontal lens flare.
+- COMPOSITION: Moody chiaroscuro lighting and cinematic film color grading.`;
+    }
+
+    if (lower.includes('ngược sáng') || lower.includes('silhouette')) {
+        return `*** MANDATORY CAMERA FRAMING: DRAMATIC BACKLIT SILHOUETTE ***
+- LENS & OPTICS: Golden hour backlighting, high contrast silhouette with rim lighting around garments and hair.`;
+    }
+
+    if (lower.includes('bokeh')) {
+        return `*** MANDATORY CAMERA FRAMING: SHALLOW DEPTH OF FIELD (f/1.2 BOKEH) ***
+- LENS & OPTICS: 85mm f/1.2 ultra-fast lens.
+- COMPOSITION: Dreamy spherical bokeh light orbs in background, tack-sharp subject.`;
+    }
+
+    return `*** MANDATORY CAMERA FRAMING: ${shotType} ***
+- Strict adherence to the selected angle, lens perspective, and framing distance.`;
+};
+
+/**
+ * Composition and camera framing directive to prevent subject cutoff while respecting shotType.
+ */
+export const getAspectFramingDirective = (aspectRatio?: string, shotType?: string): string => {
+    const lowerShot = (shotType || '').toLowerCase();
+    const isPortraitOrMacro = lowerShot.includes('chân dung') ||
+        lowerShot.includes('portrait') ||
+        lowerShot.includes('cận cảnh') ||
+        lowerShot.includes('macro');
+
     switch (aspectRatio) {
         case '9:16':
-            return `*** MANDATORY 9:16 VERTICAL FRAMING & CAMERA COMPOSITION DIRECTIVE ***
+            if (isPortraitOrMacro) {
+                return `*** MANDATORY 9:16 VERTICAL PORTRAIT COMPOSITION ***
+- TARGET RATIO: 9:16 Vertical Portrait Orientation.
+- FRAMING: Intimate vertical bust/portrait shot. Keep subject centered with headroom above head and frame stopping at chest/waist level.
+- NEVER CUT OFF: Top of hairstyles, hats, or lateral edges of face must remain within safe margins.`;
+            }
+            return `*** MANDATORY 9:16 VERTICAL COMPOSITION DIRECTIVE ***
 - TARGET RATIO: 9:16 Ultra-tall vertical portrait orientation.
-- CAMERA FRAMING: Wide environmental shot (Full-body / Wide angle). Pull camera back significantly to capture the full environment.
-- SUBJECT PLACEMENT: Keep all characters strictly centered within the central 50% width column of the frame.
-- MANDATORY SAFE ZONE: Leave generous empty margins (at least 25% empty background buffer) on BOTH the left and right sides.
-- NEVER CROP SUBJECTS: Heads, hair, entire bodies, arms, hands, accessories, and wide dresses/skirts MUST be completely contained inside the central safe zone.
-- Absolutely DO NOT place people, limbs, or garments near the outer lateral edges.`;
+- CAMERA FRAMING: Well-proportioned vertical framing. Keep all characters centered.
+- MANDATORY SAFE ZONE: Leave generous empty margins (at least 20% empty background buffer) on BOTH sides.
+- NEVER CROP SUBJECTS: Heads, hair, entire bodies, and outfits MUST be completely contained inside the central safe zone.`;
 
         case '16:9':
+            if (isPortraitOrMacro) {
+                return `*** MANDATORY 16:9 CINEMATIC CLOSE-UP / PORTRAIT COMPOSITION ***
+- TARGET RATIO: 16:9 Cinematic Landscape Orientation.
+- FRAMING: Cinematic medium-close portrait framing with character positioned harmoniously within the golden-ratio thirds.
+- VERTICAL SAFE ZONE: Provide generous clearance above head and below shoulders.`;
+            }
             return `*** MANDATORY 16:9 WIDESCREEN FRAMING & CAMERA COMPOSITION DIRECTIVE ***
 - TARGET RATIO: 16:9 Cinematic Landscape Orientation.
 - CAMERA FRAMING: Wide panoramic landscape framing with expansive horizontal views.
@@ -460,7 +557,7 @@ export const getAspectFramingDirective = (aspectRatio?: string): string => {
         case '3:4':
             return `*** MANDATORY 3:4 PORTRAIT FRAMING DIRECTIVE ***
 - TARGET RATIO: 3:4 Vertical Portrait.
-- CAMERA FRAMING: Pulled-back portrait shot with at least 15% safety margins on left and right borders.
+- CAMERA FRAMING: Well-composed portrait shot with at least 15% safety margins on left and right borders.
 - Keep subjects fully contained inside the frame without touching the lateral edges.`;
 
         case '4:3':
@@ -474,16 +571,49 @@ export const getAspectFramingDirective = (aspectRatio?: string): string => {
     }
 };
 
-const aspectRatioToPixelSize = (aspectRatio?: string): string => {
+export const aspectRatioToPixelSize = (aspectRatio?: string, resolution?: string): string => {
+    const res = (resolution || 'FHD').toUpperCase();
+    const is4K = res === '4K';
+    const is2K = res === '2K';
+    const isHD = res === 'HD';
+
     switch (aspectRatio) {
-        case '16:9': return '1280x720';
-        case '9:16': return '720x1280';
-        case '4:3': return '1152x864';
-        case '3:4': return '864x1152';
-        case '3:2': return '1216x816';
-        case '2:3': return '816x1216';
+        case '16:9':
+            if (is4K) return '3840x2160';
+            if (is2K) return '2560x1440';
+            if (isHD) return '1280x720';
+            return '1920x1080';
+        case '9:16':
+            if (is4K) return '2160x3840';
+            if (is2K) return '1440x2560';
+            if (isHD) return '720x1280';
+            return '1080x1920';
+        case '4:3':
+            if (is4K) return '2880x2160';
+            if (is2K) return '1920x1440';
+            if (isHD) return '1152x864';
+            return '1440x1080';
+        case '3:4':
+            if (is4K) return '2160x2880';
+            if (is2K) return '1440x1920';
+            if (isHD) return '864x1152';
+            return '1080x1440';
+        case '3:2':
+            if (is4K) return '3240x2160';
+            if (is2K) return '2160x1440';
+            if (isHD) return '1216x816';
+            return '1620x1080';
+        case '2:3':
+            if (is4K) return '2160x3240';
+            if (is2K) return '1440x2160';
+            if (isHD) return '816x1216';
+            return '1080x1620';
         case '1:1':
-        default: return '1024x1024';
+        default:
+            if (is4K) return '3840x3840';
+            if (is2K) return '2048x2048';
+            if (isHD) return '1024x1024';
+            return '1536x1536';
     }
 };
 
@@ -584,8 +714,10 @@ export const generateImageViaNineRouter = async (
     }
 
     const ratio = mapRatioForNineRouter(request.aspectRatio);
-    const pixelSize = aspectRatioToPixelSize(request.aspectRatio);
-    const framingDirective = getAspectFramingDirective(request.aspectRatio);
+    const pixelSize = aspectRatioToPixelSize(request.aspectRatio, request.resolution);
+    const framingDirective = getAspectFramingDirective(request.aspectRatio, request.shotType);
+    const shotDirective = getShotTypeDirective(request.shotType);
+    const fullDirective = [framingDirective, shotDirective].filter(Boolean).join('\n\n');
 
     try {
         if (referenceImages.length > 0) {
@@ -618,7 +750,8 @@ Never swap, merge or cross-apply details between labels. Ignore all backgrounds 
                     type: 'text',
                     text: `FINAL GENERATION INSTRUCTIONS
 Target aspect ratio: ${ratio}
-${framingDirective}
+Target resolution size: ${pixelSize}
+${fullDirective}
 
 ${request.prompt}`
                 });
@@ -654,7 +787,7 @@ ${request.prompt}`
             // Fallback to text-to-image /images/generations with full prompt description
             const payload = {
                 model: activeModel,
-                prompt: `${framingDirective}\n\n${request.prompt}`,
+                prompt: `${fullDirective}\n\n${request.prompt}`,
                 n: 1,
                 response_format: 'b64_json',
                 size: pixelSize,
@@ -689,7 +822,7 @@ ${request.prompt}`
         if (activeModel.toLowerCase().includes('gemini')) {
             const userContent: any[] = [{
                 type: 'text',
-                text: `${framingDirective}\n\n${request.prompt}`
+                text: `${fullDirective}\n\n${request.prompt}`
             }];
             console.log(`[9Router] Sending text-to-image chat request to Gemini model: ${activeModel}, ratio: ${ratio}`);
             const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
@@ -719,7 +852,7 @@ ${request.prompt}`
         // Standard text-to-image path for other providers:
         const payload = {
             model: activeModel,
-            prompt: `${framingDirective}\n\n${request.prompt}`,
+            prompt: `${fullDirective}\n\n${request.prompt}`,
             n: 1,
             response_format: 'b64_json',
             size: pixelSize,

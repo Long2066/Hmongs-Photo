@@ -6,7 +6,15 @@ import { getSystemApiKey, getSelectedResolution } from '../services/geminiCoreSe
 import { ModelSelector } from './ModelSelector';
 
 interface PromptPanelProps {
-    onGenerate: (prompts: string[], aspectRatio: string, resolution: string, outputMode: 'single' | 'couple', filenamePrefix: string) => void;
+    onGenerate: (
+        prompts: string[],
+        aspectRatio: string,
+        resolution: string,
+        outputMode: 'single' | 'couple',
+        filenamePrefix: string,
+        style?: string,
+        shotType?: string
+    ) => void;
     isLoading: boolean;
     isDisabled: boolean;
     hasApiKey: boolean;
@@ -193,7 +201,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
 
         // Use resolution from ModelSelector (centralized)
         const selectedResolution = getSelectedResolution();
-        onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix);
+        onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType);
         setStep(1); // Reset to start after launching
     };
 

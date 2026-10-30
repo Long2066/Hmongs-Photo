@@ -465,7 +465,15 @@ const App: React.FC = () => {
 
 
     // 2. Creative Mode
-    const handleCreativeGenerate = useCallback(async (prompts: string[], aspectRatio: string, resolution: string, outputMode: 'single' | 'couple', filenamePrefix: string) => {
+    const handleCreativeGenerate = useCallback(async (
+        prompts: string[],
+        aspectRatio: string,
+        resolution: string,
+        outputMode: 'single' | 'couple',
+        filenamePrefix: string,
+        style?: string,
+        shotType?: string
+    ) => {
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
 
@@ -495,7 +503,9 @@ const App: React.FC = () => {
                     });
                     localResults[index] = base64;
                     if (autoDownload && base64) triggerDownload(base64, `${filenamePrefix}_${index + 1}.png`);
-                }
+                },
+                style,
+                shotType
             );
 
             const validImages = localResults.filter((img): img is string => img !== null);
