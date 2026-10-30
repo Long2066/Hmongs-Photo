@@ -153,7 +153,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
             setTopic(optimized);
         } catch (e: any) {
             const message = e?.message || 'Lỗi không xác định';
-            alert(`Lỗi tối ưu hóa qua 9Router: ${message}`);
+            alert(`Lỗi tối ưu hóa: ${message}`);
         } finally {
             setIsOptimizing(false);
         }
@@ -172,7 +172,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
             setStep(2);
         } catch (e: any) {
             const message = e?.message || 'Lỗi không xác định';
-            alert(`Lỗi tạo prompt qua 9Router: ${message}`);
+            alert(`Lỗi tạo prompt: ${message}`);
         } finally {
             setIsGeneratingPrompts(false);
         }

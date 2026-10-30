@@ -6,7 +6,7 @@ interface ApiKeyModalProps {
 }
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
-    // 9Router State
+    // Cấu hình State
     const [nineRouterEnabled, setNineRouterEnabledState] = useState(() => nineRouterService.isNineRouterEnabled());
     const [nineRouterUrl, setNineRouterUrlState] = useState(() => nineRouterService.getNineRouterUrl());
     const [nineRouterApiKey, setNineRouterApiKeyState] = useState(() => nineRouterService.getNineRouterApiKey());
@@ -33,11 +33,11 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
             const status = await nineRouterService.checkConnection(urlToCheck, keyToCheck);
             setIsConnected(status.connected);
             if (!status.connected) {
-                setErrorMessage(status.errorMessage || 'Không thể kết nối tới 9Router');
+                setErrorMessage(status.errorMessage || 'Không thể kết nối tới Cấu hình');
             }
         } catch (err: any) {
             setIsConnected(false);
-            setErrorMessage(err?.message || 'Lỗi kết nối tới 9Router');
+            setErrorMessage(err?.message || 'Lỗi kết nối Cấu hình');
         } finally {
             setIsChecking(false);
         }
@@ -85,7 +85,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-slate-900 leading-tight">
-                                Cấu hình 9Router Gateway
+                                Cấu hình
                             </h2>
                             <p className="text-xs text-slate-500 mt-0.5">
                                 Cổng định tuyến AI tập trung tốc độ cao
@@ -129,13 +129,13 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                 </button>
                                 <div>
                                     <span className={`text-sm font-bold ${nineRouterEnabled ? 'text-slate-900' : 'text-slate-600'}`}>
-                                        {nineRouterEnabled ? '9Router đang BẬT' : '9Router đang TẮT'}
+                                        {nineRouterEnabled ? 'Cấu hình đang BẬT' : 'Cấu hình đang TẮT'}
                                     </span>
                                     <p className="text-[11px] text-slate-500">
                                         {isConnected
                                             ? 'Sẵn sàng xử lý tác vụ tạo ảnh'
                                             : nineRouterEnabled
-                                                ? 'Chưa kết nối tới Gateway'
+                                                ? 'Chưa kết nối tới máy chủ Cấu hình'
                                                 : 'Bật để kích hoạt kết nối'}
                                     </p>
                                 </div>
@@ -193,7 +193,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         <div>
                             <div className="flex items-center justify-between mb-1.5">
                                 <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                                    9Router API Endpoint
+                                    Cấu hình API Endpoint
                                 </label>
                                 <div className="flex items-center gap-1.5 text-[10px]">
                                     <button
@@ -225,7 +225,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         <div>
                             <div className="flex items-center justify-between mb-1.5">
                                 <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                                    9Router API Key
+                                    Cấu hình API Key
                                 </label>
                                 <span className="text-[10px] text-slate-400 italic">Bắt buộc đối với kết nối từ xa / VPS</span>
                             </div>
@@ -234,7 +234,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                     type={showKey ? 'text' : 'password'}
                                     value={nineRouterApiKey}
                                     onChange={(e) => setNineRouterApiKeyState(e.target.value)}
-                                    placeholder="Nhập 9Router API Key..."
+                                    placeholder="Nhập API Key Cấu hình..."
                                     className="w-full bg-slate-50/70 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
                                 />
                                 <button
@@ -270,7 +270,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                 <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                 </svg>
-                                <span>Mở trang 9Router Dashboard</span>
+                                <span>Mở trang Cấu hình Dashboard</span>
                                 <svg className="w-3.5 h-3.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                 </svg>

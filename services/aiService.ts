@@ -995,14 +995,14 @@ export const optimizePrompt = async (apiKey: string, rawInput: string): Promise<
         console.log('[9Router] Optimizing prompt...');
         const status = await nineRouterService.checkConnection();
         if (!status.connected) {
-            throw new Error(status.errorMessage || '9Router chưa kết nối.');
+            throw new Error(status.errorMessage || 'Cấu hình chưa kết nối.');
         }
 
         const result = await nineRouterService.generateTextViaNineRouter(
             systemInstruction + "\n\nInput: " + rawInput
         );
         if (!result) {
-            throw new Error('9Router không trả về nội dung text. Hãy kiểm tra Text Model.');
+            throw new Error('Cấu hình không trả về nội dung text. Hãy kiểm tra Text Model.');
         }
         return result;
     }
@@ -1133,7 +1133,7 @@ export const generateBatchPromptsText = async (
         console.log('[9Router] Checking connection for prompt generation...');
         const status = await nineRouterService.checkConnection();
         if (!status.connected) {
-            throw new Error(status.errorMessage || '9Router chưa kết nối.');
+            throw new Error(status.errorMessage || 'Cấu hình chưa kết nối.');
         }
 
         console.log('[9Router] Using 9Router for prompt generation');
@@ -1141,7 +1141,7 @@ export const generateBatchPromptsText = async (
             `${systemInstruction}\n\nTask: Generate ${count} prompts for topic: ${topic}`
         );
         if (!result) {
-            throw new Error('9Router không trả về nội dung text. Hãy kiểm tra Text Model.');
+            throw new Error('Cấu hình không trả về nội dung text. Hãy kiểm tra Text Model.');
         }
         return result;
     }
@@ -1222,7 +1222,7 @@ export const generateImagesFromPromptsList = async (
     let nineRouterConnected = false;
 
     if (useNineRouterMode) {
-        onStatusUpdate('[9Router] Đang kiểm tra kết nối...');
+        onStatusUpdate('[Cấu hình] Đang kiểm tra kết nối...');
         const status = await nineRouterService.checkConnection();
         nineRouterConnected = status.connected;
         console.log('[9Router Debug] Mode enabled, connected:', nineRouterConnected);
@@ -1345,7 +1345,7 @@ export const generateImagesFromPromptsList = async (
 
             // PRIORITY -1: NineRouter mode (if enabled and connected)
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[9Router] Đang tạo ảnh ${index + 1}/${prompts.length}...`);
+                onStatusUpdate(`[Cấu hình] Đang tạo ảnh ${index + 1}/${prompts.length}...`);
                 for (let attempt = 0; attempt < 3; attempt++) {
                     try {
                         base64Image = await nineRouterService.generateImageViaNineRouter({
@@ -1360,7 +1360,7 @@ export const generateImagesFromPromptsList = async (
                         } else {
                             console.warn(`[9Router] Attempt ${attempt + 1}: Image ${index + 1} returned null`);
                             if (attempt < 2) {
-                                onStatusUpdate(`[9Router] Thử lại ${attempt + 1}/3 cho ảnh ${index + 1}...`);
+                                onStatusUpdate(`[Cấu hình] Thử lại ${attempt + 1}/3 cho ảnh ${index + 1}...`);
                                 await delay(2000);
                             }
                         }
@@ -1377,7 +1377,7 @@ export const generateImagesFromPromptsList = async (
                         }
 
                         if (attempt < 2) {
-                            onStatusUpdate(`[9Router] Lỗi, thử lại sau 3s (${attempt + 2}/3)...`);
+                            onStatusUpdate(`[Cấu hình] Lỗi, thử lại sau 3s (${attempt + 2}/3)...`);
                             await delay(3000);
                         }
                     }
@@ -1737,7 +1737,7 @@ export const generateIdPhotos = async (
     for (let index = 0; index < prompts.length; index++) {
         const prompt = prompts[index];
         try {
-            onStatusUpdate(`Đang xử lý ảnh thẻ ${index + 1}/${prompts.length}${useNineRouterMode ? ' (9Router)' : useAntigravityMode ? ' (Antigravity)' : useVipMode ? ' (VIP)' : ''}${hasClothingRef ? ' 👔' : ''}...`);
+            onStatusUpdate(`Đang xử lý ảnh thẻ ${index + 1}/${prompts.length}${useNineRouterMode ? ' (Cấu hình)' : useAntigravityMode ? ' (Antigravity)' : useVipMode ? ' (VIP)' : ''}${hasClothingRef ? ' 👔' : ''}...`);
 
             let base64Image: string | null = null;
 
@@ -2011,7 +2011,7 @@ ${ULTRA_SHARP_QUALITY}`;
 
             // PRIORITY -1: NineRouter mode
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[9Router] Đang chỉnh sửa (${i + 1}/${outputCount})...`);
+                onStatusUpdate(`[Cấu hình] Đang chỉnh sửa (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt: variationPrompt,
@@ -2019,7 +2019,7 @@ ${ULTRA_SHARP_QUALITY}`;
                     });
                 } catch (err) {
                     console.error('9Router edit failed:', err);
-                    onStatusUpdate(`[9Router] Lỗi chỉnh sửa...`);
+                    onStatusUpdate(`[Cấu hình] Lỗi chỉnh sửa...`);
                 }
             }
 
@@ -2496,7 +2496,7 @@ export const upscaleImages = async (
 
             // PRIORITY -1: NineRouter mode
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[9Router] Đang tăng nét (${i + 1}/${outputCount})...`);
+                onStatusUpdate(`[Cấu hình] Đang tăng nét (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
@@ -2504,7 +2504,7 @@ export const upscaleImages = async (
                     });
                 } catch (err) {
                     console.error('9Router upscale failed:', err);
-                    onStatusUpdate(`[9Router] Lỗi tăng nét...`);
+                    onStatusUpdate(`[Cấu hình] Lỗi tăng nét...`);
                 }
             }
 
@@ -2750,7 +2750,7 @@ export const generateProfilePics = async (
 
             // PRIORITY -1: NineRouter mode
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[9Router] Đang tạo Profile (${i + 1}/${outputCount})...`);
+                onStatusUpdate(`[Cấu hình] Đang tạo Profile (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
@@ -2759,7 +2759,7 @@ export const generateProfilePics = async (
                     });
                 } catch (err) {
                     console.error('9Router profile failed:', err);
-                    onStatusUpdate(`[9Router] Lỗi tạo Profile...`);
+                    onStatusUpdate(`[Cấu hình] Lỗi tạo Profile...`);
                 }
             }
 

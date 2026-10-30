@@ -396,7 +396,7 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
                 return {
                     connected: false,
                     errorType: 'auth',
-                    errorMessage: 'API Key không hợp lệ hoặc thiếu quyền truy cập (HTTP 401/403). Vui lòng nhập API Key 9Router đúng.',
+                    errorMessage: 'API Key không hợp lệ hoặc thiếu quyền truy cập (HTTP 401/403). Vui lòng nhập API Key Cấu hình đúng.',
                     lastChecked: Date.now()
                 };
             }
@@ -431,7 +431,7 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
         return {
             connected: false,
             errorType: 'network',
-            errorMessage: 'Không thể kết nối tới 9Router. Vui lòng kiểm tra server 9Router hoặc URL endpoint.',
+            errorMessage: 'Không thể kết nối tới máy chủ Cấu hình. Vui lòng kiểm tra lại URL endpoint.',
             lastChecked: Date.now()
         };
     }
@@ -570,7 +570,7 @@ export const generateTextViaNineRouter = async (
         const parsed = await parseNineRouterResponse(resp);
         const content = extractTextResponse(parsed);
         if (!content) {
-            throw new Error('9Router returned no text content. Hãy kiểm tra Text Model trong cấu hình.');
+            throw new Error('Máy chủ Cấu hình không trả về nội dung text. Hãy kiểm tra Text Model trong cấu hình.');
         }
         return content;
     } catch (err: any) {
@@ -635,7 +635,7 @@ export const generateImageViaNineRouter = async (
                 const parsed = await parseNineRouterResponse(resp);
                 const image = extractImageFromChatResponse(parsed);
                 if (!image) {
-                    throw new Error('9Router image edit model không trả về dữ liệu ảnh.');
+                    throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
                 }
                 return image;
             }
@@ -708,7 +708,7 @@ ${request.prompt}`
             const parsed = await parseNineRouterResponse(resp);
             const image = extractImageFromChatResponse(parsed);
             if (!image) {
-                throw new Error('9Router multimodal image model không trả về dữ liệu ảnh.');
+                throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
             }
             return image;
         }
@@ -739,7 +739,7 @@ ${request.prompt}`
             const parsed = await parseNineRouterResponse(resp);
             const image = extractImageFromChatResponse(parsed);
             if (!image) {
-                throw new Error('9Router multimodal image model không trả về dữ liệu ảnh.');
+                throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
             }
             return image;
         }

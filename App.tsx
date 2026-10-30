@@ -306,12 +306,12 @@ const App: React.FC = () => {
     const getApiKeyOrAlert = () => {
         resetUsedSystemKey();
 
-        // 9Router Gateway is the sole AI engine
+        // Cấu hình Gateway is the sole AI engine
         if (nineRouterService.isNineRouterEnabled()) {
             return 'NINEROUTER_MODE';
         }
 
-        setError('Vui lòng kích hoạt và kết nối 9Router Gateway trong phần Cài đặt.');
+        setError('Vui lòng kích hoạt và kết nối trong phần Cấu hình.');
         setApiKeyModalOpen(true);
         return null;
     };

@@ -1,11 +1,11 @@
-import React, { memo, useMemo, useCallback, useState, useEffect } from 'react';
+import React, { memo, useCallback, useState, useEffect } from 'react';
 import {
     getSelectedResolution,
     setSelectedResolution,
     type ResolutionType
 } from '../services/geminiCoreService';
 import * as nineRouterService from '../services/nineRouterService';
-import { SUPPORTED_IMAGE_MODELS, type SupportedImageModel } from '../services/nineRouterService';
+import { SUPPORTED_IMAGE_MODELS } from '../services/nineRouterService';
 
 interface ModelSelectorProps {
     onModelChange?: (modelId: string) => void;
@@ -22,34 +22,22 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     className = '',
     showResolution = true
 }) => {
-    // Selected 9Router Image Model
-    const [selectedModel, setSelectedModel] = useState<string>(() =>
-        nineRouterService.getNineRouterImageModel()
-    );
+    // Selected Image Model
+    const [selectedModel, setSelectedModel] = useState<string>(() => {
+        const current = nineRouterService.getNineRouterImageModel();
+        return SUPPORTED_IMAGE_MODELS.some(m => m.id === current) ? current : SUPPORTED_IMAGE_MODELS[0].id;
+    });
 
     // Selected Resolution
     const [selectedRes, setSelectedRes] = useState<ResolutionType>(() =>
         getSelectedResolution()
     );
 
-    // Custom model input state
-    const [isCustomMode, setIsCustomMode] = useState<boolean>(() => {
-        const current = nineRouterService.getNineRouterImageModel();
-        return !SUPPORTED_IMAGE_MODELS.some(m => m.id === current);
-    });
-    const [customModelText, setCustomModelText] = useState<string>(() => {
-        const current = nineRouterService.getNineRouterImageModel();
-        return SUPPORTED_IMAGE_MODELS.some(m => m.id === current) ? '' : current;
-    });
-
     // Listen to real-time model changes from any modal/tab
     useEffect(() => {
         const handleModelChange = (e: any) => {
             const nextModel = e.detail?.model || nineRouterService.getNineRouterImageModel();
             setSelectedModel(nextModel);
-            const isCustom = !SUPPORTED_IMAGE_MODELS.some(m => m.id === nextModel);
-            setIsCustomMode(isCustom);
-            if (isCustom) setCustomModelText(nextModel);
         };
 
         window.addEventListener('ninerouter-model-changed', handleModelChange);
@@ -61,27 +49,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         };
     }, []);
 
-    // Active model info lookup
-    const activeModelInfo = useMemo<SupportedImageModel | undefined>(() => {
-        return SUPPORTED_IMAGE_MODELS.find(m => m.id === selectedModel);
-    }, [selectedModel]);
-
     // Choose a predefined model tab
     const handleSelectModel = useCallback((modelId: string) => {
         setSelectedModel(modelId);
-        setIsCustomMode(false);
         nineRouterService.setNineRouterImageModel(modelId);
         onModelChange?.(modelId);
     }, [onModelChange]);
-
-    // Apply custom model
-    const handleApplyCustomModel = useCallback(() => {
-        const trimmed = customModelText.trim();
-        if (!trimmed) return;
-        setSelectedModel(trimmed);
-        nineRouterService.setNineRouterImageModel(trimmed);
-        onModelChange?.(trimmed);
-    }, [customModelText, onModelChange]);
 
     // Handle resolution change
     const handleResolutionChange = useCallback((res: ResolutionType) => {
@@ -109,7 +82,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                 {/* Model Tabs Grid - Pure Text */}
                 <div className="grid grid-cols-2 gap-1.5">
                     {SUPPORTED_IMAGE_MODELS.map((model) => {
-                        const isSelected = selectedModel === model.id && !isCustomMode;
+                        const isSelected = selectedModel === model.id;
                         return (
                             <button
                                 key={model.id}
@@ -153,69 +126,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                             </button>
                         );
                     })}
-
-                    {/* Custom Model Tab - Pure Text */}
-                    <button
-                        type="button"
-                        onClick={() => setIsCustomMode(!isCustomMode)}
-                        className={`p-2.5 rounded-xl text-left transition-all duration-150 flex flex-col justify-between col-span-2 select-none ${
-                            isCustomMode
-                                ? 'bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-md ring-1 ring-white/20'
-                                : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/80 hover:border-slate-300'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between w-full">
-                            <span className="text-xs font-bold">
-                                Model tùy chỉnh khác
-                            </span>
-                            <span
-                                className={`text-[9px] px-2 py-0.5 rounded-md font-bold ${
-                                    isCustomMode ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-                                }`}
-                            >
-                                {isCustomMode ? 'Đang chọn' : 'Tự nhập'}
-                            </span>
-                        </div>
-                    </button>
-                </div>
-
-                {/* Custom Model Input Drawer */}
-                {isCustomMode && (
-                    <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200/80 space-y-2 animate-fade-in mt-2">
-                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-                            Nhập Model ID từ 9Router
-                        </label>
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={customModelText}
-                                onChange={(e) => setCustomModelText(e.target.value)}
-                                placeholder="Ví dụ: dall-e-3, flux-pro, ag/gemini-3.1-pro-high..."
-                                className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            />
-                            <button
-                                type="button"
-                                onClick={handleApplyCustomModel}
-                                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors"
-                            >
-                                Áp dụng
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Selected Model Description Callout - Pure Text */}
-                <div className="p-2.5 bg-slate-50/90 border border-slate-200/70 rounded-xl text-[11px] text-slate-600 shadow-2xs mt-2">
-                    <p className="leading-snug">
-                        <strong className="text-slate-800 font-bold">
-                            {activeModelInfo ? activeModelInfo.name : selectedModel}:{' '}
-                        </strong>
-                        <span className="text-slate-600">
-                            {activeModelInfo
-                                ? activeModelInfo.description
-                                : 'Model 9Router tùy chỉnh được lưu sẵn cho mọi tác vụ tạo ảnh.'}
-                        </span>
-                    </p>
                 </div>
             </div>
 
