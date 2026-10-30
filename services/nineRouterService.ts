@@ -528,6 +528,39 @@ export const generateImageViaNineRouter = async (
 
     try {
         if (referenceImages.length > 0) {
+            // OpenAI / Codex image models (gpt-image-1.5, gpt-image-2, etc.) use /v1/images/edits for image-to-image
+            if (activeModel.toLowerCase().includes('gpt-image') || !activeModel.toLowerCase().includes('gemini')) {
+                const editPayload = {
+                    model: activeModel,
+                    prompt: `${framingDirective}\n\n${request.prompt}`,
+                    images: referenceImages.map(img => ({
+                        image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
+                    })),
+                    size: pixelSize,
+                    n: 1,
+                    response_format: 'b64_json'
+                };
+
+                console.log(`[9Router] Sending image edit request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}, references: ${referenceImages.length}`);
+                const resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(editPayload)
+                }, 120000);
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    throw new Error(`HTTP ${resp.status}: ${errText}`);
+                }
+
+                const parsed = await parseNineRouterResponse(resp);
+                const image = extractImageFromChatResponse(parsed);
+                if (!image) {
+                    throw new Error('9Router image edit model không trả về dữ liệu ảnh.');
+                }
+                return image;
+            }
+
             // Native multimodal path: original image pixels and the complete prompt are
             // sent to the SAME image model, matching Gemini API/PRO semantics.
             const userContent: any[] = [{
@@ -561,28 +594,31 @@ ${framingDirective}
 ${request.prompt}`
             });
 
+            const chatBody: any = {
+                model: activeModel,
+                messages: [{ role: 'user', content: userContent }],
+                modalities: ['text', 'image'],
+                stream: false
+            };
+
+            // Only send image_config / aspect_ratio if not a Gemini model
+            // (Google Antigravity rejects aspect_ratio with "Aspect ratio is not enabled for this model")
+            if (!activeModel.toLowerCase().includes('gemini')) {
+                chatBody.aspect_ratio = ratio;
+                chatBody.size = pixelSize;
+                chatBody.image_config = { aspect_ratio: ratio };
+                chatBody.extra_body = {
+                    aspect_ratio: ratio,
+                    size: pixelSize,
+                    image_config: { aspect_ratio: ratio }
+                };
+            }
+
             console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, pixelSize: ${pixelSize}, references: ${referenceImages.length}`);
             const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({
-                    model: activeModel,
-                    messages: [{ role: 'user', content: userContent }],
-                    modalities: ['text', 'image'],
-                    stream: false,
-                    aspect_ratio: ratio,
-                    size: pixelSize,
-                    image_config: {
-                        aspect_ratio: ratio
-                    },
-                    extra_body: {
-                        aspect_ratio: ratio,
-                        size: pixelSize,
-                        image_config: {
-                            aspect_ratio: ratio
-                        }
-                    }
-                })
+                body: JSON.stringify(chatBody)
             }, 120000);
 
             if (!resp.ok) {
@@ -598,7 +634,38 @@ ${request.prompt}`
             return image;
         }
 
-        // Pure text-to-image path: no input pixels need to be preserved.
+        // Pure text-to-image path: Gemini models use /chat/completions with modalities ['text', 'image']
+        if (activeModel.toLowerCase().includes('gemini')) {
+            const userContent: any[] = [{
+                type: 'text',
+                text: `${framingDirective}\n\n${request.prompt}`
+            }];
+            console.log(`[9Router] Sending text-to-image chat request to Gemini model: ${activeModel}, ratio: ${ratio}`);
+            const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    model: activeModel,
+                    messages: [{ role: 'user', content: userContent }],
+                    modalities: ['text', 'image'],
+                    stream: false
+                })
+            }, 90000);
+
+            if (!resp.ok) {
+                const errText = await resp.text();
+                throw new Error(`HTTP ${resp.status}: ${errText}`);
+            }
+
+            const parsed = await parseNineRouterResponse(resp);
+            const image = extractImageFromChatResponse(parsed);
+            if (!image) {
+                throw new Error('9Router multimodal image model không trả về dữ liệu ảnh.');
+            }
+            return image;
+        }
+
+        // Standard text-to-image path for other providers:
         const payload = {
             model: activeModel,
             prompt: `${framingDirective}\n\n${request.prompt}`,
