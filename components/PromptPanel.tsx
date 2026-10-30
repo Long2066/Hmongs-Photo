@@ -62,6 +62,31 @@ const styles = [
     'Thời trang'
 ];
 
+export const parsePromptsFromText = (text: string): string[] => {
+    if (!text || !text.trim()) return [];
+
+    // 1. Try splitting by blank lines
+    let prompts = text.split(/\r?\n\s*\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
+
+    // 2. If only 1 block is found, check if it's formatted as a numbered or bulleted list
+    if (prompts.length <= 1) {
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+        const listItems = text
+            .split(/(?:\r?\n)+(?=(?:(?:\d+[\.\)]|Prompt\s*\d+[:\.]|\#+\s*Prompt\s*\d+)\s+))/i)
+            .map(p => p.trim())
+            .filter(p => p.length > 0);
+
+        if (listItems.length > 1) {
+            prompts = listItems;
+        } else if (lines.length > 1 && lines.every(l => /^(?:[-*•]|\d+[\.\)])/.test(l))) {
+            prompts = lines;
+        }
+    }
+
+    // 3. Clean up prefixes (e.g. "1. ", "Prompt 1: ", "- ")
+    return prompts.map(p => p.replace(/^(?:[-*•]|\d+[\.\)]|Prompt\s*\d+[:\.])\s*/i, '').trim()).filter(p => p.length > 0);
+};
+
 export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 } }) => {
     const [topic, setTopic] = useState('');
     const [quantity, setQuantity] = useState(2);
@@ -154,12 +179,18 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
     };
 
     const handleFinalGenerate = () => {
-        // Split by double newline or single newline to get array
-        const prompts = generatedPromptText.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0);
+        let prompts = parsePromptsFromText(generatedPromptText);
         if (prompts.length === 0) {
             alert("Danh sách prompt trống!");
             return;
         }
+
+        // If user requested quantity > 1 but only 1 prompt is present, replicate it
+        // so that the full batch of images is generated as requested
+        if (prompts.length === 1 && quantity > 1) {
+            prompts = Array.from({ length: quantity }, () => prompts[0]);
+        }
+
         // Use resolution from ModelSelector (centralized)
         const selectedResolution = getSelectedResolution();
         onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix);
@@ -319,31 +350,35 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
             )}
 
             {/* STEP 2: PROMPT REVIEW AREA */}
-            {step === 2 && (
-                <div className="animate-fade-in space-y-4">
-                    <div className="flex items-center justify-between">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
-                            Review Prompt ({generatedPromptText.split(/\n\s*\n/).length})
-                        </label>
-                        <button
-                            onClick={() => setStep(1)}
-                            className="text-xs text-indigo-600 font-bold hover:underline"
-                        >
-                            Quay lại cấu hình
-                        </button>
+            {step === 2 && (() => {
+                const parsedCount = parsePromptsFromText(generatedPromptText).length;
+                const willGenerateCount = parsedCount === 1 && quantity > 1 ? quantity : parsedCount;
+                return (
+                    <div className="animate-fade-in space-y-4">
+                        <div className="flex items-center justify-between">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                Review Prompt ({parsedCount} prompt • Sẽ vẽ {willGenerateCount} ảnh)
+                            </label>
+                            <button
+                                onClick={() => setStep(1)}
+                                className="text-xs text-indigo-600 font-bold hover:underline"
+                            >
+                                Quay lại cấu hình
+                            </button>
+                        </div>
+                        <textarea
+                            value={generatedPromptText}
+                            onChange={(e) => setGeneratedPromptText(e.target.value)}
+                            rows={10}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-slate-300 text-xs font-mono focus:ring-2 focus:ring-indigo-500/50 outline-none shadow-inner custom-scrollbar leading-relaxed"
+                            placeholder="Prompts sẽ xuất hiện ở đây..."
+                        />
+                        <div className="text-[10px] text-slate-400 italic">
+                            * Mỗi prompt được phân cách bởi dòng trống hoặc đánh số (1., 2.). Hệ thống sẽ vẽ đủ {willGenerateCount} ảnh.
+                        </div>
                     </div>
-                    <textarea
-                        value={generatedPromptText}
-                        onChange={(e) => setGeneratedPromptText(e.target.value)}
-                        rows={10}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-slate-300 text-xs font-mono focus:ring-2 focus:ring-indigo-500/50 outline-none shadow-inner custom-scrollbar leading-relaxed"
-                        placeholder="Prompts sẽ xuất hiện ở đây..."
-                    />
-                    <div className="text-[10px] text-slate-400 italic">
-                        * Mỗi prompt được phân cách bởi dòng trống. Chỉnh sửa nếu cần.
-                    </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* ACTION BUTTONS - Sticky at bottom */}
             <div className="panel-action-wrapper">

@@ -9,8 +9,8 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
-const DEFAULT_TEXT_MODEL = 'ag/gemini-3.8-flash-high';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
+const DEFAULT_TEXT_MODEL = 'claude-sonnet-4-6';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -479,6 +479,8 @@ export const generateTextViaNineRouter = async (
                 model: activeModel,
                 messages,
                 temperature: 0.7,
+                max_tokens: 8192,
+                max_completion_tokens: 8192,
                 stream: false
             })
         }, 60000);

@@ -265,20 +265,34 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                             <div>
                                 <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-                                    Image Model
+                                    Image Model (Vẽ ảnh)
                                 </label>
                                 <input
                                     type="text"
                                     value={nineRouterImageModel}
                                     onChange={(e) => setNineRouterImageModelState(e.target.value)}
-                                    placeholder="ag/gemini-3.1-flash-image"
+                                    placeholder="gpt-image-2.5"
                                     className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
                                 />
                                 <div className="mt-1 flex flex-wrap gap-1">
                                     <button
                                         type="button"
-                                        onClick={() => setNineRouterImageModelState('ag/gemini-3.1-flash-image')}
-                                        className="text-[10px] text-slate-500 hover:text-emerald-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
+                                        onClick={() => setNineRouterImageModelState('gpt-image-2.5')}
+                                        className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 px-1.5 py-0.5 rounded transition-colors"
+                                    >
+                                        ⭐ GPT 2.5 (Xịn nhất)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNineRouterImageModelState('gpt-image-1.5')}
+                                        className="text-[10px] text-slate-600 hover:text-emerald-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
+                                    >
+                                        GPT 1.5
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNineRouterImageModelState('gemini-3.1-flash-image')}
+                                        className="text-[10px] text-slate-400 hover:text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
                                     >
                                         Gemini 3.1
                                     </button>
@@ -287,27 +301,34 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
 
                             <div>
                                 <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-                                    Text Model
+                                    Text Model (Soạn Prompt)
                                 </label>
                                 <input
                                     type="text"
                                     value={nineRouterTextModel}
                                     onChange={(e) => setNineRouterTextModelState(e.target.value)}
-                                    placeholder="ag/gemini-3.8-flash-high"
+                                    placeholder="claude-sonnet-4-6"
                                     className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
                                 />
                                 <div className="mt-1 flex flex-wrap gap-1">
                                     <button
                                         type="button"
-                                        onClick={() => setNineRouterTextModelState('ag/gemini-3.8-flash-high')}
-                                        className="text-[10px] text-slate-500 hover:text-emerald-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
+                                        onClick={() => setNineRouterTextModelState('claude-sonnet-4-6')}
+                                        className="text-[10px] text-indigo-700 font-semibold bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 px-1.5 py-0.5 rounded transition-colors"
                                     >
-                                        Flash High
+                                        ⭐ Claude 4.6 (Chi tiết nhất)
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setNineRouterTextModelState('ag/gemini-3-flash')}
-                                        className="text-[10px] text-slate-500 hover:text-emerald-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
+                                        onClick={() => setNineRouterTextModelState('gpt-5.6-sol')}
+                                        className="text-[10px] text-slate-600 hover:text-indigo-700 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
+                                    >
+                                        GPT 5.6
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNineRouterTextModelState('gemini-3-flash')}
+                                        className="text-[10px] text-slate-400 hover:text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded transition-colors"
                                     >
                                         Flash
                                     </button>
