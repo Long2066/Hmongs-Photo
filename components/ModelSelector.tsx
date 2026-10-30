@@ -193,7 +193,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                             value={customModelInput}
                                             onChange={(e) => setCustomModelInput(e.target.value)}
                                             onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCustomModel(); }}
-                                            placeholder="vd: dall-e-3, flux-pro..."
+                                            placeholder="vd: gpt-image-2.5, gpt-image-1.5..."
                                             className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 outline-none focus:border-indigo-600 focus:bg-white"
                                             autoFocus
                                         />

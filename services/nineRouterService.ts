@@ -9,8 +9,8 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
-const DEFAULT_TEXT_MODEL = 'ag/claude-sonnet-4-6';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
+const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -60,41 +60,50 @@ export interface SupportedImageModel {
 
 export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
-        id: 'ag/gemini-3.1-flash-image',
-        name: 'Gemini 3.1 Flash Image',
-        shortName: 'Gemini 3.1 Flash',
-        tag: 'Khuyên dùng - Nhanh',
+        id: 'gpt-image-2.5',
+        name: 'GPT Image 2.5',
+        shortName: 'GPT Image 2.5',
+        tag: 'Khuyên dùng - Mới nhất',
         tagColor: 'emerald',
-        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, giữ khuôn mặt & ghép trang phục H’Mông',
+        description: 'Model GPT mới nhất, tối ưu cân bằng chi tiết sắc nét và độ trung thực cao',
         speed: 'fast',
         isDefault: true
     },
     {
-        id: 'ag/gemini-3.8-flash',
-        name: 'Gemini 3.8 Flash',
-        shortName: 'Gemini 3.8 Flash',
-        tag: 'Thế hệ mới',
-        tagColor: 'blue',
-        description: 'Phiên bản mới nhất, cân bằng tối ưu giữa tốc độ tạo và độ chi tiết',
+        id: 'gpt-image-2.5-flare',
+        name: 'GPT Image 2.5 Flare',
+        shortName: 'GPT 2.5 Flare',
+        tag: 'Hiệu ứng Flare',
+        tagColor: 'indigo',
+        description: 'Tăng cường hiệu ứng ánh sáng nghệ thuật flare rực rỡ, chiều sâu ảnh cao',
         speed: 'fast'
     },
     {
-        id: 'ag/gemini-3.1-pro',
-        name: 'Gemini 3.1 Pro Studio',
-        shortName: 'Gemini 3.1 Pro',
-        tag: 'Chi tiết cao',
-        tagColor: 'indigo',
-        description: 'Chất lượng ảnh studio độ nét cao, tái hiện hoa văn trang phục tinh xảo',
+        id: 'gpt-image-2.5-sunburst',
+        name: 'GPT Image 2.5 Sunburst',
+        shortName: 'GPT 2.5 Sunburst',
+        tag: 'Ánh nắng Sunburst',
+        tagColor: 'amber',
+        description: 'Tông màu điện ảnh, ánh sáng mặt trời tự nhiên ấm áp và sống động',
+        speed: 'fast'
+    },
+    {
+        id: 'gpt-image-2',
+        name: 'GPT Image 2',
+        shortName: 'GPT Image 2',
+        tag: 'Ổn định cao',
+        tagColor: 'blue',
+        description: 'Phiên bản ổn định cao, tái tạo trang phục và chi tiết mượt mà',
         speed: 'medium'
     },
     {
-        id: 'openrouter/recraft/recraft-v3',
-        name: 'Recraft V3 Studio',
-        shortName: 'Recraft V3',
-        tag: 'Đồ họa cao cấp',
+        id: 'gpt-image-1.5',
+        name: 'GPT Image 1.5',
+        shortName: 'GPT Image 1.5',
+        tag: 'Tốc độ - Tiết kiệm',
         tagColor: 'purple',
-        description: 'Ảnh nghệ thuật phong cách đồ họa và hội họa cao cấp qua OpenRouter',
-        speed: 'medium'
+        description: 'Tốc độ tạo nhanh, tiết kiệm quota, phù hợp tạo thử nghiệm và xem trước',
+        speed: 'fast'
     }
 ];
 
@@ -153,7 +162,12 @@ export const setNineRouterImageModel = (model: string): void => {
 };
 
 export const getNineRouterImageModel = (): string => {
-    return localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY) || DEFAULT_IMAGE_MODEL;
+    const stored = localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY);
+    // If empty or still using legacy gemini/recraft models, auto-migrate to DEFAULT_IMAGE_MODEL
+    if (!stored || stored.startsWith('ag/') || stored.includes('gemini') || stored.includes('recraft')) {
+        return DEFAULT_IMAGE_MODEL;
+    }
+    return stored;
 };
 
 export const setNineRouterTextModel = (model: string): void => {
@@ -165,7 +179,12 @@ export const setNineRouterTextModel = (model: string): void => {
 };
 
 export const getNineRouterTextModel = (): string => {
-    return localStorage.getItem(NINEROUTER_TEXT_MODEL_KEY) || DEFAULT_TEXT_MODEL;
+    const stored = localStorage.getItem(NINEROUTER_TEXT_MODEL_KEY);
+    // If empty or still using legacy sonnet/gemini models, auto-migrate to DEFAULT_TEXT_MODEL
+    if (!stored || stored.startsWith('ag/') || stored.includes('sonnet') || stored.includes('gemini')) {
+        return DEFAULT_TEXT_MODEL;
+    }
+    return stored;
 };
 
 // Helper to resolve request URL (handles browser CORS proxying for remote endpoints)
@@ -617,6 +636,24 @@ export const aspectRatioToPixelSize = (aspectRatio?: string, resolution?: string
     }
 };
 
+export const getOpenAiStandardSize = (aspectRatio?: string): string => {
+    switch (aspectRatio) {
+        case '16:9':
+        case '3:2':
+        case '21:9':
+            return '1792x1024';
+        case '9:16':
+        case '2:3':
+        case '3:4':
+            return '1024x1792';
+        case '4:3':
+            return '1024x768';
+        case '1:1':
+        default:
+            return '1024x1024';
+    }
+};
+
 const getModelWithAspectSuffix = (baseModel: string, aspectRatio?: string): string => {
     if (!aspectRatio || aspectRatio === '1:1') return baseModel;
     const ratioMap: Record<string, string> = {
@@ -783,23 +820,54 @@ ${request.prompt}`
                 return image;
             }
 
-            // For non-Gemini models (e.g., OpenRouter / Recraft):
-            // Fallback to text-to-image /images/generations with full prompt description
-            const payload = {
+            // For non-Gemini models (e.g., GPT Image models, OpenRouter, Recraft):
+            const payload: any = {
                 model: activeModel,
                 prompt: `${fullDirective}\n\n${request.prompt}`,
                 n: 1,
                 response_format: 'b64_json',
                 size: pixelSize,
-                aspect_ratio: ratio
+                aspect_ratio: ratio,
+                image_config: {
+                    aspect_ratio: ratio
+                },
+                extra_body: {
+                    aspect_ratio: ratio,
+                    size: pixelSize
+                }
             };
 
-            console.log(`[9Router] Sending prompt generation request to non-Gemini model: ${activeModel}, ratio: ${ratio}`);
-            const resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+            // Pass reference images for endpoints supporting reference inputs
+            if (referenceImages.length > 0) {
+                const firstRef = referenceImages[0];
+                payload.image = `data:${firstRef.mimeType || 'image/jpeg'};base64,${firstRef.data}`;
+                payload.images = referenceImages.map(img => `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`);
+                payload.reference_images = referenceImages.map(img => `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`);
+            }
+
+            console.log(`[9Router] Sending reference generation request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}`);
+            let resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(payload)
             }, 90000);
+
+            // If 400 error occurs due to strict OpenAI size check, retry with OpenAI standard size
+            if (!resp.ok && resp.status === 400) {
+                const standardSize = getOpenAiStandardSize(request.aspectRatio);
+                console.warn(`[9Router] Retrying with standard size: ${standardSize}`);
+                resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        model: activeModel,
+                        prompt: `${fullDirective}\n\n${request.prompt}`,
+                        n: 1,
+                        response_format: 'b64_json',
+                        size: standardSize
+                    })
+                }, 90000);
+            }
 
             if (!resp.ok) {
                 const errText = await resp.text();
@@ -814,7 +882,22 @@ ${request.prompt}`
             if (first?.url) {
                 const dataUrl = extractBase64FromDataUri(first.url);
                 if (dataUrl) return dataUrl;
+                if (first.url.startsWith('http')) {
+                    const imgResp = await fetch(first.url);
+                    if (imgResp.ok) {
+                        const arrayBuffer = await imgResp.arrayBuffer();
+                        let binary = '';
+                        const bytes = new Uint8Array(arrayBuffer);
+                        for (let i = 0; i < bytes.byteLength; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        return btoa(binary);
+                    }
+                }
             }
+            const chatFallback = extractImageFromChatResponse(parsed);
+            if (chatFallback) return chatFallback;
+
             throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
         }
 
@@ -849,8 +932,8 @@ ${request.prompt}`
             return image;
         }
 
-        // Standard text-to-image path for other providers:
-        const payload = {
+        // Standard text-to-image path for GPT image and other models:
+        const payload: any = {
             model: activeModel,
             prompt: `${fullDirective}\n\n${request.prompt}`,
             n: 1,
@@ -866,12 +949,29 @@ ${request.prompt}`
             }
         };
 
-        console.log(`[9Router] Sending text-to-image request to model: ${activeModel}, ratio: ${ratio}`);
-        const resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+        console.log(`[9Router] Sending text-to-image request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}`);
+        let resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
             method: 'POST',
             headers,
             body: JSON.stringify(payload)
         }, 90000);
+
+        // If 400 error occurs due to strict OpenAI size check, retry with OpenAI standard size
+        if (!resp.ok && resp.status === 400) {
+            const standardSize = getOpenAiStandardSize(request.aspectRatio);
+            console.warn(`[9Router] Retrying with standard size: ${standardSize}`);
+            resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    model: activeModel,
+                    prompt: `${fullDirective}\n\n${request.prompt}`,
+                    n: 1,
+                    response_format: 'b64_json',
+                    size: standardSize
+                })
+            }, 90000);
+        }
 
         if (!resp.ok) {
             const errText = await resp.text();
@@ -887,13 +987,11 @@ ${request.prompt}`
 
         const imageItems = payloads.flatMap(payloadItem => Array.isArray(payloadItem?.data) ? payloadItem.data : []);
         const first = imageItems[0];
-        if (!first) return null;
-
-        if (typeof first.b64_json === 'string' && first.b64_json.length > 100) {
+        if (first?.b64_json && first.b64_json.length > 100) {
             return first.b64_json;
         }
 
-        if (typeof first.url === 'string') {
+        if (typeof first?.url === 'string') {
             const dataUrlImage = extractBase64FromDataUri(first.url);
             if (dataUrlImage) return dataUrlImage;
 
@@ -911,6 +1009,9 @@ ${request.prompt}`
                 }
             }
         }
+
+        const chatFallback = extractImageFromChatResponse(parsed);
+        if (chatFallback) return chatFallback;
 
         return null;
     } catch (err: any) {
