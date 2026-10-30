@@ -802,10 +802,7 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="h-screen text-slate-800 font-sans antialiased flex flex-col selection:bg-indigo-100/50 relative overflow-hidden bg-slate-50">
-
-            {/* Background Flow */}
-            <div className="fixed inset-0 z-0 animate-gradient-flow opacity-20 pointer-events-none"></div>
+        <div className="h-screen text-slate-900 font-sans antialiased flex flex-col selection:bg-indigo-100 relative overflow-hidden bg-slate-100">
 
             <Marquee />
 
@@ -825,18 +822,18 @@ const App: React.FC = () => {
 
                 {/* INPUT PANEL - Always visible, collapsible on mobile */}
                 {/* Desktop Sidebar - Hidden on mobile (using bottom navigation instead) */}
-                <aside className="hidden lg:flex lg:static lg:w-[380px] lg:h-full lg:flex-shrink-0 w-full bg-white border-r border-slate-200 flex-col overflow-hidden">
+                <aside className="hidden lg:flex lg:static lg:w-[380px] lg:h-full lg:flex-shrink-0 w-full bg-white border-r border-slate-200 shadow-xs flex-col overflow-hidden">
 
                     {/* Collapsible Header - Tap to expand/collapse on mobile */}
                     <div
-                        className="p-3 border-b border-slate-100 flex-shrink-0 bg-white cursor-pointer lg:cursor-default"
+                        className="p-3 border-b border-slate-200 flex-shrink-0 bg-white cursor-pointer lg:cursor-default"
                         onClick={() => setIsMenuOpen(!isMenuOpen)}
                     >
                         {/* Mode Indicator with expand/collapse toggle */}
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                                 <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
-                                <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-tight">
+                                <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight">
                                     {mode === 'creative' && 'Sáng tạo vô hạn'}
                                     {mode === 'id_photo' && 'Ảnh thẻ chuyên nghiệp'}
                                     {mode === 'edit' && 'Chỉnh sửa AI'}
@@ -882,19 +879,19 @@ const App: React.FC = () => {
                     <div className={`flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
                         {/* Input Section */}
                         <div className="space-y-2">
-                            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
-                                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
+                                <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
                                 Dữ liệu đầu vào
                             </h3>
-                            <div className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden">
+                            <div className="bg-slate-50 rounded-xl border border-slate-200/90 p-1 overflow-hidden shadow-xs">
                                 {renderInputs()}
                             </div>
                         </div>
 
                         {/* Config Section */}
                         <div className="space-y-2">
-                            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider px-1 flex items-center gap-2">
+                                <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
                                 Cấu hình AI
                             </h3>
                             <div className="bg-white">
@@ -905,12 +902,12 @@ const App: React.FC = () => {
 
                     {/* Sidebar Footer - Hidden on mobile when collapsed */}
                     <div className={`p-3 bg-slate-50 border-t border-slate-200 text-center flex-shrink-0 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
-                        <p className="text-[10px] text-slate-400 font-medium">ImageTool v{appVersion} © All Rights Reserved</p>
+                        <p className="text-[11px] text-slate-500 font-semibold">ImageTool v{appVersion} © Studio Edition</p>
                     </div>
                 </aside>
 
-                {/* MAIN CONTENT AREA - Added pb-24 for mobile bottom nav */}
-                <main className="flex-1 overflow-y-auto bg-slate-50/50 flex flex-col w-full relative custom-scrollbar pb-24 lg:pb-0">
+                {/* MAIN CONTENT AREA - Solid crisp canvas */}
+                <main className="flex-1 overflow-y-auto bg-slate-100 flex flex-col w-full relative custom-scrollbar pb-24 lg:pb-0">
                     {isHistoryVisible && currentUser ? (
                         <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
                             <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />

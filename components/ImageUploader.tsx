@@ -20,50 +20,38 @@ interface ImageUploaderProps {
 const UploaderSlot: React.FC<{ onClick: () => void, isDragging: boolean, compact?: boolean }> = ({ onClick, isDragging, compact }) => (
   <div
     onClick={onClick}
-    className={`relative flex flex-col items-center justify-center w-full border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-300 group overflow-hidden
+    className={`relative flex flex-col items-center justify-center w-full border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-200 group overflow-hidden
         ${compact ? 'aspect-square p-2' : 'aspect-square p-4'}
         ${isDragging
-        ? 'border-indigo-500 bg-gradient-to-br from-indigo-50 to-purple-50 scale-[1.02] shadow-lg shadow-indigo-200'
-        : 'border-slate-200/60 bg-gradient-to-br from-slate-50/80 to-white hover:border-indigo-400 hover:from-indigo-50/50 hover:to-purple-50/50 hover:shadow-xl hover:shadow-indigo-100/50 hover:scale-[1.01]'
+        ? 'border-indigo-600 bg-indigo-50/60 scale-[1.01] shadow-xs'
+        : 'border-slate-300 bg-white hover:border-indigo-500 hover:bg-slate-50 shadow-xs'
       }`}
   >
-    {/* Animated gradient border effect */}
-    <div className={`absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none
-      ${isDragging ? 'opacity-100' : ''}`}>
-      <div className="absolute inset-[-2px] bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-2xl opacity-20 animate-gradient-x"></div>
-    </div>
-
     {/* Inner content */}
     <div className="relative flex flex-col items-center justify-center text-center z-10">
-      <div className={`rounded-2xl mb-2 transition-all duration-300 backdrop-blur-sm
-        ${compact ? 'p-3' : 'p-4'} 
+      <div className={`rounded-xl mb-1.5 transition-all duration-200
+        ${compact ? 'p-2' : 'p-3'} 
         ${isDragging
-          ? 'bg-gradient-to-br from-indigo-100 to-purple-100 shadow-lg scale-110'
-          : 'bg-gradient-to-br from-slate-100 to-white group-hover:from-indigo-100 group-hover:to-purple-100 group-hover:shadow-md group-hover:scale-105'
+          ? 'bg-indigo-100 text-indigo-700'
+          : 'bg-slate-100 group-hover:bg-indigo-50 text-slate-600 group-hover:text-indigo-600'
         }`}>
-        <UploadIcon className={`transition-all duration-300 ${compact ? 'w-6 h-6' : 'w-8 h-8'} 
-          ${isDragging ? 'text-indigo-600 animate-bounce' : 'text-slate-400 group-hover:text-indigo-500'}`} />
+        <UploadIcon className={`${compact ? 'w-5 h-5' : 'w-7 h-7'}`} />
       </div>
       {!compact && (
         <>
-          <p className="font-bold text-sm text-slate-600 group-hover:text-indigo-600 transition-colors mb-1">
+          <p className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors mb-0.5">
             Kéo thả ảnh vào đây
           </p>
-          <p className="text-[10px] text-slate-400 group-hover:text-indigo-400 transition-colors">
+          <p className="text-[10px] text-slate-500 font-medium group-hover:text-slate-700 transition-colors">
             hoặc nhấn để chọn file
           </p>
         </>
       )}
       {compact && (
-        <p className="font-bold text-[9px] text-slate-500 uppercase tracking-wide group-hover:text-indigo-600 transition-colors">
+        <p className="font-bold text-[10px] text-slate-700 uppercase tracking-wide group-hover:text-indigo-600 transition-colors">
           Thêm ảnh
         </p>
       )}
-    </div>
-
-    {/* Sparkle effects on hover */}
-    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-      <span className="text-lg animate-pulse">✨</span>
     </div>
   </div>
 );
@@ -77,10 +65,10 @@ const ImagePreviewSlot: React.FC<{
   index: number
 }> = ({ src, fileName, isSelected, onToggle, onClear, index }) => (
   <div
-    className={`relative w-full aspect-square rounded-2xl overflow-hidden group shadow-lg transition-all duration-300 cursor-pointer
+    className={`relative w-full aspect-square rounded-2xl overflow-hidden group shadow-xs transition-all duration-200 cursor-pointer
       ${isSelected
-        ? 'ring-3 ring-indigo-500 ring-offset-2 shadow-xl shadow-indigo-200/50 scale-[1.02]'
-        : 'ring-1 ring-slate-200/50 hover:shadow-2xl hover:shadow-indigo-100/50 hover:scale-[1.02]'
+        ? 'ring-2 ring-indigo-600 ring-offset-2 shadow-sm'
+        : 'ring-1 ring-slate-300 hover:ring-indigo-400'
       }`}
     onClick={onToggle}
     style={{ animationDelay: `${index * 100}ms` }}
@@ -255,22 +243,22 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImagesChange, ma
       className="w-full select-none"
     >
       {/* Header with label and count */}
-      <div className="flex justify-between items-center mb-3 px-1">
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 animate-pulse"></div>
-          <span className={`font-bold text-slate-600 uppercase tracking-widest ${compact ? 'text-[9px]' : 'text-[11px]'}`}>
+      <div className="flex justify-between items-center mb-2 px-1">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+          <span className={`font-bold text-slate-800 uppercase tracking-wider ${compact ? 'text-[10px]' : 'text-xs'}`}>
             {label}
           </span>
         </div>
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-all duration-300 ${images.length === maxImages
-            ? 'bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-700 shadow-sm'
-            : 'bg-slate-100 text-slate-500'
+        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border font-mono text-[10px] font-bold ${images.length === maxImages
+            ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-xs'
+            : 'bg-slate-100 text-slate-700 border-slate-200'
           }`}>
-          <span className={`text-[10px] font-bold`}>{images.length}</span>
-          <span className="text-[10px] text-slate-400">/</span>
-          <span className="text-[10px] font-medium">{maxImages}</span>
+          <span>{images.length}</span>
+          <span className="text-slate-400">/</span>
+          <span>{maxImages}</span>
           {isUploading && (
-            <svg className="animate-spin h-3 w-3 text-indigo-500 ml-1" viewBox="0 0 24 24">
+            <svg className="animate-spin h-3 w-3 text-indigo-600 ml-1" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>

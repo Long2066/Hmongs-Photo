@@ -357,10 +357,7 @@ export const Dashboard: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen text-slate-800 font-sans antialiased flex flex-col selection:bg-indigo-100/50 relative overflow-hidden bg-slate-50">
-
-            {/* Background Flow */}
-            <div className="fixed inset-0 z-0 animate-gradient-flow opacity-20 pointer-events-none"></div>
+        <div className="min-h-screen text-slate-900 font-sans antialiased flex flex-col selection:bg-indigo-100 relative overflow-hidden bg-slate-100">
 
             <Marquee />
 
@@ -379,13 +376,13 @@ export const Dashboard: React.FC = () => {
 
                 {/* SIDEBAR - Completely Separated */}
                 {!isHistoryVisible && (
-                    <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-72 lg:w-[340px] bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out overflow-y-auto custom-scrollbar ${isMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} lg:block shadow-xl flex flex-col`}>
+                    <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-72 lg:w-[340px] bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out overflow-y-auto custom-scrollbar ${isMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} lg:block shadow-sm flex flex-col`}>
 
                         <div className="p-3 lg:p-4 space-y-4 flex-1">
                             {/* Mode Indicator */}
-                            <div className="flex items-center gap-2 mb-2 pb-4 border-b border-slate-100">
+                            <div className="flex items-center gap-2 mb-2 pb-4 border-b border-slate-200">
                                 <span className="w-2 h-8 bg-indigo-600 rounded-full"></span>
-                                <h2 className="text-lg font-extrabold text-slate-800 uppercase tracking-tight">
+                                <h2 className="text-lg font-extrabold text-slate-900 uppercase tracking-tight">
                                     {mode === 'creative' && 'Sáng tạo vô hạn'}
                                     {mode === 'id_photo' && 'Ảnh thẻ chuyên nghiệp'}
                                     {mode === 'edit' && 'Chỉnh sửa AI'}
@@ -395,14 +392,14 @@ export const Dashboard: React.FC = () => {
                             </div>
 
                             {/* Auto Download Toggle */}
-                            <div className="flex items-center justify-between bg-slate-50 border border-slate-100 p-3 rounded-xl">
+                            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 p-3 rounded-xl">
                                 <div className="flex items-center gap-2">
-                                    <div className="bg-white p-1.5 rounded-lg text-indigo-600 shadow-sm border border-slate-100">
+                                    <div className="bg-white p-1.5 rounded-lg text-indigo-600 shadow-sm border border-slate-200">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                                     </div>
                                     <div>
-                                        <h4 className="text-xs font-bold text-slate-700">Tự động tải về</h4>
-                                        <button onClick={handleDownloadConfigClick} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium hover:underline flex items-center gap-1">Cấu hình thư mục</button>
+                                        <h4 className="text-xs font-bold text-slate-800">Tự động tải về</h4>
+                                        <button onClick={handleDownloadConfigClick} className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold hover:underline flex items-center gap-1">Cấu hình thư mục</button>
                                     </div>
                                 </div>
                                 <div className="relative inline-block w-9 h-5 align-middle select-none transition duration-200 ease-in">
@@ -414,19 +411,19 @@ export const Dashboard: React.FC = () => {
                             <div className="space-y-6">
                                 {/* Input Section */}
                                 <div className="space-y-2">
-                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
-                                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
+                                        <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
                                         Dữ liệu đầu vào
                                     </h3>
-                                    <div className="bg-slate-50/50 rounded-2xl border border-slate-100 overflow-hidden">
+                                    <div className="bg-slate-50 rounded-2xl border border-slate-200/90 overflow-hidden shadow-xs">
                                         {renderInputs()}
                                     </div>
                                 </div>
 
                                 {/* Config Section */}
                                 <div className="space-y-2">
-                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 flex items-center gap-2">
-                                        <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider px-1 flex items-center gap-2">
+                                        <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
                                         Cấu hình AI
                                     </h3>
                                     <div className="bg-white p-1">
@@ -438,7 +435,7 @@ export const Dashboard: React.FC = () => {
 
                         {/* Sidebar Footer */}
                         <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
-                            <p className="text-[10px] text-slate-400 font-medium">ImageTool © All Rights Reserved</p>
+                            <p className="text-[11px] text-slate-500 font-semibold">ImageTool © Studio Edition</p>
                         </div>
                     </aside>
                 )}
@@ -449,10 +446,10 @@ export const Dashboard: React.FC = () => {
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>
                     </button>
                 )}
-                {isMenuOpen && <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-30 lg:hidden" onClick={() => setIsMenuOpen(false)}></div>}
+                {isMenuOpen && <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-30 lg:hidden" onClick={() => setIsMenuOpen(false)}></div>}
 
                 {/* MAIN CONTENT AREA */}
-                <main className="flex-1 overflow-y-auto bg-slate-50/50 flex flex-col w-full relative custom-scrollbar">
+                <main className="flex-1 overflow-y-auto bg-slate-100 flex flex-col w-full relative custom-scrollbar">
                     {isHistoryVisible && currentUser ? (
                         <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
                             <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />

@@ -15,34 +15,34 @@ interface OutputDisplayProps {
 
 const OutputImage: React.FC<{ base64: string; index: number, prompt: string, meta?: { name: string, job: string }, onClick: () => void }> = ({ base64, index, prompt, meta, onClick }) => {
     return (
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col gap-2 animate-fade-in group hover:-translate-y-1">
+        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all duration-200 flex flex-col gap-2.5 animate-fade-in group ring-1 ring-slate-900/5">
             <div
-                className="relative w-full aspect-square bg-slate-100 rounded-lg overflow-hidden cursor-pointer"
+                className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden cursor-pointer"
                 onClick={onClick}
             >
-                <img src={`data:image/png;base64,${base64}`} alt={`Generated ${index + 1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <img src={`data:image/png;base64,${base64}`} alt={`Generated ${index + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" />
 
                 {/* Number Badge */}
-                <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center font-bold text-slate-800 shadow-sm z-10 text-xs border border-white/50">
+                <div className="absolute top-2 left-2 w-6 h-6 rounded-lg bg-white/95 flex items-center justify-center font-bold text-slate-900 shadow-xs z-10 text-xs border border-slate-200">
                     {index + 1}
                 </div>
 
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <button className="bg-white/90 text-slate-900 px-3 py-1.5 rounded-full font-bold text-xs shadow-md transform translate-y-2 group-hover:translate-y-0 transition-all duration-300">
-                        Xem ảnh
+                <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <button className="bg-white text-slate-900 px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm transform translate-y-1 group-hover:translate-y-0 transition-all">
+                        Xem chi tiết
                     </button>
                 </div>
             </div>
 
             {/* Content Area */}
-            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
                 {meta ? (
                     <div className="text-center">
-                        <h4 className="font-bold text-slate-800 text-xs truncate">{meta.name}</h4>
-                        <p className="text-[10px] text-indigo-600 font-bold mt-0.5 truncate">{meta.job}</p>
+                        <h4 className="font-bold text-slate-900 text-xs truncate">{meta.name}</h4>
+                        <p className="text-[11px] text-indigo-700 font-bold mt-0.5 truncate">{meta.job}</p>
                     </div>
                 ) : (
-                    <p className="text-[10px] text-slate-500 line-clamp-2 leading-tight font-medium" title={prompt}>
+                    <p className="text-[11px] text-slate-700 line-clamp-2 leading-relaxed font-medium" title={prompt}>
                         {prompt || 'Đang xử lý prompt...'}
                     </p>
                 )}
@@ -97,13 +97,13 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
     return (
         <div className="flex flex-col gap-6 w-full">
             {/* Header / Status - More Compact */}
-            <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col items-center justify-center text-center transition-all duration-500 relative ${isActive ? '' : 'min-h-[200px]'}`}>
+            <div className={`bg-white rounded-2xl shadow-xs border border-slate-200 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative ${isActive ? '' : 'min-h-[180px]'}`}>
 
                 {/* REPLAY BUTTON (Top Right) */}
                 {isActive && !isLoading && onReplaySlideshow && (
                     <button
                         onClick={onReplaySlideshow}
-                        className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-indigo-600 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition-all text-xs z-20"
+                        className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white font-bold rounded-xl shadow-xs hover:bg-indigo-700 transition-all text-xs z-20"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
@@ -117,31 +117,36 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                         <div className="mb-2">
                             <ClockLoader />
                         </div>
-                        <h3 className="text-lg font-bold text-slate-800 mb-1">Vui lòng chờ ít phút</h3>
+                        <h3 className="text-base font-bold text-slate-900 mb-1">Vui lòng chờ ít phút</h3>
                     </div>
                 ) : error ? (
-                    <div className="text-red-500 flex flex-col items-center gap-2 animate-fade-in">
-                        <div className="p-2 bg-red-50 rounded-full border border-red-100">
-                            <ErrorIcon className="w-6 h-6" />
+                    <div className="text-red-600 flex flex-col items-center gap-2 animate-fade-in">
+                        <div className="p-2 bg-red-50 rounded-full border border-red-200">
+                            <ErrorIcon className="w-6 h-6 text-red-600" />
                         </div>
-                        <span className="font-medium text-sm">{error}</span>
+                        <span className="font-semibold text-sm">{error}</span>
                     </div>
                 ) : isActive ? (
                     <div className="animate-fade-in flex items-center gap-3">
-                        <div className="p-2 bg-green-50 rounded-full text-green-600 border border-green-100">
+                        <div className="p-2.5 bg-emerald-50 rounded-full text-emerald-600 border border-emerald-200">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
                         <div className="text-left">
-                            <h3 className="text-lg font-bold text-slate-800">Hoàn thành!</h3>
-                            <p className="text-slate-500 text-xs">Đã tạo {outputImages.filter(i => i).length} ảnh.</p>
+                            <h3 className="text-base font-bold text-slate-900">Hoàn thành!</h3>
+                            <p className="text-slate-600 text-xs font-medium">Đã tạo thành công {outputImages.filter(i => i).length} ảnh chuẩn nét.</p>
                         </div>
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center gap-3 text-slate-300">
-                        <ImageIcon className="w-12 h-12 opacity-40" />
-                        <p className="text-slate-400 font-medium text-sm">Kết quả sẽ hiển thị tại đây</p>
+                    <div className="flex flex-col items-center justify-center py-4 px-4 text-center">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600 mb-2.5 border border-slate-200 shadow-xs">
+                            <ImageIcon className="w-6 h-6 text-slate-600" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-900">Khung xem ảnh Studio sẵn sàng</h4>
+                        <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
+                            Cấu hình ảnh mẫu, góc chụp, phong cách và nhấn "Bắt đầu tạo" để AI render bộ sưu tập ảnh sắc nét tại đây.
+                        </p>
                     </div>
                 )}
             </div>

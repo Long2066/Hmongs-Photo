@@ -64,15 +64,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     }, [onResolutionChange]);
 
     return (
-        <div className={`space-y-3 ${className}`}>
+        <div className={`space-y-3.5 ${className}`}>
             {/* Header: Title + Active Model ID */}
             <div>
                 <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                    <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                         Model Tạo Ảnh
                     </label>
                     <span
-                        className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-100 border border-slate-200/60 px-2 py-0.5 rounded-md truncate max-w-[170px]"
+                        className="text-[11px] font-mono font-bold text-slate-800 bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-md truncate max-w-[170px]"
                         title={selectedModel}
                     >
                         {selectedModel.replace('ag/', '').replace('openrouter/', '')}
@@ -88,10 +88,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                 key={model.id}
                                 type="button"
                                 onClick={() => handleSelectModel(model.id)}
-                                className={`group relative p-2.5 rounded-xl text-left transition-all duration-150 flex flex-col justify-between select-none ${
+                                className={`group relative p-3 rounded-xl text-left transition-all duration-150 flex flex-col justify-between select-none ${
                                     isSelected
-                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20 ring-1 ring-white/30 scale-[1.01]'
-                                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/80 hover:border-indigo-300 shadow-xs'
+                                        ? 'bg-indigo-600 text-white border border-indigo-700 shadow-sm shadow-indigo-500/20 ring-1 ring-white/20 scale-[1.01]'
+                                        : 'bg-white hover:bg-slate-50/80 text-slate-900 border border-slate-300 hover:border-slate-400 shadow-xs'
                                 }`}
                             >
                                 <div className="flex items-center justify-between gap-1 w-full mb-1">
@@ -101,26 +101,26 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                     <span
                                         className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold whitespace-nowrap tracking-tight ${
                                             isSelected
-                                                ? 'bg-white/20 text-white'
+                                                ? 'bg-white/20 text-white border border-white/30'
                                                 : model.tagColor === 'emerald'
-                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
                                                     : model.tagColor === 'purple'
-                                                        ? 'bg-purple-50 text-purple-700 border border-purple-200/60'
+                                                        ? 'bg-purple-50 text-purple-800 border border-purple-300'
                                                         : model.tagColor === 'blue'
-                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
+                                                            ? 'bg-blue-50 text-blue-800 border border-blue-300'
                                                             : model.tagColor === 'indigo'
-                                                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
+                                                                ? 'bg-indigo-50 text-indigo-800 border border-indigo-300'
                                                                 : model.tagColor === 'amber'
-                                                                    ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
-                                                                    : 'bg-slate-100 text-slate-600'
+                                                                    ? 'bg-amber-50 text-amber-800 border border-amber-300'
+                                                                    : 'bg-slate-100 text-slate-700 border border-slate-300'
                                         }`}
                                     >
                                         {model.tag}
                                     </span>
                                 </div>
                                 <span
-                                    className={`text-[10px] line-clamp-1 leading-tight ${
-                                        isSelected ? 'text-indigo-100' : 'text-slate-400 group-hover:text-slate-500'
+                                    className={`text-[11px] font-medium line-clamp-1 leading-snug ${
+                                        isSelected ? 'text-indigo-100' : 'text-slate-600 group-hover:text-slate-700'
                                     }`}
                                 >
                                     {model.description}
@@ -134,10 +134,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
             {/* Resolution Selection - Pure Text */}
             {showResolution && (
                 <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1.5 uppercase tracking-wide">
+                    <label className="block text-xs font-bold text-slate-900 mb-1.5 uppercase tracking-wider">
                         Độ phân giải xuất ra
                     </label>
-                    <div className="flex gap-1.5">
+                    <div className="flex gap-2">
                         {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map((res) => {
                             const isSelected = selectedRes === res;
                             return (
@@ -147,8 +147,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                     onClick={() => handleResolutionChange(res)}
                                     className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
                                         isSelected
-                                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm ring-1 ring-white/20'
-                                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                                            ? 'bg-indigo-600 text-white border border-indigo-700 shadow-xs'
+                                            : 'bg-white border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-400 shadow-xs'
                                     }`}
                                 >
                                     {res}
