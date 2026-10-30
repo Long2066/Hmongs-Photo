@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import * as nineRouterService from '../services/nineRouterService';
-import { SUPPORTED_IMAGE_MODELS } from '../services/nineRouterService';
 
 interface ApiKeyModalProps {
     onClose: () => void;
@@ -11,8 +10,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
     const [nineRouterEnabled, setNineRouterEnabledState] = useState(() => nineRouterService.isNineRouterEnabled());
     const [nineRouterUrl, setNineRouterUrlState] = useState(() => nineRouterService.getNineRouterUrl());
     const [nineRouterApiKey, setNineRouterApiKeyState] = useState(() => nineRouterService.getNineRouterApiKey());
-    const [nineRouterImageModel, setNineRouterImageModelState] = useState(() => nineRouterService.getNineRouterImageModel());
-    const [nineRouterTextModel, setNineRouterTextModelState] = useState(() => nineRouterService.getNineRouterTextModel());
     
     const [isConnected, setIsConnected] = useState(false);
     const [isChecking, setIsChecking] = useState(false);
@@ -56,8 +53,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
         nineRouterService.setNineRouterEnabled(nineRouterEnabled);
         nineRouterService.setNineRouterUrl(nineRouterUrl);
         nineRouterService.setNineRouterApiKey(nineRouterApiKey);
-        nineRouterService.setNineRouterImageModel(nineRouterImageModel);
-        nineRouterService.setNineRouterTextModel(nineRouterTextModel);
 
         setIsSavedFeedback(true);
         setTimeout(() => {
@@ -262,105 +257,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                             </div>
                         </div>
 
-                        {/* 3. Image Model & Text Model */}
-                        <div className="space-y-3 pt-1">
-                            <div>
-                                <div className="flex items-center justify-between mb-1.5">
-                                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                                        Image Model (Vẽ ảnh)
-                                    </label>
-                                    <span className="text-[10px] font-mono text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 truncate max-w-[200px]">
-                                        {nineRouterImageModel}
-                                    </span>
-                                </div>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mb-2">
-                                    {SUPPORTED_IMAGE_MODELS.map((m) => {
-                                        const isSelected = nineRouterImageModel === m.id;
-                                        return (
-                                            <button
-                                                key={m.id}
-                                                type="button"
-                                                onClick={() => setNineRouterImageModelState(m.id)}
-                                                className={`p-2 rounded-xl text-left transition-all flex flex-col justify-between ${
-                                                    isSelected
-                                                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold shadow-xs ring-1 ring-white/20'
-                                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
-                                                }`}
-                                            >
-                                                <div className="flex items-center justify-between gap-1 w-full">
-                                                    <span className="text-xs truncate flex items-center gap-1">
-                                                        <span>{m.icon}</span>
-                                                        <span>{m.shortName}</span>
-                                                    </span>
-                                                    <span className={`text-[8px] px-1 py-0.5 rounded font-bold whitespace-nowrap ${
-                                                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/70 text-slate-600'
-                                                    }`}>
-                                                        {m.tag}
-                                                    </span>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <input
-                                    type="text"
-                                    value={nineRouterImageModel}
-                                    onChange={(e) => setNineRouterImageModelState(e.target.value)}
-                                    placeholder="Hoặc tự gõ Model ID tùy chỉnh..."
-                                    className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
-                                />
-                            </div>
-
-                            <div>
-                                <div className="flex items-center justify-between mb-1.5">
-                                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                                        Text Model (Soạn Prompt)
-                                    </label>
-                                    <span className="text-[10px] font-mono text-indigo-700 font-semibold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60 truncate max-w-[200px]">
-                                        {nineRouterTextModel}
-                                    </span>
-                                </div>
-                                <div className="grid grid-cols-3 gap-1.5 mb-2">
-                                    {[
-                                        { id: 'claude-sonnet-4-6', name: 'Claude 4.6', icon: '⭐', tag: 'Chi tiết' },
-                                        { id: 'gpt-5.6-sol', name: 'GPT 5.6', icon: '💎', tag: 'Thông minh' },
-                                        { id: 'gemini-3-flash', name: 'Flash', icon: '⚡', tag: 'Nhanh' }
-                                    ].map((m) => {
-                                        const isSelected = nineRouterTextModel === m.id;
-                                        return (
-                                            <button
-                                                key={m.id}
-                                                type="button"
-                                                onClick={() => setNineRouterTextModelState(m.id)}
-                                                className={`p-2 rounded-xl text-left transition-all flex items-center justify-between ${
-                                                    isSelected
-                                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold shadow-xs'
-                                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
-                                                }`}
-                                            >
-                                                <span className="text-xs truncate flex items-center gap-1">
-                                                    <span>{m.icon}</span>
-                                                    <span>{m.name}</span>
-                                                </span>
-                                                <span className={`text-[8px] px-1 py-0.5 rounded font-bold whitespace-nowrap ${
-                                                    isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/70 text-slate-600'
-                                                }`}>
-                                                    {m.tag}
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <input
-                                    type="text"
-                                    value={nineRouterTextModel}
-                                    onChange={(e) => setNineRouterTextModelState(e.target.value)}
-                                    placeholder="Hoặc tự gõ Text Model ID..."
-                                    className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
-                                />
-                            </div>
-                        </div>
-
                         {/* Open Dashboard Link */}
                         <div className="pt-2">
                             <button
@@ -371,7 +267,9 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                 }}
                                 className="w-full py-2.5 px-4 bg-slate-100/80 hover:bg-slate-200/80 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border border-slate-200/60 active:scale-[0.98]"
                             >
-                                <span>📊</span>
+                                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
                                 <span>Mở trang 9Router Dashboard</span>
                                 <svg className="w-3.5 h-3.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />

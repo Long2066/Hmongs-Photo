@@ -48,7 +48,6 @@ export interface SupportedImageModel {
     id: string;
     name: string;
     shortName: string;
-    icon: string;
     tag: string;
     tagColor: string;
     description: string;
@@ -61,8 +60,7 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         id: 'gpt-image-2.5',
         name: 'GPT Image 2.5',
         shortName: 'GPT 2.5',
-        icon: '💎',
-        tag: 'Cao cấp nhất',
+        tag: 'Cao cấp',
         tagColor: 'purple',
         description: 'Tái tạo ánh sáng, da dẻ và chi tiết trang phục với độ chân thực cao nhất',
         speed: 'medium',
@@ -71,8 +69,7 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
         id: 'ag/gemini-3.1-flash-image',
         name: 'Gemini 3.1 Flash Image',
-        shortName: 'Gemini 3.1',
-        icon: '⚡',
+        shortName: 'Gemini 3.1 Flash',
         tag: 'Nhanh nhất',
         tagColor: 'emerald',
         description: 'Tốc độ 3-5s, tối ưu chuẩn xác khuôn mặt & ghép trang phục H’Mông',
@@ -82,7 +79,6 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         id: 'ag/gemini-3-pro-image',
         name: 'Gemini 3 Pro Studio',
         shortName: 'Gemini 3 Pro',
-        icon: '⭐',
         tag: 'Chi tiết cao',
         tagColor: 'blue',
         description: 'Chất lượng ảnh studio sắc nét, render text và hoa văn trang phục tinh xảo',
@@ -92,7 +88,6 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         id: 'imagen-3.0-generate-002',
         name: 'Imagen 3.0 Ultra',
         shortName: 'Imagen 3',
-        icon: '🎨',
         tag: 'Điện ảnh',
         tagColor: 'amber',
         description: 'Phong cách photorealism điện ảnh, chiều sâu và màu sắc mượt mà',
@@ -102,7 +97,6 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         id: 'gpt-image-1.5',
         name: 'GPT Image 1.5',
         shortName: 'GPT 1.5',
-        icon: '✨',
         tag: 'Cân bằng',
         tagColor: 'indigo',
         description: 'Cân bằng tốc độ và độ sắc nét, tiết kiệm quota',
@@ -112,7 +106,6 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         id: 'ag/gemini-2.5-flash-image',
         name: 'Gemini 2.5 Flash',
         shortName: 'Gemini 2.5',
-        icon: '🚀',
         tag: 'Ổn định',
         tagColor: 'slate',
         description: 'Mô hình dự phòng ổn định cao, phản hồi nhanh',

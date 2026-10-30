@@ -91,22 +91,22 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     }, [onResolutionChange]);
 
     return (
-        <div className={`space-y-3.5 ${className}`}>
-            {/* Header: Title + Active Tag */}
+        <div className={`space-y-3 ${className}`}>
+            {/* Header: Title + Active Model ID */}
             <div>
                 <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                        <span className="text-sm">🤖</span> Model Tạo Ảnh
+                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                        Model Tạo Ảnh
                     </label>
                     <span
-                        className="text-[10px] font-mono font-medium text-slate-500 bg-slate-100/90 border border-slate-200/60 px-2 py-0.5 rounded-md truncate max-w-[160px]"
+                        className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-100 border border-slate-200/60 px-2 py-0.5 rounded-md truncate max-w-[170px]"
                         title={selectedModel}
                     >
                         {selectedModel.replace('ag/', '')}
                     </span>
                 </div>
 
-                {/* Model Tabs Grid */}
+                {/* Model Tabs Grid - Pure Text */}
                 <div className="grid grid-cols-2 gap-1.5">
                     {SUPPORTED_IMAGE_MODELS.map((model) => {
                         const isSelected = selectedModel === model.id && !isCustomMode;
@@ -122,9 +122,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                 }`}
                             >
                                 <div className="flex items-center justify-between gap-1 w-full mb-1">
-                                    <span className="text-xs font-bold flex items-center gap-1.5 truncate">
-                                        <span className="text-sm">{model.icon}</span>
-                                        <span className="truncate">{model.shortName}</span>
+                                    <span className="text-xs font-bold truncate">
+                                        {model.shortName}
                                     </span>
                                     <span
                                         className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold whitespace-nowrap tracking-tight ${
@@ -155,7 +154,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         );
                     })}
 
-                    {/* Custom Model Tab */}
+                    {/* Custom Model Tab - Pure Text */}
                     <button
                         type="button"
                         onClick={() => setIsCustomMode(!isCustomMode)}
@@ -166,16 +165,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         }`}
                     >
                         <div className="flex items-center justify-between w-full">
-                            <span className="text-xs font-bold flex items-center gap-1.5">
-                                <span>⚙️</span>
-                                <span>Model tùy chỉnh (Nhập ID từ 9Router)</span>
+                            <span className="text-xs font-bold">
+                                Model tùy chỉnh khác
                             </span>
                             <span
                                 className={`text-[9px] px-2 py-0.5 rounded-md font-bold ${
                                     isCustomMode ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
                                 }`}
                             >
-                                {isCustomMode ? 'Đang chọn' : '+ Tùy chỉnh'}
+                                {isCustomMode ? 'Đang chọn' : 'Tự nhập'}
                             </span>
                         </div>
                     </button>
@@ -183,7 +181,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
 
                 {/* Custom Model Input Drawer */}
                 {isCustomMode && (
-                    <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200/80 space-y-2 animate-fade-in">
+                    <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200/80 space-y-2 animate-fade-in mt-2">
                         <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider">
                             Nhập Model ID từ 9Router
                         </label>
@@ -192,7 +190,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                 type="text"
                                 value={customModelText}
                                 onChange={(e) => setCustomModelText(e.target.value)}
-                                placeholder="Ví dụ: dall-e-3, flux-pro, ag/claude-sonnet-5-5..."
+                                placeholder="Ví dụ: dall-e-3, flux-pro, ag/gemini-3.1-pro-high..."
                                 className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             />
                             <button
@@ -206,10 +204,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                     </div>
                 )}
 
-                {/* Selected Model Description Callout */}
-                <div className="p-2.5 bg-slate-50/90 border border-slate-200/70 rounded-xl text-[11px] text-slate-600 flex items-start gap-2 shadow-2xs">
-                    <span className="text-indigo-600 text-sm flex-shrink-0">💡</span>
-                    <div className="leading-snug">
+                {/* Selected Model Description Callout - Pure Text */}
+                <div className="p-2.5 bg-slate-50/90 border border-slate-200/70 rounded-xl text-[11px] text-slate-600 shadow-2xs mt-2">
+                    <p className="leading-snug">
                         <strong className="text-slate-800 font-bold">
                             {activeModelInfo ? activeModelInfo.name : selectedModel}:{' '}
                         </strong>
@@ -218,15 +215,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                 ? activeModelInfo.description
                                 : 'Model 9Router tùy chỉnh được lưu sẵn cho mọi tác vụ tạo ảnh.'}
                         </span>
-                    </div>
+                    </p>
                 </div>
             </div>
 
-            {/* Resolution Selection - only show if showResolution is true */}
+            {/* Resolution Selection - Pure Text */}
             {showResolution && (
                 <div>
                     <label className="block text-xs font-bold text-slate-800 mb-1.5 uppercase tracking-wide">
-                        📐 Độ phân giải xuất ra
+                        Độ phân giải xuất ra
                     </label>
                     <div className="flex gap-1.5">
                         {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map((res) => {
