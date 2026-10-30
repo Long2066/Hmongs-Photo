@@ -1,6 +1,4 @@
 #!/bin/bash
-set -e
-exec > /tmp/cpa_setup.log 2>&1
 
 echo "[1] Enable SSH password login..."
 echo 'ubuntu:Admin123456@' | chpasswd

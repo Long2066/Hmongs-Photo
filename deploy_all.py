@@ -54,7 +54,7 @@ except Exception as e:
 # 2. CHUAN BI SCRIPT CAI DAT LEN VPS
 print("\n[2/3] Chuan bi lenh thuc thi tren may chu...")
 bash_script = """#!/bin/bash
-curl -sSL https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/setup_vps.sh | bash
+curl -sSL "https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/setup_vps.sh?t=$(date +%s)" | tr -d '\\r' | bash
 """
 
 # 3. GUI LENH QUA AGENT VA THEO DOI
@@ -84,19 +84,31 @@ for i in range(24):
         if found:
             f = found[0]
             print(f"[{i*5+5}s] Trang thai: {f.lifecycle_state}")
-            if f.lifecycle_state == "SUCCEEDED":
-                print("\n" + "="*60)
-                print("🎉 CHUC MUNG! CLIPROXYAPI DA CAI DAT VA HOAT DONG 100% TREN VPS!")
-                print("="*60)
-                print(f"👉 Link Web Dashboard: http://{vps_ip}:8317/management")
-                print(f"👉 Endpoint API:       http://{vps_ip}:8317/v1")
-                print("👉 Secret Key / Pass:  123456")
-                print("👉 API Key:            123456")
-                print("👉 SSH Info (neu can): User: ubuntu | Pass: Admin123456@")
-                print("="*60)
-                break
-            elif f.lifecycle_state == "FAILED":
-                print("Co loi xay ra trong qua trinh cai:", f)
+            if f.lifecycle_state in ["SUCCEEDED", "FAILED"]:
+                try:
+                    full_exec = agent_client.get_instance_agent_command_execution(
+                        instance_agent_command_id=cmd.data.id,
+                        instance_id=inst_id
+                    ).data
+                    if full_exec.content and full_exec.content.text:
+                        print("\n--- NOI DUNG LOG MAY CHU ---")
+                        print(full_exec.content.text)
+                        print("----------------------------\n")
+                except Exception as err:
+                    pass
+                
+                if f.lifecycle_state == "SUCCEEDED":
+                    print("\n" + "="*60)
+                    print("🎉 CHUC MUNG! CLIPROXYAPI DA CAI DAT VA HOAT DONG 100% TREN VPS!")
+                    print("="*60)
+                    print(f"👉 Link Web Dashboard: http://{vps_ip}:8317/management")
+                    print(f"👉 Endpoint API:       http://{vps_ip}:8317/v1")
+                    print("👉 Secret Key / Pass:  123456")
+                    print("👉 API Key:            123456")
+                    print("👉 SSH Info (neu can): User: ubuntu | Pass: Admin123456@")
+                    print("="*60)
+                else:
+                    print("Loi thuc thi tren may chu:", f)
                 break
         else:
             print(f"[{i*5+5}s] Dang tien hanh...")
