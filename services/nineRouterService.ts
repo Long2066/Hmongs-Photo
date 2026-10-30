@@ -9,7 +9,7 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
+const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
 const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
@@ -60,14 +60,41 @@ export interface SupportedImageModel {
 
 export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
-        id: 'gpt-image-2.5',
-        name: 'GPT Image 2.5',
-        shortName: 'GPT Image 2.5',
-        tag: 'Khuyên dùng - Mới nhất',
+        id: 'ag/gemini-3.1-flash-image',
+        name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)',
+        shortName: 'Gemini 3.1 Flash',
+        tag: 'Khuyên dùng - Chuẩn ảnh mẫu',
         tagColor: 'emerald',
-        description: 'Model GPT mới nhất, tối ưu cân bằng chi tiết sắc nét và độ trung thực cao',
+        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, giữ 100% khuôn mặt & ghép trang phục H’Mông',
         speed: 'fast',
         isDefault: true
+    },
+    {
+        id: 'ag/gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash (Thế hệ mới)',
+        shortName: 'Gemini 3.8 Flash',
+        tag: 'Thế hệ mới',
+        tagColor: 'blue',
+        description: 'Phiên bản mới nhất, cân bằng tối ưu giữa tốc độ tạo và độ chi tiết',
+        speed: 'fast'
+    },
+    {
+        id: 'ag/gemini-3.1-pro',
+        name: 'Gemini 3.1 Pro Studio',
+        shortName: 'Gemini 3.1 Pro',
+        tag: 'Chi tiết cao',
+        tagColor: 'indigo',
+        description: 'Chất lượng ảnh studio độ nét cao, tái hiện hoa văn trang phục tinh xảo',
+        speed: 'medium'
+    },
+    {
+        id: 'gpt-image-2.5',
+        name: 'GPT Image 2.5 (OpenAI)',
+        shortName: 'GPT Image 2.5',
+        tag: 'OpenAI - Mới nhất',
+        tagColor: 'emerald',
+        description: 'Model GPT mới nhất, tối ưu tạo ảnh nghệ thuật từ mô tả văn bản',
+        speed: 'fast'
     },
     {
         id: 'gpt-image-2.5-flare',
@@ -163,8 +190,8 @@ export const setNineRouterImageModel = (model: string): void => {
 
 export const getNineRouterImageModel = (): string => {
     const stored = localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY);
-    // If empty or still using legacy gemini/recraft models, auto-migrate to DEFAULT_IMAGE_MODEL
-    if (!stored || stored.startsWith('ag/') || stored.includes('gemini') || stored.includes('recraft')) {
+    // Reset to default Gemini model if not set or if temporarily set to gpt-image-2.5 from prior migration
+    if (!stored || stored === 'gpt-image-2.5' || !SUPPORTED_IMAGE_MODELS.some(m => m.id === stored)) {
         return DEFAULT_IMAGE_MODEL;
     }
     return stored;
