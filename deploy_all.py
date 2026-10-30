@@ -9,11 +9,12 @@ agent_client = oci.compute_instance_agent.ComputeInstanceAgentClient(config)
 inst_id = "ocid1.instance.oc1.ap-singapore-1.anzwsljr3epcpnac5v2gfnnn73idx6koglvtto6za74ltwnpnmahbk2clpea"
 tenancy = config["tenancy"]
 vps_ip = "158.178.235.87"
+TARGET_PORT = 9000
 
-print("=== BAT DAU TRIEN KHAI TU DONG 100% CLIPROXYAPI LEN VPS ===")
+print(f"=== BAT DAU TRIEN KHAI CLIPROXYAPI TREN PORT {TARGET_PORT} ===")
 
-# 1. MO PORT 8317 VA 80 TREN ORACLE CLOUD SECURITY LIST
-print("\n[1/3] Kiem tra va mo port 8317 va 80 tren Oracle VCN Security List...")
+# 1. MO PORT TREN ORACLE CLOUD SECURITY LIST
+print(f"\n[1/3] Kiem tra va mo port {TARGET_PORT} tren Oracle VCN Security List...")
 try:
     vnics = compute_client.list_vnic_attachments(compartment_id=tenancy, instance_id=inst_id).data
     for v in vnics:
@@ -27,7 +28,7 @@ try:
                     existing_ports.add(rule.tcp_options.destination_port_range.min)
             
             rules_to_add = []
-            for p in [8317, 80]:
+            for p in [TARGET_PORT, 8317, 80]:
                 if p not in existing_ports:
                     rules_to_add.append(
                         oci.core.models.IngressSecurityRule(
@@ -45,15 +46,15 @@ try:
                     sl_id,
                     oci.core.models.UpdateSecurityListDetails(ingress_security_rules=new_rules)
                 )
-                print(f"-> Da them ingress rules cho port 8317 va 80 tren Security List: {sl.display_name}!")
+                print(f"-> Da them ingress rules cho port {TARGET_PORT} tren Security List: {sl.display_name}!")
             else:
-                print(f"-> Port 8317 da duoc phep tren Security List: {sl.display_name}!")
+                print(f"-> Port {TARGET_PORT} da duoc phep tren Security List: {sl.display_name}!")
 except Exception as e:
     print("Luu y ve Security List:", e)
 
 # 2. CHUAN BI SCRIPT CAI DAT LEN VPS
-print("\n[2/3] Chuan bi lenh thuc thi tren may chu...")
-bash_script = """#!/bin/bash
+print(f"\n[2/3] Chuan bi lenh thuc thi tren port {TARGET_PORT}...")
+bash_script = f"""#!/bin/bash
 curl -sSL "https://raw.githubusercontent.com/Long2066/Hmongs-Photo/main/user_setup.sh?t=$(date +%s)" | tr -d '\\r' | bash
 """
 
@@ -71,10 +72,10 @@ details = m.CreateInstanceAgentCommandDetails(
 )
 cmd = agent_client.create_instance_agent_command(details)
 print(f"-> Lenh da duoc tiep nhan! ID: {cmd.data.id}")
-print("Dang cho may chu tai binary, cau hinh OAuth va khoi chay (khoang 30-45 giay)...\n")
+print("Dang khoi chay (khoang 15-25 giay)...\n")
 
-for i in range(36):
-    time.sleep(5)
+for i in range(20):
+    time.sleep(4)
     try:
         exs = agent_client.list_instance_agent_command_executions(
             compartment_id=tenancy,
@@ -83,7 +84,7 @@ for i in range(36):
         found = [x for x in exs if x.instance_agent_command_id == cmd.data.id]
         if found:
             f = found[0]
-            print(f"[{i*5+5}s] Trang thai: {f.lifecycle_state}")
+            print(f"[{i*4+4}s] Trang thai: {f.lifecycle_state}")
             if f.lifecycle_state in ["SUCCEEDED", "FAILED"]:
                 try:
                     full_exec = agent_client.get_instance_agent_command_execution(
@@ -91,26 +92,25 @@ for i in range(36):
                         instance_id=inst_id
                     ).data
                     if full_exec.content and full_exec.content.text:
-                        print("\n--- NOI DUNG LOG MAY CHU ---")
+                        print("\n--- LOG MAY CHU ---")
                         print(full_exec.content.text)
-                        print("----------------------------\n")
+                        print("-------------------\n")
                 except Exception as err:
                     pass
                 
                 if f.lifecycle_state == "SUCCEEDED":
                     print("\n" + "="*60)
-                    print("🎉 CHUC MUNG! CLIPROXYAPI DA CAI DAT VA HOAT DONG 100% TREN VPS!")
+                    print(f"🎉 CHUC MUNG! CLIPROXYAPI DA CHAY TREN PORT {TARGET_PORT}!")
                     print("="*60)
-                    print(f"👉 Link Web Dashboard: http://{vps_ip}:8317/management")
-                    print(f"👉 Endpoint API:       http://{vps_ip}:8317/v1")
+                    print(f"👉 Link Web Dashboard: http://{vps_ip}:{TARGET_PORT}/management")
+                    print(f"👉 Endpoint API:       http://{vps_ip}:{TARGET_PORT}/v1")
                     print("👉 Secret Key / Pass:  123456")
                     print("👉 API Key:            123456")
-                    print("👉 SSH Info (neu can): User: ubuntu | Pass: Admin123456@")
                     print("="*60)
                 else:
                     print("Loi thuc thi tren may chu:", f)
                 break
         else:
-            print(f"[{i*5+5}s] Dang tien hanh...")
+            print(f"[{i*4+4}s] Dang tien hanh...")
     except Exception as e:
-        print(f"[{i*5+5}s] Cho them...")
+        print(f"[{i*4+4}s] Cho them...")

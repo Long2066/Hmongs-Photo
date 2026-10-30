@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "=== TRIEN KHAI CLIPROXYAPI KHONG CAN ROOT ==="
+echo "=== TRIEN KHAI CLIPROXYAPI PORT 9000 ==="
 DIR="/var/lib/ocarun/cliproxyapi"
 mkdir -p "$DIR/oauth"
 cd "$DIR"
@@ -12,12 +12,12 @@ if [ ! -f "cli-proxy-api" ]; then
     chmod +x cli-proxy-api
 fi
 
-echo "[2] Writing config.yaml..."
+echo "[2] Writing config.yaml for port 9000..."
 cat << 'CONFIG_EOF' > "$DIR/config.yaml"
 config-version: 8
 server:
   host: ""
-  port: 8317
+  port: 9000
 management:
   allow-remote: true
   secret-key: "123456"
@@ -48,23 +48,23 @@ nohup "$DIR/cli-proxy-api" --config "$DIR/config.yaml" </dev/null >"$DIR/cpa.log
 START_EOF
 chmod +x "$DIR/start.sh"
 
-echo "[6] Starting CLIProxyAPI background daemon..."
+echo "[6] Starting CLIProxyAPI background daemon on port 9000..."
 nohup "$DIR/cli-proxy-api" --config "$DIR/config.yaml" </dev/null >"$DIR/cpa.log" 2>&1 &
 PID=$!
 sleep 3
 
 if ps -p $PID > /dev/null 2>&1; then
-    echo "SUCCESS: CLIProxyAPI is running with PID: $PID"
+    echo "SUCCESS: CLIProxyAPI is running with PID: $PID on port 9000"
 else
     echo "Failed to start. Log content:"
     cat "$DIR/cpa.log"
 fi
 
 echo "[7] Local endpoint test..."
-curl -s http://127.0.0.1:8317/v1/models | head -c 300
+curl -s http://127.0.0.1:9000/v1/models | head -c 300
 echo ""
 
 echo "[8] Setting up @reboot cron..."
 (crontab -l 2>/dev/null | grep -v "cliproxyapi"; echo "@reboot /bin/bash /var/lib/ocarun/cliproxyapi/start.sh") | crontab - 2>/dev/null || true
 
-echo "=== CAI DAT HOAN TAT 100%! ==="
+echo "=== CAI DAT HOAN TAT 100% TREN PORT 9000! ==="
