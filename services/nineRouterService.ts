@@ -9,8 +9,8 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
-const DEFAULT_TEXT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
+const DEFAULT_TEXT_MODEL = 'ag/claude-sonnet-4-6';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -57,59 +57,41 @@ export interface SupportedImageModel {
 
 export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
-        id: 'gpt-image-2.5',
-        name: 'GPT Image 2.5',
-        shortName: 'GPT 2.5',
-        tag: 'Cao cấp',
-        tagColor: 'purple',
-        description: 'Tái tạo ánh sáng, da dẻ và chi tiết trang phục với độ chân thực cao nhất',
-        speed: 'medium',
-        isDefault: true
-    },
-    {
         id: 'ag/gemini-3.1-flash-image',
         name: 'Gemini 3.1 Flash Image',
         shortName: 'Gemini 3.1 Flash',
-        tag: 'Nhanh nhất',
+        tag: 'Khuyên dùng - Nhanh',
         tagColor: 'emerald',
-        description: 'Tốc độ 3-5s, tối ưu chuẩn xác khuôn mặt & ghép trang phục H’Mông',
-        speed: 'fast'
+        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, giữ khuôn mặt & ghép trang phục H’Mông',
+        speed: 'fast',
+        isDefault: true
     },
     {
-        id: 'ag/gemini-3-pro-image',
-        name: 'Gemini 3 Pro Studio',
-        shortName: 'Gemini 3 Pro',
-        tag: 'Chi tiết cao',
+        id: 'ag/gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash',
+        shortName: 'Gemini 3.8 Flash',
+        tag: 'Thế hệ mới',
         tagColor: 'blue',
-        description: 'Chất lượng ảnh studio sắc nét, render text và hoa văn trang phục tinh xảo',
-        speed: 'medium'
+        description: 'Phiên bản mới nhất, cân bằng tối ưu giữa tốc độ tạo và độ chi tiết',
+        speed: 'fast'
     },
     {
-        id: 'imagen-3.0-generate-002',
-        name: 'Imagen 3.0 Ultra',
-        shortName: 'Imagen 3',
-        tag: 'Điện ảnh',
-        tagColor: 'amber',
-        description: 'Phong cách photorealism điện ảnh, chiều sâu và màu sắc mượt mà',
-        speed: 'medium'
-    },
-    {
-        id: 'gpt-image-1.5',
-        name: 'GPT Image 1.5',
-        shortName: 'GPT 1.5',
-        tag: 'Cân bằng',
+        id: 'ag/gemini-3.1-pro',
+        name: 'Gemini 3.1 Pro Studio',
+        shortName: 'Gemini 3.1 Pro',
+        tag: 'Chi tiết cao',
         tagColor: 'indigo',
-        description: 'Cân bằng tốc độ và độ sắc nét, tiết kiệm quota',
-        speed: 'fast'
+        description: 'Chất lượng ảnh studio độ nét cao, tái hiện hoa văn trang phục tinh xảo',
+        speed: 'medium'
     },
     {
-        id: 'ag/gemini-2.5-flash-image',
-        name: 'Gemini 2.5 Flash',
-        shortName: 'Gemini 2.5',
-        tag: 'Ổn định',
-        tagColor: 'slate',
-        description: 'Mô hình dự phòng ổn định cao, phản hồi nhanh',
-        speed: 'fast'
+        id: 'openrouter/recraft/recraft-v3',
+        name: 'Recraft V3 Studio',
+        shortName: 'Recraft V3',
+        tag: 'Đồ họa cao cấp',
+        tagColor: 'purple',
+        description: 'Ảnh nghệ thuật phong cách đồ họa và hội họa cao cấp qua OpenRouter',
+        speed: 'medium'
     }
 ];
 
@@ -607,24 +589,52 @@ export const generateImageViaNineRouter = async (
 
     try {
         if (referenceImages.length > 0) {
-            // OpenAI / Codex image models (gpt-image-1.5, gpt-image-2, etc.) use /v1/images/edits for image-to-image
-            if (activeModel.toLowerCase().includes('gpt-image') || !activeModel.toLowerCase().includes('gemini')) {
-                const editPayload = {
+            // Native multimodal path for Gemini models (ag/gemini-3.1-flash-image, ag/gemini-3.8-flash, etc.):
+            // Original image pixels and complete prompt are sent in one request matching Gemini API specs.
+            if (activeModel.toLowerCase().includes('gemini')) {
+                const userContent: any[] = [{
+                    type: 'text',
+                    text: `DIRECT MULTIMODAL REFERENCE PROTOCOL
+You are receiving ${referenceImages.length} original input image(s), each followed by an authoritative label.
+Inspect and use the actual pixels directly. Preserve exact visible garment/accessory colors, patterns, cuts, embroidery, layers, textures and distinguishing details.
+Never swap, merge or cross-apply details between labels. Ignore all backgrounds visible inside the reference images; the final background must come only from the generation instructions after the references.`
+                }];
+
+                referenceImages.forEach((image, index) => {
+                    userContent.push({
+                        type: 'text',
+                        text: `REFERENCE ${index + 1} — ${image.label || `INPUT IMAGE ${index + 1}`}`
+                    });
+                    userContent.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:${image.mimeType || 'image/jpeg'};base64,${image.data}`,
+                            detail: 'high'
+                        }
+                    });
+                });
+
+                userContent.push({
+                    type: 'text',
+                    text: `FINAL GENERATION INSTRUCTIONS
+Target aspect ratio: ${ratio}
+${framingDirective}
+
+${request.prompt}`
+                });
+
+                const chatBody: any = {
                     model: activeModel,
-                    prompt: `${framingDirective}\n\n${request.prompt}`,
-                    images: referenceImages.map(img => ({
-                        image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
-                    })),
-                    size: pixelSize,
-                    n: 1,
-                    response_format: 'b64_json'
+                    messages: [{ role: 'user', content: userContent }],
+                    modalities: ['text', 'image'],
+                    stream: false
                 };
 
-                console.log(`[9Router] Sending image edit request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}, references: ${referenceImages.length}`);
-                const resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
+                console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, pixelSize: ${pixelSize}, references: ${referenceImages.length}`);
+                const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify(editPayload)
+                    body: JSON.stringify(chatBody)
                 }, 120000);
 
                 if (!resp.ok) {
@@ -640,65 +650,23 @@ export const generateImageViaNineRouter = async (
                 return image;
             }
 
-            // Native multimodal path: original image pixels and the complete prompt are
-            // sent to the SAME image model, matching Gemini API/PRO semantics.
-            const userContent: any[] = [{
-                type: 'text',
-                text: `DIRECT MULTIMODAL REFERENCE PROTOCOL
-You are receiving ${referenceImages.length} original input image(s), each followed by an authoritative label.
-Inspect and use the actual pixels directly. Preserve exact visible garment/accessory colors, patterns, cuts, embroidery, layers, textures and distinguishing details.
-Never swap, merge or cross-apply details between labels. Ignore all backgrounds visible inside the reference images; the final background must come only from the generation instructions after the references.`
-            }];
-
-            referenceImages.forEach((image, index) => {
-                userContent.push({
-                    type: 'text',
-                    text: `REFERENCE ${index + 1} — ${image.label || `INPUT IMAGE ${index + 1}`}`
-                });
-                userContent.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: `data:${image.mimeType || 'image/jpeg'};base64,${image.data}`,
-                        detail: 'high'
-                    }
-                });
-            });
-
-            userContent.push({
-                type: 'text',
-                text: `FINAL GENERATION INSTRUCTIONS
-Target aspect ratio: ${ratio}
-${framingDirective}
-
-${request.prompt}`
-            });
-
-            const chatBody: any = {
+            // For non-Gemini models (e.g., OpenRouter / Recraft):
+            // Fallback to text-to-image /images/generations with full prompt description
+            const payload = {
                 model: activeModel,
-                messages: [{ role: 'user', content: userContent }],
-                modalities: ['text', 'image'],
-                stream: false
+                prompt: `${framingDirective}\n\n${request.prompt}`,
+                n: 1,
+                response_format: 'b64_json',
+                size: pixelSize,
+                aspect_ratio: ratio
             };
 
-            // Only send image_config / aspect_ratio if not a Gemini model
-            // (Google Antigravity rejects aspect_ratio with "Aspect ratio is not enabled for this model")
-            if (!activeModel.toLowerCase().includes('gemini')) {
-                chatBody.aspect_ratio = ratio;
-                chatBody.size = pixelSize;
-                chatBody.image_config = { aspect_ratio: ratio };
-                chatBody.extra_body = {
-                    aspect_ratio: ratio,
-                    size: pixelSize,
-                    image_config: { aspect_ratio: ratio }
-                };
-            }
-
-            console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, pixelSize: ${pixelSize}, references: ${referenceImages.length}`);
-            const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+            console.log(`[9Router] Sending prompt generation request to non-Gemini model: ${activeModel}, ratio: ${ratio}`);
+            const resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify(chatBody)
-            }, 120000);
+                body: JSON.stringify(payload)
+            }, 90000);
 
             if (!resp.ok) {
                 const errText = await resp.text();
@@ -706,11 +674,15 @@ ${request.prompt}`
             }
 
             const parsed = await parseNineRouterResponse(resp);
-            const image = extractImageFromChatResponse(parsed);
-            if (!image) {
-                throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
+            const payloads = parsed.events.length > 0 ? parsed.events : (parsed.json ? [parsed.json] : []);
+            const imageItems = payloads.flatMap(p => Array.isArray(p?.data) ? p.data : []);
+            const first = imageItems[0];
+            if (first?.b64_json && first.b64_json.length > 100) return first.b64_json;
+            if (first?.url) {
+                const dataUrl = extractBase64FromDataUri(first.url);
+                if (dataUrl) return dataUrl;
             }
-            return image;
+            throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
         }
 
         // Pure text-to-image path: Gemini models use /chat/completions with modalities ['text', 'image']

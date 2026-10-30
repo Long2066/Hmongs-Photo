@@ -75,12 +75,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-100 border border-slate-200/60 px-2 py-0.5 rounded-md truncate max-w-[170px]"
                         title={selectedModel}
                     >
-                        {selectedModel.replace('ag/', '')}
+                        {selectedModel.replace('ag/', '').replace('openrouter/', '')}
                     </span>
                 </div>
 
                 {/* Model Tabs Grid - Pure Text */}
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-2">
                     {SUPPORTED_IMAGE_MODELS.map((model) => {
                         const isSelected = selectedModel === model.id;
                         return (
@@ -108,9 +108,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                                         ? 'bg-purple-50 text-purple-700 border border-purple-200/60'
                                                         : model.tagColor === 'blue'
                                                             ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
-                                                            : model.tagColor === 'amber'
-                                                                ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
-                                                                : 'bg-slate-100 text-slate-600'
+                                                            : model.tagColor === 'indigo'
+                                                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
+                                                                : model.tagColor === 'amber'
+                                                                    ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                                                                    : 'bg-slate-100 text-slate-600'
                                         }`}
                                     >
                                         {model.tag}
