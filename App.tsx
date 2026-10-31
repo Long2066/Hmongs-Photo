@@ -74,7 +74,7 @@ const App: React.FC = () => {
     const [isHistoryVisible, setHistoryVisible] = useState(false);
     const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
     const [isApiKeyModalOpen, setApiKeyModalOpen] = useState(false);
-    const [hasGeminiKey, setHasGeminiKey] = useState(false);
+    const [hasGeminiKey, setHasGeminiKey] = useState(true);
     const [selectedImage, setSelectedImage] = useState<{ url: string, index: number } | null>(null);
     const [isDownloadHelpOpen, setDownloadHelpOpen] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);

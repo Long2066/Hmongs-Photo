@@ -191,10 +191,7 @@ export const isNineRouterEnabled = (): boolean => {
     if (_cachedCloudConfig?.enabled !== undefined) {
         return _cachedCloudConfig.enabled;
     }
-    const val = localStorage.getItem(NINEROUTER_ENABLED_KEY);
-    // Default to true if not explicitly set to false
-    if (val === null) return true;
-    return val === 'true';
+    return true;
 };
 
 export const setNineRouterUrl = (url: string): void => {

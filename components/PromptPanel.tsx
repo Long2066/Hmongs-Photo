@@ -112,50 +112,17 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [step, setStep] = useState<1 | 2>(1); // 1: Topic Config, 2: Review Prompts
 
-    // Helper to get API key - prefers NineRouter, then Antigravity, then system key for PRO users
-    const getApiKeyForPrompts = (): string | null => {
-        // PRIORITY -0.5: NineRouter mode
-        const nineRouterEnabled = localStorage.getItem('ninerouter_enabled') === 'true';
-        if (nineRouterEnabled) {
-            return 'NINEROUTER_MODE';
-        }
-
-        // PRIORITY 0: Antigravity mode
-        const antigravityEnabled = localStorage.getItem('antigravity_enabled') === 'true';
-        if (antigravityEnabled) {
-            return 'ANTIGRAVITY_MODE';
-        }
-
-        // PRIORITY 1: PRO mode - use system key
-        if (storage.isProUser() && storage.getUseProApi()) {
-            const systemKey = getSystemApiKey();
-            if (systemKey) return systemKey;
-        }
-        // Fallback to user's key
-        return storage.getApiKey('gemini');
+    // Direct connection to CLIProxyAPI (AI Gateway)
+    const getApiKeyForPrompts = (): string => {
+        return 'NINEROUTER_MODE';
     };
 
-    // Check if any API key is available (NineRouter, Antigravity, PRO or user's own)
-    const hasAnyApiKey = (): boolean => {
-        // NineRouter enabled = OK
-        const nineRouterEnabled = localStorage.getItem('ninerouter_enabled') === 'true';
-        if (nineRouterEnabled) return true;
-
-        // Antigravity enabled = OK
-        const antigravityEnabled = localStorage.getItem('antigravity_enabled') === 'true';
-        if (antigravityEnabled) return true;
-
-        // PRO mode = OK
-        if (storage.isProUser() && storage.getUseProApi()) return true;
-
-        // User has their own key = OK
-        return !!storage.getApiKey('gemini');
-    };
+    const hasAnyApiKey = (): boolean => true;
 
     const handleOptimizeTopic = async () => {
         if (!topic.trim()) return;
         const apiKey = getApiKeyForPrompts();
-        if (!apiKey) { alert("Cần API Key hoặc bật PRO mode."); return; }
+
 
         setIsOptimizing(true);
         try {
@@ -409,7 +376,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
             <div className="panel-action-wrapper mt-1">
                 {step === 1 ? (
                     (() => {
-                        const isStep1Disabled = isGeneratingPrompts || isDisabled || !topic.trim() || !hasAnyApiKey();
+                        const isStep1Disabled = isGeneratingPrompts || isDisabled || !topic.trim();
                         return (
                             <button
                                 onClick={handleGeneratePrompts}
@@ -455,12 +422,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                     </button>
                 )}
 
-                {!hasAnyApiKey() && (
-                    <div className="text-center text-amber-800 text-[11px] font-semibold bg-amber-50 p-2.5 rounded-xl border border-amber-200 flex items-center justify-center gap-2 mt-2 shadow-xs">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0 text-amber-600"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                        Bật Antigravity, PRO mode, hoặc nhập API Key
-                    </div>
-                )}
+
             </div>
         </div>
     );

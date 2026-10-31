@@ -295,18 +295,23 @@ export const NO_EXTRA_ACCESSORIES = `
 `;
 
 export const KOREAN_CHARACTER_DEFAULTS = `
-MANDATORY CHARACTER AESTHETICS:
-- MALE: Must be Korean male, 17 years old, tall (180cm+), extremely handsome, flawless porcelain skin, 
-  K-pop idol aesthetic, sharp jawline, double eyelids, natural beauty, tuyệt sắc mỹ nam
-- FEMALE: Must be Korean female, tall and elegant, beautiful face, glass skin (chok-chok), 
-  natural Korean makeup style, graceful proportions, xinh xắn cao ráo
+*** MANDATORY KOREAN VISUAL IDOL AESTHETICS (HIGH FASHION ETHNIC FUSION) ***
+- MALE CHARACTER (KOREAN K-POP IDOL VISUAL):
+  * Extremely handsome Korean male, 18-22 years old, tall athletic build (182cm+).
+  * Flawless luminous porcelain glass skin (chok-chok, translucent, zero blemishes, radiant milky complexion).
+  * K-pop idol center visual aesthetic: sharp defined jawline, captivating charismatic eyes with natural double eyelids, high straight nose bridge, stylized K-drama actor curtain hairstyle.
+  * Tuyệt sắc mỹ nam Hàn Quốc, thần thái cuốn hút, sang trọng, thời thượng và cuốn hút.
 
-STRICT INPUT ADHERENCE RULE (NON-NEGOTIABLE):
-- ALL outfit details from reference images MUST be replicated EXACTLY 100% (patterns, colors, cuts, embroidery, textures)
-- ALL accessories from reference images MUST appear EXACTLY as shown, no modifications
-- Character faces may change but MUST strictly follow Korean aesthetic above
-- Fashion and accessories are ABSOLUTELY NON-NEGOTIABLE - clone 100% from input references
-- If outfit/accessory reference exists, it MUST appear in the output identically
+- FEMALE CHARACTER (KOREAN ULZZANG IDOL VISUAL):
+  * Exceptionally gorgeous Korean female, 18-21 years old, tall, slim, and graceful proportions.
+  * Flawless Korean glass skin (dewy porcelain texture, translucent, bright, perfectly smooth and radiant).
+  * Natural Korean idol makeup: soft gradient coral-peach lips, delicate aegyo-sal, soft straight eyebrows, pure enchanting facial features.
+  * Tuyệt sắc mỹ nữ Hàn Quốc, thần thái dịu dàng, quý phái, thanh tao và hiện đại.
+
+*** STRICT INPUT CLOTHING & ACCESSORY CLONING PROTOCOL (100% NON-NEGOTIABLE) ***
+- The reference image(s) represent the CLOTHING AND ACCESSORIES ONLY (ignore any person, mannequin, or background in the reference photo).
+- You MUST clone 100% of the visible traditional H'Mông hand-embroidered patterns, vibrant fabric motifs, pleated batik indigo skirts, brocade borders, silver torque collar necklaces, and ornaments onto the handsome/beautiful Korean idol.
+- Never alter the traditional outfit colors, embroidery, or ornaments. The fusion is: Top-tier Korean Idol Visual wearing genuine, exquisite H'Mông traditional regalia.
 `;
 
 // --- TYPES ---
@@ -970,34 +975,8 @@ const getStylePrompt = (style: string): string => {
 
 // --- CHARACTER AESTHETIC DIRECTIVE HELPER ---
 export const getCharacterAestheticDirective = (style?: string): string => {
-    if (!style) {
-        return [
-            'MANDATORY CHARACTER AESTHETICS:',
-            '- MALE: Handsome young man, natural charming features, healthy complexion, dignified presence.',
-            '- FEMALE: Beautiful young woman, radiant elegant features, natural makeup style, graceful proportions.'
-        ].join('\n');
-    }
-
-    const lower = style.toLowerCase();
-    if (lower.includes('h’mông') || lower.includes('hmong') || lower.includes('truyền thống') || lower.includes('bản sắc') || lower.includes('documentar')) {
-        return [
-            "MANDATORY ETHNIC CHARACTER AESTHETICS (NORTHWEST VIETNAMESE H'MONG):",
-            "- AUTHENTIC ETHNIC IDENTITY: Characters MUST authentically represent Northwestern Vietnamese H'Mong ethnic people with respectful, genuine cultural fidelity.",
-            "- MALE: Authentic Vietnamese H'Mong young man, healthy sun-kissed golden complexion, high cheekbones, dignified highland facial features, bright expressive eyes, proud and spirited cultural demeanor.",
-            "- FEMALE: Authentic Vietnamese H'Mong young woman, natural radiant complexion, charming and graceful Vietnamese highland ethnic facial features, traditional hairstyle/headwear ornamentation, modesty and highland elegance.",
-            "- STRICT CULTURAL FIDELITY: Absolutely DO NOT replace ethnic features with generic Western, generic anime, or artificial looks. Respect and showcase genuine Northwestern Vietnamese H'Mong ethnic heritage."
-        ].join('\n');
-    }
-
-    if (lower.includes('hàn quốc') || lower.includes('korean') || lower.includes('k-pop')) {
-        return KOREAN_CHARACTER_DEFAULTS;
-    }
-
-    return [
-        'MANDATORY CHARACTER AESTHETICS:',
-        '- MALE: Handsome Asian male, 17-20 years old, tall, sharp jawline, natural beauty, stylish and charismatic.',
-        '- FEMALE: Beautiful Asian female, tall and elegant, radiant skin, natural makeup style, graceful proportions.'
-    ].join('\n');
+    // Default and only character aesthetic: Korean K-Pop Idol / Ulzzang Hot Boy & Hot Girl wearing authentic H'Mông regalia
+    return KOREAN_CHARACTER_DEFAULTS;
 };
 
 // --- PROMPT OPTIMIZER ---
@@ -1163,7 +1142,7 @@ export const generateBatchPromptsText = async (
     
     *** PROMPT STRUCTURE ***
     Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose fitting camera shot] + [scene/background] + [lighting/mood]"
-    Example: "A handsome young ethnic H'Mong model, wearing the EXACT traditional H'Mong outfit shown in reference (clone 100% the patterns), shot with authentic photographic composition, golden hour lighting"
+    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT traditional H'Mong embroidered outfit and silver collar shown in reference (cloned 100% from input textures), shot with authentic photographic composition, cinematic lighting"
 
     Output format: Just the prompts, separated by double newlines. No numbering, no introduction.
     `;
@@ -1176,10 +1155,11 @@ export const generateBatchPromptsText = async (
             throw new Error(status.errorMessage || 'Cấu hình chưa kết nối.');
         }
 
-        console.log('[9Router] Using 9Router for prompt generation');
+        const textModel = nineRouterService.getNineRouterTextModel();
+        console.log(`[9Router] Using 9Router for prompt generation with text model: ${textModel}`);
         const result = await nineRouterService.generateTextViaNineRouter(
             `Generate ${count} prompts for topic: ${topic}`,
-            'gemini-3-flash',
+            textModel,
             systemInstruction,
             labeledReferences
         );
@@ -1198,10 +1178,8 @@ export const generateBatchPromptsText = async (
             try {
                 const result = await antigravityService.generateTextViaAntigravity(
                     `Generate ${count} prompts for topic: ${topic}`,
-            'gemini-3-flash',
-            systemInstruction,
-
-
+                    'claude-opus-5-5-high',
+                    systemInstruction,
                 );
                 if (result) return result;
                 console.warn('[Antigravity] Text generation returned null, falling back...');
