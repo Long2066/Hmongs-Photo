@@ -31,6 +31,12 @@ service cloud.firestore {
     match /userAccess/{docId} {
       allow read, write: if isAuthenticated();
     }
+
+    // === FEEDBACK / HÒM THƯ GÓP Ý ===
+    match /feedback/{docId} {
+      allow read, write: if isAuthenticated();
+      allow create: if true;  // Bất kỳ người dùng / khách nào cũng có thể gửi góp ý
+    }
     
     // === ACTIVITY LOG ===
     match /activityLog/{docId} {
