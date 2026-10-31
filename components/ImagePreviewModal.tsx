@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DownloadIcon } from './Icons';
 import { downloadImage } from '../services/downloadService';
+import { A4PrintPreview } from './A4PrintPreview';
 
 interface ImagePreviewModalProps {
     base64: string;
     index: number;
     onClose: () => void;
     onUpdateImage?: (newBase64: string, index: number) => void;
+    onSendToVideo?: (base64: string) => void;
 }
 
 interface AspectRatioOption {
@@ -28,13 +30,17 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
     base64,
     index,
     onClose,
-    onUpdateImage
+    onUpdateImage,
+    onSendToVideo
 }) => {
     // Current base64 image (supports immediate in-modal preview of cropped image)
     const [currentBase64, setCurrentBase64] = useState<string>(base64);
 
     // View mode: 'preview' (standard view) or 'crop' (interactive crop studio)
     const [viewMode, setViewMode] = useState<'preview' | 'crop'>('preview');
+
+    // Print studio open state
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
 
     // Download feedback
     const [downloadStatus, setDownloadStatus] = useState<{ message: string; success: boolean } | null>(null);
@@ -294,6 +300,16 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
         return { dataUrl, base64: rawBase64 };
     };
 
+    // Map crop ratio to photo dimension for printing
+    const getPrintSizeFromRatio = (ratioId: string): string => {
+        switch (ratioId) {
+            case '3:4': return '3x4';
+            case '2:3': return '4x6';
+            case '1:1': return '5x5';
+            default: return '3x4';
+        }
+    };
+
     // Apply crop to current view and update parent gallery
     const handleApplyCrop = () => {
         setIsApplying(true);
@@ -313,6 +329,30 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
             }
         } catch (err) {
             console.error('Crop Apply Error:', err);
+            setDownloadStatus({
+                message: 'Lỗi khi cắt ảnh. Vui lòng thử lại!',
+                success: false
+            });
+        } finally {
+            setIsApplying(false);
+        }
+    };
+
+    // Crop and immediately open print studio with that exact cropped image
+    const handleCropAndPrint = () => {
+        setIsApplying(true);
+        try {
+            const result = generateCroppedData();
+            if (result) {
+                setCurrentBase64(result.base64);
+                if (onUpdateImage) {
+                    onUpdateImage(result.base64, index);
+                }
+                setViewMode('preview');
+                setIsPrintOpen(true);
+            }
+        } catch (err) {
+            console.error('Crop & Print Error:', err);
             setDownloadStatus({
                 message: 'Lỗi khi cắt ảnh. Vui lòng thử lại!',
                 success: false
@@ -409,6 +449,20 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
 
                         {/* Action Buttons Toolbar */}
                         <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap justify-center mt-1">
+                            {/* Chuyển sang Tạo Video Veo */}
+                            {onSendToVideo && (
+                                <button
+                                    onClick={() => onSendToVideo(currentBase64)}
+                                    className="flex items-center gap-2 px-5 py-3.5 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 active:scale-95 text-white font-semibold text-sm rounded-full transition-all shadow-lg shadow-rose-600/25 min-h-[44px] cursor-pointer"
+                                    title="Chuyển ảnh này sang Veo Studio để tạo video chuyển động"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                    <span>Tạo Video AI</span>
+                                </button>
+                            )}
+
                             {/* Căn cắt ảnh Button */}
                             <button
                                 onClick={() => {
@@ -422,6 +476,18 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M7.848 8.25l1.536.887M7.848 8.25a3 3 0 11-5.196-3 3 3 0 015.196 3zm1.536.887a2.165 2.165 0 011.083 1.839c.005.351.054.695.14 1.024M9.384 9.137l2.077 1.199M7.848 15.75l1.536-.887m-1.536.887a3 3 0 11-5.196 3 3 3 0 015.196-3zm1.536-.887a2.165 2.165 0 001.083-1.838c.005-.352.054-.695.14-1.025m-1.223 2.863l2.077-1.199m0-3.328a4.323 4.323 0 012.068-1.379l5.325-1.628a4.5 4.5 0 012.48-.097l.951.238a.75.75 0 01.558.91l-.238.951a4.5 4.5 0 01-1.379 2.068l-5.325 1.628a4.323 4.323 0 01-2.48.097l-.951-.238a.75.75 0 01-.558-.91l.238-.951z" />
                                 </svg>
                                 <span>Cắt ảnh tùy chỉnh</span>
+                            </button>
+
+                            {/* In ảnh thẻ Button */}
+                            <button
+                                onClick={() => setIsPrintOpen(true)}
+                                className="flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 active:scale-95 text-white font-semibold text-sm rounded-full transition-all shadow-lg shadow-sky-600/25 min-h-[44px] cursor-pointer"
+                                title="In đúng ảnh thẻ này - Mở studio chọn định dạng in A4/A5/A6/A7"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z" />
+                                </svg>
+                                <span>In ảnh</span>
                             </button>
 
                             {/* Tải xuống Button */}
@@ -690,6 +756,19 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
 
                             <button
                                 type="button"
+                                onClick={handleCropAndPrint}
+                                disabled={isApplying}
+                                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 active:scale-95 text-white font-semibold text-xs sm:text-sm transition-all shadow-md shadow-sky-600/30 flex items-center gap-1.5 min-h-[44px] cursor-pointer"
+                                title="Cắt ảnh và chuyển thẳng sang studio in ảnh thẻ"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z" />
+                                </svg>
+                                <span>Cắt & In ảnh</span>
+                            </button>
+
+                            <button
+                                type="button"
                                 onClick={handleCropAndDownload}
                                 disabled={isDownloading}
                                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 active:scale-95 text-white font-semibold text-xs sm:text-sm transition-all shadow-md shadow-emerald-600/30 flex items-center gap-1.5 min-h-[44px] cursor-pointer"
@@ -710,6 +789,15 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* A4 Print Studio Overlay for this exact image */}
+            {isPrintOpen && (
+                <A4PrintPreview
+                    images={[currentBase64]}
+                    initialSizeId={getPrintSizeFromRatio(selectedRatio.id)}
+                    onClose={() => setIsPrintOpen(false)}
+                />
+            )}
         </div>
     );
 };

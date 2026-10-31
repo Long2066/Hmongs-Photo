@@ -3,6 +3,8 @@ import React, { useState, useMemo, useRef } from 'react';
 export interface A4PrintPreviewProps {
     images: string[]; // base64 images
     onClose: () => void;
+    initialSizeId?: string; // '3x4' | '4x6' | '2x3' | '3.5x4.5' | '5x5'
+    initialPaperId?: PaperSizeId;
 }
 
 export type PaperSizeId = 'A4' | 'A5' | 'A6' | 'A7';
@@ -47,13 +49,24 @@ interface SelectedImageConfig {
     sizeId: string;
 }
 
-export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({ images, onClose }) => {
+const getImageSrc = (b64: string): string => {
+    if (b64.startsWith('data:')) return b64;
+    const isPng = b64.startsWith('iVBORw0KGgo');
+    return `data:image/${isPng ? 'png' : 'jpeg'};base64,${b64}`;
+};
+
+export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({
+    images,
+    onClose,
+    initialSizeId,
+    initialPaperId
+}) => {
     // 1. Paper Format & Orientation
-    const [paperId, setPaperId] = useState<PaperSizeId>('A4');
+    const [paperId, setPaperId] = useState<PaperSizeId>(initialPaperId || 'A4');
     const [orientation, setOrientation] = useState<Orientation>('portrait');
 
     // 2. Global Size & Options
-    const [globalSizeId, setGlobalSizeId] = useState<string>('3x4');
+    const [globalSizeId, setGlobalSizeId] = useState<string>(initialSizeId || '3x4');
     const [cutLineStyle, setCutLineStyle] = useState<CutLineStyle>('hairline');
     const [marginMm, setMarginMm] = useState<number>(5);
     const [gapMm, setGapMm] = useState<number>(2);
@@ -65,7 +78,7 @@ export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({ images, onClose 
             initial[idx] = {
                 selected: true,
                 copies: 4, // Mặc định 4 bản mỗi ảnh
-                sizeId: '3x4'
+                sizeId: initialSizeId || '3x4'
             };
         });
         return initial;
@@ -311,7 +324,7 @@ export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({ images, onClose 
                 <div class="sheet-grid">
                     ${sheetPhotos.map(item => `
                         <div class="photo-card" style="width: ${item.size.widthMm}mm; height: ${item.size.heightMm}mm;">
-                            <img src="${item.base64.startsWith('data:') ? item.base64 : `data:image/jpeg;base64,${item.base64}`}" alt="ID Photo" />
+                            <img src="${getImageSrc(item.base64)}" alt="ID Photo" />
                         </div>
                     `).join('')}
                 </div>
@@ -351,7 +364,7 @@ export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({ images, onClose 
     }, [currentPaper]);
 
     return (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[150] flex items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[96vh] overflow-hidden flex flex-col border border-slate-200">
                 {/* Modal Header */}
                 <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-5 py-4 flex items-center justify-between border-b border-white/10 flex-shrink-0">
@@ -547,7 +560,7 @@ export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({ images, onClose 
                                                 />
                                                 <div className="relative w-14 h-18 rounded-lg overflow-hidden bg-slate-200 border border-slate-200 flex-shrink-0">
                                                     <img
-                                                        src={imgBase64.startsWith('data:') ? imgBase64 : `data:image/jpeg;base64,${imgBase64}`}
+                                                        src={getImageSrc(imgBase64)}
                                                         alt={`Ảnh ${idx + 1}`}
                                                         className="w-full h-full object-cover"
                                                     />
@@ -686,7 +699,7 @@ export const A4PrintPreview: React.FC<A4PrintPreviewProps> = ({ images, onClose 
                                                 onClick={() => updateCopies(item.imageIndex, -1)}
                                             >
                                                 <img
-                                                    src={item.base64.startsWith('data:') ? item.base64 : `data:image/jpeg;base64,${item.base64}`}
+                                                    src={getImageSrc(item.base64)}
                                                     alt={`Photo ${idx + 1}`}
                                                     className="w-full h-full object-cover select-none pointer-events-none"
                                                 />
