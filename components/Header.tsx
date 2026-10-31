@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MagicWandIcon, KeyIcon, UserCircleIcon, ImageIcon, SparklesIcon } from './Icons';
+import { MagicWandIcon, UserCircleIcon, ImageIcon, SparklesIcon } from './Icons';
 import { User } from '../types';
 
 interface HeaderProps {
@@ -197,13 +197,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
 
                     {/* User & Key Actions */}
                     <div className="flex items-center gap-3 self-end md:self-auto">
-                        <button
-                            onClick={onApiKeyClick}
-                            className="p-2.5 text-slate-700 bg-white border border-slate-300/80 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-xs ring-1 ring-slate-900/5 cursor-pointer"
-                            title="Cấu hình Admin"
-                        >
-                            <KeyIcon className="w-5 h-5" />
-                        </button>
+
 
 
                         {user ? (

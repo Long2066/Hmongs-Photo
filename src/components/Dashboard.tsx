@@ -366,7 +366,7 @@ export const Dashboard: React.FC = () => {
                 onLoginClick={() => { }}
                 onLogout={logout}
                 onHistoryClick={() => setHistoryVisible(true)}
-                onApiKeyClick={() => setApiKeyModalOpen(true)}
+
                 isHistoryVisible={isHistoryVisible}
                 currentMode={mode}
                 onModeChange={setMode}

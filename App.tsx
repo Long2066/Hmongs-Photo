@@ -846,7 +846,7 @@ const App: React.FC = () => {
                 onLoginClick={() => setAuthModalOpen(true)}
                 onLogout={handleLogout}
                 onHistoryClick={() => setHistoryVisible(true)}
-                onApiKeyClick={() => setApiKeyModalOpen(true)}
+
                 isHistoryVisible={isHistoryVisible}
                 currentMode={mode}
                 onModeChange={setMode}
