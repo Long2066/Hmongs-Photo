@@ -6,6 +6,7 @@ import {
     SupportedTextModel,
     ChatMessageItem
 } from '../services/nineRouterService';
+import { submitUserFeedback } from '../services/firebaseService';
 
 // EmailJS Configuration
 const EMAILJS_SERVICE_ID = 'service_7nxzcwc';
@@ -502,17 +503,31 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
         setIsSending(true);
         setFeedbackError(null);
         try {
-            await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+            // 1. Primary: Save directly to Firebase Firestore for Admin Panel "Hòm thư góp ý"
+            await submitUserFeedback({
                 name: formData.name,
                 email: formData.email,
                 title: formData.title || 'Góp ý ImageTool',
                 message: formData.message
-            }, EMAILJS_PUBLIC_KEY);
+            });
+
+            // 2. Secondary: Attempt email notification via EmailJS (non-blocking)
+            try {
+                await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+                    name: formData.name,
+                    email: formData.email,
+                    title: formData.title || 'Góp ý ImageTool',
+                    message: formData.message
+                }, EMAILJS_PUBLIC_KEY);
+            } catch (emailErr) {
+                console.warn('[Feedback] EmailJS dispatch non-critical error:', emailErr);
+            }
+
             setIsSent(true);
             setFormData({ name: userName, email: userEmail, title: '', message: '' });
-            setTimeout(() => setIsSent(false), 3000);
+            setTimeout(() => setIsSent(false), 3500);
         } catch (err) {
-            console.error('EmailJS Error:', err);
+            console.error('Feedback submit error:', err);
             setFeedbackError('Gửi không thành công. Vui lòng thử lại!');
         } finally {
             setIsSending(false);

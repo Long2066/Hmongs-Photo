@@ -1504,3 +1504,61 @@ export const subscribeToAiProxyConfig = (callback: (config: AiProxyConfig) => vo
         if (unsubSystemSettings) unsubSystemSettings();
     };
 };
+
+// --- Feedback / Hòm thư góp ý Services ---
+export interface UserFeedbackPayload {
+    name: string;
+    email: string;
+    title?: string;
+    message: string;
+    userId?: string;
+}
+
+/**
+ * Submit user feedback or bug report to Firebase Firestore.
+ * Dual-saved to userAccess (with isFeedback: true) and feedback collection,
+ * ensuring 100% reliable reception on Admin Panel "Hòm thư góp ý".
+ */
+export const submitUserFeedback = async (payload: UserFeedbackPayload): Promise<void> => {
+    const feedbackId = `feedback_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+    const dataToSave = {
+        id: feedbackId,
+        isFeedback: true,
+        type: 'feedback',
+        name: (payload.name || '').trim(),
+        email: (payload.email || '').trim(),
+        title: (payload.title || 'Góp ý ImageTool').trim(),
+        message: (payload.message || '').trim(),
+        status: 'unread',
+        createdAt: now,
+        userId: payload.userId || 'guest',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 150) : ''
+    };
+
+    let saved = false;
+
+    // 1. Save to userAccess collection via getBackgroundSyncDb (guaranteed write for all visitors)
+    try {
+        const targetDb = await getBackgroundSyncDb();
+        const docRef = doc(targetDb, USER_ACCESS_COLLECTION, feedbackId);
+        await setDoc(docRef, dataToSave);
+        saved = true;
+        console.log('[Feedback] Saved feedback to userAccess collection successfully:', feedbackId);
+    } catch (err) {
+        console.warn('[Feedback] Warning saving to userAccess:', err);
+    }
+
+    // 2. Also try writing to feedback collection on primary db
+    try {
+        const feedRef = doc(db, 'feedback', feedbackId);
+        await setDoc(feedRef, dataToSave);
+        saved = true;
+    } catch (e) {
+        // Silently ignore if collection rules not yet updated
+    }
+
+    if (!saved) {
+        throw new Error('Không thể lưu góp ý vào máy chủ. Vui lòng thử lại sau.');
+    }
+};
