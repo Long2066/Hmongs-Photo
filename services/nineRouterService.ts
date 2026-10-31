@@ -47,6 +47,55 @@ export interface NineRouterLabeledReferenceImage {
     label: string;
 }
 
+export interface SupportedTextModel {
+    id: string;
+    name: string;
+    shortName: string;
+    tag: string;
+    tagColor: string;
+    description: string;
+    priority: number;
+}
+
+export const SUPPORTED_TEXT_MODELS: SupportedTextModel[] = [
+    {
+        id: 'claude-opus-5-5-high',
+        name: 'Claude Opus 5.5 (High)',
+        shortName: 'Opus 5.5',
+        tag: 'Ưu tiên 1 - Cao cấp nhất',
+        tagColor: 'purple',
+        description: 'Mô hình văn bản cao cấp nhất, sáng tạo prompt thời trang K-Pop Idol & văn hóa H\'Mông chuẩn điện ảnh',
+        priority: 1
+    },
+    {
+        id: 'chatgpt-6.1-sol',
+        name: 'ChatGPT 6.1 Sol',
+        shortName: 'ChatGPT 6.1',
+        tag: 'Ưu tiên 2 - OpenAI',
+        tagColor: 'blue',
+        description: 'Mô hình GPT thế hệ mới siêu thông minh, tự động thay thế dự phòng khi Opus hết quota',
+        priority: 2
+    },
+    {
+        id: 'gemini-4-argon',
+        name: 'Gemini 4 Argon',
+        shortName: 'Gemini 4 Argon',
+        tag: 'Ưu tiên 3 - Google',
+        tagColor: 'emerald',
+        description: 'Mô hình suy luận tốc độ cao của Google, phân tích chi tiết hoa văn và bối cảnh chân thực',
+        priority: 3
+    },
+    {
+        id: 'gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash',
+        shortName: 'Gemini 3.8 Flash',
+        tag: 'Ưu tiên 4 - Phao cứu sinh',
+        tagColor: 'amber',
+        description: 'Mô hình siêu tốc độ, hạn mức dồi dào, đảm bảo 100% không bao giờ gặp lỗi gián đoạn',
+        priority: 4
+    }
+];
+
 export interface SupportedImageModel {
     id: string;
     name: string;
@@ -282,14 +331,22 @@ export const getNineRouterImageModel = (): string => {
 };
 
 export const setNineRouterTextModel = (model: string): void => {
-    localStorage.setItem(NINEROUTER_TEXT_MODEL_KEY, DEFAULT_TEXT_MODEL);
+    const cleanModel = model.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim() || DEFAULT_TEXT_MODEL;
+    localStorage.setItem(NINEROUTER_TEXT_MODEL_KEY, cleanModel);
+    if (_cachedCloudConfig) {
+        _cachedCloudConfig.defaultTextModel = cleanModel;
+    }
     window.dispatchEvent(new CustomEvent('ninerouter-textmodel-changed', {
-        detail: { model: DEFAULT_TEXT_MODEL }
+        detail: { model: cleanModel }
     }));
 };
 
 export const getNineRouterTextModel = (): string => {
-    return DEFAULT_TEXT_MODEL;
+    if (_cachedCloudConfig?.defaultTextModel) {
+        return _cachedCloudConfig.defaultTextModel;
+    }
+    const stored = localStorage.getItem(NINEROUTER_TEXT_MODEL_KEY);
+    return stored || DEFAULT_TEXT_MODEL;
 };
 
 // Helper to resolve request URL (handles browser CORS proxying for remote endpoints)
@@ -830,36 +887,56 @@ export const generateTextViaNineRouter = async (
         messages.push({ role: 'user', content: prompt });
     }
 
-    try {
-        console.log(`[CLIProxyAPI] Sending prompt generation request to model: ${activeModel}`);
-        const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                model: activeModel,
-                messages,
-                temperature: 0.7,
-                max_tokens: 8192,
-                max_completion_tokens: 8192,
-                stream: false
-            })
-        }, 60000);
+    // Build priority candidates list for graceful fallback
+    const primaryModel = model || getNineRouterTextModel();
+    const candidateModels: string[] = Array.from(new Set([
+        primaryModel,
+        'claude-opus-5-5-high',
+        'chatgpt-6.1-sol',
+        'gemini-4-argon',
+        'gemini-3.8-flash',
+        'gemini-3-flash'
+    ])).filter(Boolean);
 
-        if (!resp.ok) {
-            const errText = await resp.text();
-            throw new Error(`HTTP ${resp.status}: ${errText}`);
-        }
+    let lastError: any = null;
 
-        const parsed = await parseNineRouterResponse(resp);
-        const content = extractTextResponse(parsed);
-        if (!content) {
-            throw new Error('Máy chủ Cấu hình không trả về nội dung text. Hãy kiểm tra Text Model trong cấu hình.');
+    for (const candidateModel of candidateModels) {
+        try {
+            console.log(`[CLIProxyAPI] Attempting prompt text generation with candidate: ${candidateModel}`);
+            const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    model: candidateModel,
+                    messages,
+                    temperature: 0.7,
+                    max_tokens: 8192,
+                    max_completion_tokens: 8192,
+                    stream: false
+                })
+            }, 60000);
+
+            if (!resp.ok) {
+                const errText = await resp.text();
+                console.warn(`[CLIProxyAPI] Candidate ${candidateModel} failed with HTTP ${resp.status}: ${errText.slice(0, 160)}`);
+                lastError = new Error(`HTTP ${resp.status}: ${errText}`);
+                // Quota exhausted (429) or invalid model (400) or server error (500/503) -> continue to next candidate!
+                continue;
+            }
+
+            const parsed = await parseNineRouterResponse(resp);
+            const content = extractTextResponse(parsed);
+            if (content) {
+                console.log(`[CLIProxyAPI] Successfully generated text using candidate: ${candidateModel}`);
+                return content;
+            }
+        } catch (err: any) {
+            console.warn(`[CLIProxyAPI] Candidate ${candidateModel} threw error:`, err?.message || err);
+            lastError = err;
         }
-        return content;
-    } catch (err: any) {
-        console.error('[CLIProxyAPI] Chat completion error:', err);
-        throw err;
     }
+
+    throw lastError || new Error('Máy chủ Cấu hình không trả về nội dung text. Đã thử tất cả các model text dự phòng.');
 };
 
 /**

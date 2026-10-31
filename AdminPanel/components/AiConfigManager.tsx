@@ -31,6 +31,13 @@ interface AiConfigManagerProps {
     admin: AdminUser;
 }
 
+const SUPPORTED_TEXT_MODELS = [
+    { id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)', desc: 'Ưu tiên 1 — Sáng tạo prompt K-Pop Idol & văn hóa đỉnh cao nhất', tag: 'Ưu tiên 1', color: '#8b5cf6' },
+    { id: 'chatgpt-6.1-sol', name: 'ChatGPT 6.1 Sol', desc: 'Ưu tiên 2 — Dự phòng dòng GPT cao cấp khi Opus chạm hạn mức', tag: 'Ưu tiên 2', color: '#3b82f6' },
+    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', desc: 'Ưu tiên 3 — Suy luận tốc độ cao, văn phong chi tiết từ Google', tag: 'Ưu tiên 3', color: '#10b981' },
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', desc: 'Ưu tiên 4 — Phao cứu sinh siêu tốc độ, hạn mức dồi dào', tag: 'Ưu tiên 4', color: '#f59e0b' },
+];
+
 const SUPPORTED_IMAGE_MODELS = [
     { id: 'gemini-3.1-flash-image', name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)', desc: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, ghép trang phục H’Mông', tag: 'Google - Khuyên dùng' },
     { id: 'gpt-image-2.5', name: 'GPT Image 2.5 (OpenAI)', desc: 'Chi tiết 8K sắc nét, tuân thủ trang phục tốt nhất', tag: 'OpenAI - Cao cấp' },
@@ -612,7 +619,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                         Cấu hình Mô hình Trí tuệ Nhân tạo (Models)
                     </h3>
 
-                    {/* Text / Prompt Model (Fixed) */}
+                    {/* Text / Prompt Model Configuration (Multi-model Auto-fallback) */}
                     <div style={{
                         background: 'var(--bg-tertiary)',
                         border: '1px solid var(--border-light)',
@@ -620,10 +627,10 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                         padding: '16px',
                         marginBottom: '20px'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Sparkles size={16} style={{ color: '#d97706' }} />
-                                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                                     Text Model (Tạo Prompt & Phân tích Trang phục)
                                 </span>
                             </div>
@@ -631,42 +638,102 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
-                                background: '#fef3c7',
-                                color: '#b45309',
-                                border: '1px solid rgba(217, 119, 6, 0.3)',
+                                background: 'rgba(99, 102, 241, 0.12)',
+                                color: 'var(--accent-primary)',
+                                border: '1px solid rgba(99, 102, 241, 0.25)',
                                 fontSize: '0.72rem',
                                 fontWeight: 700,
-                                padding: '2px 8px',
+                                padding: '3px 10px',
                                 borderRadius: '9999px',
-                                textTransform: 'uppercase'
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em'
                             }}>
-                                Cố định tối ưu
+                                🔄 Tự động thay phiên (Auto-Fallback)
                             </span>
                         </div>
 
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '12px',
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '8px',
-                            padding: '10px 14px'
-                        }}>
-                            <code style={{
-                                fontFamily: 'monospace',
-                                fontWeight: 700,
-                                fontSize: '0.95rem',
-                                color: 'var(--text-primary)'
-                            }}>
-                                claude-opus-5-5-high
-                            </code>
-                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                Claude Opus 5.5 High (Mặc định cao cấp)
-                            </span>
+                        {/* Primary Selector */}
+                        <div style={{ marginBottom: '14px' }}>
+                            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                                Mô hình ưu tiên khởi đầu (Primary Model):
+                            </label>
+                            <select
+                                value={config.defaultTextModel || 'claude-opus-5-5-high'}
+                                onChange={(e) => setConfig(prev => ({ ...prev, defaultTextModel: e.target.value }))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    background: 'var(--bg-primary)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 'var(--border-radius-sm)',
+                                    fontSize: '0.88rem',
+                                    color: 'var(--text-primary)',
+                                    outline: 'none',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {SUPPORTED_TEXT_MODELS.map(m => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.name} ({m.id}) — {m.desc}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
-                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
-                            Mô hình ngôn ngữ đỉnh cao phân tích chuẩn xác phục trang thổ cẩm H'Mông và sáng tạo prompt thời trang K-Pop Idol / Ulzzang chuẩn điện ảnh.
+
+                        {/* Cascade Fallback Visual Chain */}
+                        <div>
+                            <span style={{ display: 'block', fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                Chuỗi 4 mô hình luân phiên tự động khi hết hạn mức (HTTP 429 Quota Exhausted):
+                            </span>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                gap: '8px'
+                            }}>
+                                {SUPPORTED_TEXT_MODELS.map((m, idx) => {
+                                    const isSelected = (config.defaultTextModel || 'claude-opus-5-5-high') === m.id;
+                                    return (
+                                        <div
+                                            key={m.id}
+                                            onClick={() => setConfig(prev => ({ ...prev, defaultTextModel: m.id }))}
+                                            style={{
+                                                background: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-secondary)',
+                                                border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                                                borderRadius: '8px',
+                                                padding: '10px 12px',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.15s ease'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                <span style={{
+                                                    fontSize: '0.68rem',
+                                                    fontWeight: 800,
+                                                    color: m.color,
+                                                    textTransform: 'uppercase'
+                                                }}>
+                                                    {idx === 0 ? '① ' : idx === 1 ? '② ' : idx === 2 ? '③ ' : '④ '} {m.tag}
+                                                </span>
+                                                {isSelected && (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--accent-primary)' }}>
+                                                        ● Đang chọn
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                                {m.name}
+                                            </div>
+                                            <code style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                                {m.id}
+                                            </code>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '12px 0 0', lineHeight: 1.4 }}>
+                            💡 <strong>Cơ chế tự động:</strong> Tool chính sẽ luôn ưu tiên gọi model số 1. Nếu tài khoản chạm trần hạn mức (HTTP 429) hoặc lỗi mạng, hệ thống sẽ <strong>tự động âm thầm chuyển tiếp sang mô hình tiếp theo</strong> trong chuỗi 4 model trên để tạo prompt liền mạch 100%, không bao giờ hiện popup lỗi gián đoạn.
                         </p>
                     </div>
 
