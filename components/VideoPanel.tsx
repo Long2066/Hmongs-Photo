@@ -73,7 +73,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         } catch (err) {
             console.error('[Flow Login Error]:', err);
         } finally {
-            setIsTriggeringLogin(false);
+            setTimeout(() => setIsTriggeringLogin(false), 1500);
         }
     };
 
@@ -176,13 +176,15 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         <button
                             type="button"
                             onClick={handleLoginClick}
-                            disabled={isTriggeringLogin || serverHealth.loginInProgress}
+                            disabled={isTriggeringLogin}
                             className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                         >
                             <span>🌐</span>
                             <span>
-                                {isTriggeringLogin || serverHealth.loginInProgress
-                                    ? 'Đang chờ đăng nhập trên cửa sổ Chrome...'
+                                {isTriggeringLogin
+                                    ? 'Đang mở cửa sổ Chrome...'
+                                    : serverHealth.loginInProgress
+                                    ? 'Mở lại cửa sổ Chrome Đăng nhập Google Flow'
                                     : 'Mở trình duyệt Đăng nhập Google Flow'}
                             </span>
                         </button>
