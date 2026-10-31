@@ -32,25 +32,25 @@ interface AiConfigManagerProps {
 }
 
 const SUPPORTED_TEXT_MODELS = [
-    { id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)', desc: 'Ưu tiên 1 — Sáng tạo prompt K-Pop Idol & văn hóa đỉnh cao nhất', tag: 'Ưu tiên 1', color: '#8b5cf6' },
-    { id: 'chatgpt-6.1-sol', name: 'ChatGPT 6.1 Sol', desc: 'Ưu tiên 2 — Dự phòng dòng GPT cao cấp khi Opus chạm hạn mức', tag: 'Ưu tiên 2', color: '#3b82f6' },
-    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', desc: 'Ưu tiên 3 — Suy luận tốc độ cao, văn phong chi tiết từ Google', tag: 'Ưu tiên 3', color: '#10b981' },
-    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', desc: 'Ưu tiên 4 — Phao cứu sinh siêu tốc độ, hạn mức dồi dào', tag: 'Ưu tiên 4', color: '#f59e0b' },
+    { id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5', tag: 'Ưu tiên 1', color: '#8b5cf6' },
+    { id: 'chatgpt-6.1-sol', name: 'ChatGPT 6.1 Sol', tag: 'Ưu tiên 2', color: '#3b82f6' },
+    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', tag: 'Ưu tiên 3', color: '#10b981' },
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', tag: 'Ưu tiên 4', color: '#f59e0b' },
 ];
 
 const SUPPORTED_IMAGE_MODELS = [
-    { id: 'gemini-3.1-flash-image', name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)', desc: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, ghép trang phục H’Mông', tag: 'Google - Khuyên dùng' },
-    { id: 'gpt-image-2.5', name: 'GPT Image 2.5 (OpenAI)', desc: 'Chi tiết 8K sắc nét, tuân thủ trang phục tốt nhất', tag: 'OpenAI - Cao cấp' },
-    { id: 'gpt-image-2.5-flare', name: 'GPT Image 2.5 Flare', desc: 'Tốc độ phản hồi cực nhanh, tối ưu render chuyển động', tag: 'OpenAI - Flare' },
-    { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst', desc: 'Độ tương phản cao, màu sắc rực rỡ chuẩn studio', tag: 'OpenAI - Sunburst' },
-    { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Mô hình tiêu chuẩn ổn định cho xử lý chân dung', tag: 'OpenAI - Ổn định' },
-    { id: 'gpt-image-1.5', name: 'GPT Image 1.5', desc: 'Mô hình cổ điển tiết kiệm băng thông', tag: 'OpenAI - Tiết kiệm' },
+    { id: 'gemini-3.1-flash-image', name: 'Gemini 3.1 Flash' },
+    { id: 'gpt-image-2.5', name: 'GPT Image 2.5' },
+    { id: 'gpt-image-2.5-flare', name: 'GPT Image 2.5 Flare' },
+    { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst' },
+    { id: 'gpt-image-2', name: 'GPT Image 2' },
+    { id: 'gpt-image-1.5', name: 'GPT Image 1.5' },
 ];
 
 const PRESETS = [
-    { label: 'Cloudflare Tunnel (Khuyên dùng)', url: 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1', desc: 'Máy chủ Cloudflare HTTPS bảo mật & tốc độ cao' },
-    { label: 'VPS Cloud', url: 'http://158.178.235.87:20128/v1', desc: 'Máy chủ Cloud tốc độ cao' },
-    { label: 'Localhost', url: 'http://127.0.0.1:8317/v1', desc: 'Máy chủ phát triển máy trạm' },
+    { label: 'Cloudflare Tunnel', url: 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1' },
+    { label: 'VPS Cloud', url: 'http://158.178.235.87:20128/v1' },
+    { label: 'Localhost', url: 'http://127.0.0.1:8317/v1' },
 ];
 
 export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
@@ -249,9 +249,6 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 Realtime Sync
                             </span>
                         </div>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '6px' }}>
-                            Quản trị cổng định tuyến CLIProxyAPI, endpoint máy chủ, API key và mô hình tạo ảnh cho toàn bộ ImageTool
-                        </p>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -299,7 +296,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '12px',
-                    padding: '14px 18px',
+                    padding: '12px 18px',
                     background: '#ecfdf5',
                     border: '1px solid #10b981',
                     borderRadius: 'var(--border-radius)',
@@ -309,12 +306,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                     animation: 'fadeIn 0.25s ease'
                 }}>
                     <CheckCircle2 size={20} style={{ color: '#059669', flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Đã lưu & đồng bộ thời gian thực thành công!</div>
-                        <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>
-                            Tất cả client của ImageTool đang hoạt động đã tự động cập nhật cấu hình mới mà không cần tải lại trang.
-                        </div>
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Đã lưu & đồng bộ thời gian thực thành công!</div>
                 </div>
             )}
 
@@ -404,11 +396,6 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                     </span>
                                 )}
                             </div>
-                            <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                                {config.enabled
-                                    ? 'Cổng định tuyến AI sẵn sàng nhận yêu cầu sinh ảnh & prompt từ client'
-                                    : 'Toàn bộ client sẽ tạm dừng gửi tác vụ AI cho đến khi Admin kích hoạt lại'}
-                            </p>
                         </div>
                     </div>
 
@@ -499,11 +486,8 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                         <div>
                             <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Server size={18} style={{ color: 'var(--accent-primary)' }} />
-                                Cấu hình API Endpoint (CLIProxyAPI)
+                                API Endpoint (CLIProxyAPI)
                             </h3>
-                            <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                                Địa chỉ URL máy chủ proxy OpenAI-compatible chuyển tiếp tới Google Antigravity
-                            </p>
                         </div>
 
                         {/* Presets */}
@@ -562,10 +546,6 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 }}
                             />
                         </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '6px', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Chuẩn định dạng: <code style={{ color: 'var(--accent-primary)' }}>http://[IP]:[PORT]/v1</code> (Bắt buộc kết thúc bằng <code style={{ color: 'var(--accent-primary)' }}>/v1</code>)</span>
-                            <span style={{ color: 'var(--text-secondary)' }}>Mặc định VPS: 158.178.235.87:20128</span>
-                        </div>
                     </div>
 
                     {/* API Key Input */}
@@ -573,7 +553,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <Key size={16} style={{ color: 'var(--accent-primary)' }} />
-                                Cấu hình API Key (Khóa bí mật)
+                                API Key (Khóa bảo mật)
                             </span>
                         </label>
                         <div style={{
@@ -619,9 +599,6 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
                         </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                            Bắt buộc đối với kết nối từ xa hoặc VPS yêu cầu Bearer token xác thực.
-                        </div>
                     </div>
 
                     {/* Web Dashboard External Link Button */}
@@ -633,7 +610,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                             style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.825rem' }}
                         >
                             <ExternalLink size={16} />
-                            Mở Web Dashboard quản trị Proxy ({config.url ? new URL(config.url).host : '158.178.235.87:20128'})
+                            Mở Web Dashboard Proxy
                         </button>
                     </div>
                 </div>
@@ -649,7 +626,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                 }}>
                     <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Layers size={18} style={{ color: 'var(--accent-primary)' }} />
-                        Cấu hình Mô hình Trí tuệ Nhân tạo (Models)
+                        Cấu hình Mô hình AI (Models)
                     </h3>
 
                     {/* Text / Prompt Model Configuration (Multi-model Auto-fallback) */}
@@ -664,7 +641,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Sparkles size={16} style={{ color: '#d97706' }} />
                                 <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                                    Text Model (Tạo Prompt & Phân tích Trang phục)
+                                    Text Model (Prompt & Phân tích)
                                 </span>
                             </div>
                             <span style={{
@@ -681,14 +658,14 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.04em'
                             }}>
-                                🔄 Tự động thay phiên (Auto-Fallback)
+                                🔄 Tự động thay phiên (Fallback)
                             </span>
                         </div>
 
                         {/* Primary Selector */}
                         <div style={{ marginBottom: '14px' }}>
                             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                                Mô hình ưu tiên khởi đầu (Primary Model):
+                                Mô hình ưu tiên khởi đầu:
                             </label>
                             <select
                                 value={config.defaultTextModel || 'claude-opus-5-5-high'}
@@ -707,7 +684,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                             >
                                 {SUPPORTED_TEXT_MODELS.map(m => (
                                     <option key={m.id} value={m.id}>
-                                        {m.name} ({m.id}) — {m.desc}
+                                        {m.name} ({m.id})
                                     </option>
                                 ))}
                             </select>
@@ -716,7 +693,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                         {/* Cascade Fallback Visual Chain */}
                         <div>
                             <span style={{ display: 'block', fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                Chuỗi 4 mô hình luân phiên tự động khi hết hạn mức (HTTP 429 Quota Exhausted):
+                                Thứ tự ưu tiên luân phiên:
                             </span>
                             <div style={{
                                 display: 'grid',
@@ -764,16 +741,12 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 })}
                             </div>
                         </div>
-
-                        <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '12px 0 0', lineHeight: 1.4 }}>
-                            💡 <strong>Cơ chế tự động:</strong> Tool chính sẽ luôn ưu tiên gọi model số 1. Nếu tài khoản chạm trần hạn mức (HTTP 429) hoặc lỗi mạng, hệ thống sẽ <strong>tự động âm thầm chuyển tiếp sang mô hình tiếp theo</strong> trong chuỗi 4 model trên để tạo prompt liền mạch 100%, không bao giờ hiện popup lỗi gián đoạn.
-                        </p>
                     </div>
 
                     {/* Default Image Model Selector */}
                     <div>
                         <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
-                            Mô hình tạo ảnh mặc định (Default Image Model)
+                            Mô hình tạo ảnh mặc định
                         </label>
                         <select
                             value={config.defaultImageModel || 'gemini-3.1-flash-image'}
@@ -792,13 +765,10 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                         >
                             {SUPPORTED_IMAGE_MODELS.map(model => (
                                 <option key={model.id} value={model.id}>
-                                    {model.name} — {model.desc}
+                                    {model.name}
                                 </option>
                             ))}
                         </select>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-                            Người dùng trên ImageTool vẫn có thể chủ động chuyển đổi giữa 6 model này trong giao diện tạo ảnh. Lựa chọn này là model khởi tạo mặc định cho người dùng mới.
-                        </div>
                     </div>
 
                     {/* Model Pricing & Access Policy (Free vs Paid Toggle) */}
@@ -826,12 +796,9 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                     $
                                 </span>
                                 <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                                    Quản lý chính sách: Trả phí hay Miễn phí (Đồng bộ Realtime)
+                                    Chính sách: Trả phí / Miễn phí
                                 </h4>
                             </div>
-                            <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                                Bật/Tắt chế độ Trả phí cho từng model. Khi <strong>Bật trả phí</strong>, người dùng trên Tool chính nếu hết số dư (về 0đ) sẽ bị <strong>làm mờ model đó và không thể chọn</strong>. Khi <strong>Tắt (Miễn phí)</strong>, mọi người dùng đều có thể sử dụng tự do.
-                            </p>
                         </div>
 
                         <div style={{
@@ -864,17 +831,10 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                             gap: '8px'
                                         }}
                                     >
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                                                        {model.name}
-                                                    </span>
-                                                </div>
-                                                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                                    {model.desc}
-                                                </div>
-                                            </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                            <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                                {model.name}
+                                            </span>
 
                                             <span style={{
                                                 fontSize: '0.68rem',
@@ -900,9 +860,9 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                         }}>
                                             <span style={{ fontSize: '0.74rem', color: isPaid ? '#d97706' : '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 {pricingSaving === model.id ? (
-                                                    <span style={{ color: '#6366f1' }}>Đang lưu & đồng bộ...</span>
+                                                    <span style={{ color: '#6366f1' }}>Đang lưu...</span>
                                                 ) : (
-                                                    isPaid ? 'Cần số dư > 0đ (Khóa nếu 0đ)' : 'Dùng tự do (Kể cả 0đ)'
+                                                    isPaid ? 'Khóa khi 0đ' : 'Không giới hạn'
                                                 )}
                                             </span>
 
@@ -922,7 +882,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                                     boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)',
                                                     opacity: pricingSaving === model.id ? 0.7 : 1
                                                 }}
-                                                title={isPaid ? 'Bấm để chuyển sang Miễn phí (Dùng tự do)' : 'Bấm để chuyển sang Trả phí (Khóa nếu 0đ)'}
+                                                title={isPaid ? 'Bấm để chuyển sang Miễn phí' : 'Bấm để chuyển sang Trả phí'}
                                             >
                                                 <div style={{
                                                     width: '18px',
