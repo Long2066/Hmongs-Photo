@@ -13,6 +13,8 @@ dist-ssr
 release
 *.local
 .external
+gemini-web-api-main/
+flow-py-main/
 *.py
 *.cjs
 

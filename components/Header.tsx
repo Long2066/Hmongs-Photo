@@ -10,8 +10,8 @@ interface HeaderProps {
     onHistoryClick: () => void;
     onApiKeyClick?: () => void;
     isHistoryVisible: boolean;
-    currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore';
-    onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore') => void;
+    currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video';
+    onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video') => void;
 }
 
 const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible }) => {
@@ -105,7 +105,8 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
         edit: { icon: '🖌️', label: 'Chỉnh sửa', color: 'emerald' },
         upscale: { icon: '🔍', label: 'Tăng nét', color: 'cyan' },
         profile_pro: { icon: '👤', label: 'Profile Pro', color: 'fuchsia' },
-        restore: { icon: '🔧', label: 'Phục hồi', color: 'amber' }
+        restore: { icon: '🔧', label: 'Phục hồi', color: 'amber' },
+        video: { icon: '🎬', label: 'Tạo Video', color: 'rose' }
     };
 
     return (
@@ -190,8 +191,11 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
                                 <button onClick={() => onModeChange('profile_pro')} className={`px-3 py-1.5 text-xs rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'profile_pro' ? 'bg-white text-fuchsia-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-medium'}`}>
                                     <UserCircleIcon className="w-3.5 h-3.5" /> Profile Pro
                                 </button>
-                                <button onClick={() => onModeChange('restore')} className={`px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'restore' ? 'bg-white text-amber-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}>
-                                    <SparklesIcon className="w-3 h-3" /> Phục hồi
+                                <button onClick={() => onModeChange('restore')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'restore' ? 'bg-white text-amber-600 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}>
+                                    <SparklesIcon className="w-3.5 h-3.5" /> Phục hồi
+                                </button>
+                                <button onClick={() => onModeChange('video')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${currentMode === 'video' ? 'bg-white text-rose-600 shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900'}`}>
+                                    <span className="text-xs">🎬</span> Tạo Video
                                 </button>
                             </div>
                         </>

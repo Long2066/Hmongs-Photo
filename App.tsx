@@ -8,9 +8,11 @@ import { EditImagePanel } from './components/EditImagePanel';
 import { UpscalePanel } from './components/UpscalePanel';
 import { ProfileProPanel } from './components/ProfileProPanel';
 import { RestorePhotoPanel } from './components/RestorePhotoPanel';
+import { VideoPanel } from './components/VideoPanel';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
 import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
+import { generateVideo } from './services/geminiVideoService';
 import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
 import { ProfilePage } from './components/ProfilePage';
@@ -104,7 +106,8 @@ const App: React.FC = () => {
     const [pendingGeneration, setPendingGeneration] = useState<{ imageCount: number; callback: () => void } | null>(null);
 
     // --- MODE MANAGEMENT ---
-    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore'>('creative');
+    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video'>('creative');
+    const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('text_to_video');
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -114,6 +117,7 @@ const App: React.FC = () => {
         upscale: JSON.parse(JSON.stringify(initialModeState)),
         profile_pro: JSON.parse(JSON.stringify(initialModeState)),
         restore: JSON.parse(JSON.stringify(initialModeState)),
+        video: JSON.parse(JSON.stringify(initialModeState)),
     });
 
     // Helper to update current mode state - memoized to avoid stale closures
@@ -505,6 +509,26 @@ const App: React.FC = () => {
         setSelectedImage({ url: newBase64, index });
     };
 
+    // Quick action: send any generated image to Image-to-Video mode
+    const handleSendToVideo = useCallback((base64: string) => {
+        const imageState: ImageState = {
+            base64,
+            mimeType: 'image/png',
+            id: Date.now(),
+            fileName: 'video_seed.png'
+        };
+        setMode('video');
+        setVideoSubMode('image_to_video');
+        setModeStates(prev => ({
+            ...prev,
+            video: {
+                ...prev['video'],
+                inputs: [imageState]
+            }
+        }));
+        setSelectedImage(null);
+    }, []);
+
     const saveHistory = async (type: string, prompt: string, images: string[], style: string = 'General') => {
         if (!currentUser) return;
         const historyItem: HistoryItem = {
@@ -854,6 +878,52 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
+    // 8. Video Generation (Veo 3.1)
+    const handleVideoGenerate = useCallback(async (
+        prompt: string,
+        aspectRatio: '16:9' | '9:16',
+        subMode: 'text_to_video' | 'image_to_video'
+    ) => {
+        const inputs = modeStates['video'].inputs;
+        if (subMode === 'image_to_video' && inputs.length === 0) {
+            setError('Vui lòng tải lên 1 ảnh để làm chuyển động video.');
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setIsMenuOpen(false);
+        setLoadingStatus('Đang gửi yêu cầu tới Veo Engine...');
+        updateModeState(() => ({ outputs: [null], prompts: [prompt] }));
+
+        try {
+            const inputImageBase64 = subMode === 'image_to_video' && inputs.length > 0
+                ? inputs[0].base64
+                : undefined;
+
+            const result = await generateVideo({
+                prompt,
+                aspectRatio,
+                inputImageBase64,
+                onProgress: (status) => setLoadingStatus(status),
+            });
+
+            updateModeState(() => ({
+                outputs: [result.url],
+                prompts: [prompt],
+            }));
+
+            saveHistory('Veo Video', prompt, [result.url], subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
+        } catch (e) {
+            console.error('[Video Error]:', e);
+            setError(e instanceof Error ? e.message : 'Lỗi tạo video Veo.');
+            updateModeState(() => ({ outputs: [] }));
+        } finally {
+            setIsLoading(false);
+            setLoadingStatus('');
+        }
+    }, [modeStates, saveHistory]);
+
     const handleLogout = async () => {
         await firebaseService.logoutUser();
         storage.logoutUser();
@@ -885,6 +955,29 @@ const App: React.FC = () => {
                     />
                 </div>
             );
+        } else if (mode === 'video') {
+            if (videoSubMode === 'image_to_video') {
+                return (
+                    <div className="p-3">
+                        <ImageUploader
+                            label="Ảnh gốc cần tạo video chuyển động"
+                            onImagesChange={handleImagesChange}
+                            maxImages={1}
+                        />
+                    </div>
+                );
+            }
+            return (
+                <div className="p-5 text-center">
+                    <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-rose-50 text-rose-500 mb-2 shadow-xs ring-1 ring-rose-500/10">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </div>
+                    <p className="text-xs font-bold text-slate-800">Chế độ Văn bản ➔ Video</p>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">Không cần tải ảnh đầu vào. Hãy nhập kịch bản hoặc gợi ý ở bảng Cấu hình AI bên dưới.</p>
+                </div>
+            );
         }
         return <div className="p-4 text-xs text-slate-400 text-center italic">Chế độ này không cần ảnh đầu vào.</div>;
     };
@@ -909,6 +1002,19 @@ const App: React.FC = () => {
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'profile_pro') return <ProfileProPanel onGenerate={handleProfilePro} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'restore') return <RestorePhotoPanel onGenerate={handleRestorePhoto} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
+        if (mode === 'video') {
+            return (
+                <VideoPanel
+                    subMode={videoSubMode}
+                    onSubModeChange={setVideoSubMode}
+                    onGenerate={handleVideoGenerate}
+                    isLoading={isLoading}
+                    isDisabled={!currentUser}
+                    hasInputImage={mState.inputs.length > 0}
+                    inputImagePreview={mState.inputs[0]?.base64}
+                />
+            );
+        }
         return null;
     };
 
@@ -1131,6 +1237,7 @@ const App: React.FC = () => {
                     index={selectedImage.index}
                     onClose={() => setSelectedImage(null)}
                     onUpdateImage={handleUpdateOutputImage}
+                    onSendToVideo={handleSendToVideo}
                 />
             )}
             {isDownloadHelpOpen && <DownloadHelpModal onClose={() => setDownloadHelpOpen(false)} />}

@@ -13,14 +13,68 @@ interface OutputDisplayProps {
     onReplaySlideshow?: () => void;
 }
 
+const isVideoUrl = (url: string | null): boolean => {
+    if (!url) return false;
+    return url.endsWith('.mp4') || url.includes('/files/') || url.includes('filename=video.mp4') || (url.startsWith('http') && url.includes('vid_'));
+};
+
+const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({ url, index, prompt }) => {
+    return (
+        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 animate-fade-in ring-1 ring-slate-900/5 col-span-full max-w-2xl mx-auto w-full">
+            <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                    <span className="text-xs font-bold text-slate-800 tracking-tight uppercase">Veo AI Video #{index + 1}</span>
+                </div>
+                <a
+                    href={url}
+                    download={`veo_video_${index + 1}.mp4`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95"
+                >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span>Tải Video MP4</span>
+                </a>
+            </div>
+
+            <div className="relative w-full rounded-xl overflow-hidden bg-slate-950 aspect-video flex items-center justify-center border border-slate-900/10 shadow-inner">
+                <video
+                    src={url}
+                    controls
+                    autoPlay
+                    loop
+                    playsInline
+                    className="w-full h-full object-contain"
+                >
+                    Trình duyệt của bạn không hỗ trợ phát thẻ video.
+                </video>
+            </div>
+
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                    <strong className="text-slate-900 font-bold">Kịch bản: </strong>
+                    {prompt || 'Video được tạo từ Veo 3.1 AI'}
+                </p>
+            </div>
+        </div>
+    );
+};
+
 const OutputImage: React.FC<{ base64: string; index: number, prompt: string, meta?: { name: string, job: string }, onClick: () => void }> = ({ base64, index, prompt, meta, onClick }) => {
+    const imgSrc = base64.startsWith('data:') || base64.startsWith('http')
+        ? base64
+        : `data:image/png;base64,${base64}`;
+
     return (
         <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all duration-200 flex flex-col gap-2.5 animate-fade-in group ring-1 ring-slate-900/5">
             <div
                 className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden cursor-pointer"
                 onClick={onClick}
             >
-                <img src={`data:image/png;base64,${base64}`} alt={`Generated ${index + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" />
+                <img src={imgSrc} alt={`Generated ${index + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" />
 
                 {/* Number Badge */}
                 <div className="absolute top-2 left-2 w-6 h-6 rounded-lg bg-white/95 flex items-center justify-center font-bold text-slate-900 shadow-xs z-10 text-xs border border-slate-200">
@@ -165,6 +219,9 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                     {outputImages.map((image, index) => {
                         if (image === null) {
                             return <LoadingSlot key={index} index={index} />;
+                        } else if (isVideoUrl(image)) {
+                            const promptText = prompts && prompts[index] ? prompts[index] : "Video Veo AI";
+                            return <OutputVideo key={index} url={image} index={index} prompt={promptText} />;
                         } else {
                             const promptText = prompts && prompts[index] ? prompts[index] : "Ảnh được tạo từ AI";
                             const meta = metadata && metadata[index] ? metadata[index] : undefined;
