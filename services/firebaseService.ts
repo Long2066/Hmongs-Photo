@@ -20,7 +20,8 @@ import {
     limit,
     setDoc,
     onSnapshot,
-    Timestamp
+    Timestamp,
+    increment
 } from "firebase/firestore";
 import { auth, db } from "../src/firebaseConfig";
 import type { HistoryItem, User } from "../types";
@@ -59,10 +60,192 @@ export const resetPassword = async (email: string): Promise<void> => {
     await sendPasswordResetEmail(auth, email);
 };
 
-// --- User Stats Services ---
+// --- Cloud Visit & Realtime Presence Services ---
 
+const SYSTEM_STATS_COLLECTION = "systemStats";
+const CLOUD_VISITS_DOC = "cloudVisits";
+const DAILY_VISITS_COLLECTION = "dailyVisits";
+const ACTIVE_SESSIONS_COLLECTION = "activeSessions";
 const REGISTRATIONS_COLLECTION = "registrations";
 const USER_ACCESS_COLLECTION = "userAccess";
+
+export interface CloudStats {
+    totalVisits: number;
+    todayVisits: number;
+    onlineCount: number;
+    activeToday: number;
+}
+
+// Record a cloud visit (tracks both total visits and daily visits with automatic date rollover)
+export const recordCloudVisit = async (): Promise<void> => {
+    try {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const visitRef = doc(db, SYSTEM_STATS_COLLECTION, CLOUD_VISITS_DOC);
+        const dailyRef = doc(db, DAILY_VISITS_COLLECTION, today);
+
+        // Limit counting to 1 per tab/session per 15 minutes to prevent spam on quick refreshes
+        const lastRecorded = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('cloud_visit_recorded') : null;
+        const now = Date.now();
+        if (lastRecorded && now - parseInt(lastRecorded) < 15 * 60 * 1000) {
+            return;
+        }
+        if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('cloud_visit_recorded', now.toString());
+        }
+
+        const visitDoc = await getDoc(visitRef);
+        if (!visitDoc.exists()) {
+            await setDoc(visitRef, {
+                totalVisits: 1,
+                todayVisits: 1,
+                lastDate: today,
+                updatedAt: now
+            });
+        } else {
+            const data = visitDoc.data();
+            const isNewDay = data.lastDate !== today;
+            await setDoc(visitRef, {
+                totalVisits: increment(1),
+                todayVisits: isNewDay ? 1 : increment(1),
+                lastDate: today,
+                updatedAt: now
+            }, { merge: true });
+        }
+
+        // Record in dailyVisits collection for historic analytics
+        await setDoc(dailyRef, {
+            date: today,
+            visits: increment(1),
+            lastVisit: now
+        }, { merge: true });
+    } catch (error) {
+        console.error("Error recording cloud visit:", error);
+    }
+};
+
+// Heartbeat for Realtime Online Presence
+let presenceInterval: any = null;
+let currentSessionId: string = '';
+
+export const startPresenceHeartbeat = (userId?: string, displayName?: string): () => void => {
+    try {
+        if (!currentSessionId) {
+            currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+        }
+
+        const sessionRef = doc(db, ACTIVE_SESSIONS_COLLECTION, currentSessionId);
+        const updateHeartbeat = async () => {
+            try {
+                await setDoc(sessionRef, {
+                    sessionId: currentSessionId,
+                    userId: userId || 'guest',
+                    displayName: displayName || 'Khách truy cập',
+                    lastSeen: Date.now(),
+                    isOnline: true,
+                    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 80) : ''
+                }, { merge: true });
+            } catch (e) {
+                // Ignore silent heartbeat errors
+            }
+        };
+
+        // Immediate update
+        updateHeartbeat();
+
+        // Update every 40 seconds
+        if (presenceInterval) clearInterval(presenceInterval);
+        presenceInterval = setInterval(updateHeartbeat, 40000);
+
+        // Cleanup on window unload
+        const handleUnload = () => {
+            try {
+                deleteDoc(sessionRef);
+            } catch (e) {}
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener('beforeunload', handleUnload);
+        }
+
+        return () => {
+            if (presenceInterval) clearInterval(presenceInterval);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('beforeunload', handleUnload);
+            }
+            try {
+                deleteDoc(sessionRef);
+            } catch (e) {}
+        };
+    } catch (e) {
+        console.error("Error in presence heartbeat:", e);
+        return () => {};
+    }
+};
+
+// Subscribe to Realtime Cloud Stats (Visits + Online Presence)
+export const subscribeToCloudStats = (callback: (stats: CloudStats) => void): (() => void) => {
+    let currentTotalVisits = 0;
+    let currentTodayVisits = 0;
+    let currentOnlineCount = 1;
+    let currentActiveToday = 0;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. Listen to cloud visits doc
+    const visitRef = doc(db, SYSTEM_STATS_COLLECTION, CLOUD_VISITS_DOC);
+    const unsubVisits = onSnapshot(visitRef, (snap) => {
+        if (snap.exists()) {
+            const data = snap.data();
+            currentTotalVisits = data.totalVisits || 0;
+            currentTodayVisits = data.lastDate === today ? (data.todayVisits || 0) : 0;
+        }
+        callback({
+            totalVisits: currentTotalVisits,
+            todayVisits: currentTodayVisits,
+            onlineCount: currentOnlineCount,
+            activeToday: currentActiveToday
+        });
+    }, (err) => console.warn("Cloud visits listener warning:", err));
+
+    // 2. Listen to active sessions (last 2 minutes) for real-time online count
+    const sessionsRef = collection(db, ACTIVE_SESSIONS_COLLECTION);
+    const unsubSessions = onSnapshot(sessionsRef, (snap) => {
+        const threshold = Date.now() - 2 * 60 * 1000; // active in last 2 minutes
+        let online = 0;
+        snap.forEach(d => {
+            const data = d.data();
+            if (data.isOnline && data.lastSeen && data.lastSeen > threshold) {
+                online++;
+            }
+        });
+        currentOnlineCount = Math.max(online, 1); // at least current user
+        callback({
+            totalVisits: currentTotalVisits,
+            todayVisits: currentTodayVisits,
+            onlineCount: currentOnlineCount,
+            activeToday: currentActiveToday
+        });
+    }, (err) => console.warn("Active sessions listener warning:", err));
+
+    // 3. Listen to today active users
+    const todayAccessQuery = query(collection(db, USER_ACCESS_COLLECTION), where("date", "==", today));
+    const unsubAccess = onSnapshot(todayAccessQuery, (snap) => {
+        currentActiveToday = snap.size;
+        callback({
+            totalVisits: currentTotalVisits,
+            todayVisits: currentTodayVisits,
+            onlineCount: currentOnlineCount,
+            activeToday: currentActiveToday
+        });
+    }, (err) => console.warn("Today access listener warning:", err));
+
+    return () => {
+        unsubVisits();
+        unsubSessions();
+        unsubAccess();
+    };
+};
+
+// --- User Stats Services ---
 
 // Record new user registration
 export const recordNewRegistration = async (userId: string, displayName: string, email?: string): Promise<void> => {

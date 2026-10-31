@@ -11,7 +11,8 @@ import {
     query,
     orderBy,
     limit,
-    where
+    where,
+    onSnapshot
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 
@@ -22,6 +23,9 @@ const USER_ACCESS_COLLECTION = "userAccess";
 const APPROVED_BILLS_COLLECTION = "approvedBills";
 const NOTIFICATIONS_COLLECTION = "notifications";
 const HISTORY_COLLECTION = "history"; // User image generation history
+const SYSTEM_STATS_COLLECTION = "systemStats";
+const CLOUD_VISITS_DOC = "cloudVisits";
+const ACTIVE_SESSIONS_COLLECTION = "activeSessions";
 
 // Types
 export interface UserData {
@@ -55,6 +59,20 @@ export interface NotificationData {
     timestamp: number;
     isRead: boolean;
     createdBy: string;
+}
+
+export interface RealtimeCloudStats {
+    totalVisits: number;
+    todayVisits: number;
+    onlineCount: number;
+    activeToday: number;
+    activeSessions: {
+        sessionId: string;
+        displayName: string;
+        userId: string;
+        lastSeen: number;
+        userAgent?: string;
+    }[];
 }
 
 // =====================
@@ -456,4 +474,114 @@ export const getAllNotifications = async (limitCount: number = 50): Promise<Noti
         console.error("Error getting notifications:", error);
         return [];
     }
+};
+
+// =====================
+// REALTIME CLOUD STATS & PRESENCE
+// =====================
+
+// Get cloud visit stats
+export const getCloudVisitStats = async (): Promise<{ totalVisits: number; todayVisits: number; onlineCount: number }> => {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const docSnap = await getDoc(doc(db, SYSTEM_STATS_COLLECTION, CLOUD_VISITS_DOC));
+        let totalVisits = 0;
+        let todayVisits = 0;
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            totalVisits = data.totalVisits || 0;
+            todayVisits = data.lastDate === today ? (data.todayVisits || 0) : 0;
+        }
+
+        // Active sessions within 2 minutes
+        const sessionsSnap = await getDocs(collection(db, ACTIVE_SESSIONS_COLLECTION));
+        const threshold = Date.now() - 2 * 60 * 1000;
+        let onlineCount = 0;
+        sessionsSnap.forEach(d => {
+            const data = d.data();
+            if (data.isOnline && data.lastSeen && data.lastSeen > threshold) {
+                onlineCount++;
+            }
+        });
+
+        return { totalVisits, todayVisits, onlineCount };
+    } catch (e) {
+        console.error("Error fetching cloud visit stats:", e);
+        return { totalVisits: 0, todayVisits: 0, onlineCount: 0 };
+    }
+};
+
+// Subscribe to real-time cloud stats & online presence (auto-updates dashboard)
+export const subscribeToRealtimeStats = (
+    callback: (stats: RealtimeCloudStats) => void
+): (() => void) => {
+    let currentTotalVisits = 0;
+    let currentTodayVisits = 0;
+    let currentOnlineCount = 0;
+    let currentActiveToday = 0;
+    let currentSessions: RealtimeCloudStats['activeSessions'] = [];
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. Listen to cloud visits doc
+    const unsubVisits = onSnapshot(doc(db, SYSTEM_STATS_COLLECTION, CLOUD_VISITS_DOC), (snap) => {
+        if (snap.exists()) {
+            const data = snap.data();
+            currentTotalVisits = data.totalVisits || 0;
+            currentTodayVisits = data.lastDate === today ? (data.todayVisits || 0) : 0;
+        }
+        callback({
+            totalVisits: currentTotalVisits,
+            todayVisits: currentTodayVisits,
+            onlineCount: currentOnlineCount,
+            activeToday: currentActiveToday,
+            activeSessions: currentSessions
+        });
+    }, (err) => console.warn("Admin cloud visits listener warning:", err));
+
+    // 2. Listen to active sessions (realtime presence within 2 minutes)
+    const unsubSessions = onSnapshot(collection(db, ACTIVE_SESSIONS_COLLECTION), (snap) => {
+        const threshold = Date.now() - 2 * 60 * 1000;
+        const sessions: RealtimeCloudStats['activeSessions'] = [];
+        snap.forEach(d => {
+            const data = d.data();
+            if (data.isOnline && data.lastSeen && data.lastSeen > threshold) {
+                sessions.push({
+                    sessionId: data.sessionId || d.id,
+                    displayName: data.displayName || 'Khách truy cập',
+                    userId: data.userId || 'guest',
+                    lastSeen: data.lastSeen,
+                    userAgent: data.userAgent || ''
+                });
+            }
+        });
+        currentOnlineCount = sessions.length;
+        currentSessions = sessions;
+        callback({
+            totalVisits: currentTotalVisits,
+            todayVisits: currentTodayVisits,
+            onlineCount: currentOnlineCount,
+            activeToday: currentActiveToday,
+            activeSessions: currentSessions
+        });
+    }, (err) => console.warn("Admin active sessions listener warning:", err));
+
+    // 3. Listen to today active users
+    const todayQuery = query(collection(db, USER_ACCESS_COLLECTION), where("date", "==", today));
+    const unsubAccess = onSnapshot(todayQuery, (snap) => {
+        currentActiveToday = snap.size;
+        callback({
+            totalVisits: currentTotalVisits,
+            todayVisits: currentTodayVisits,
+            onlineCount: currentOnlineCount,
+            activeToday: currentActiveToday,
+            activeSessions: currentSessions
+        });
+    }, (err) => console.warn("Admin today access listener warning:", err));
+
+    return () => {
+        unsubVisits();
+        unsubSessions();
+        unsubAccess();
+    };
 };

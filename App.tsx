@@ -130,6 +130,22 @@ const App: React.FC = () => {
         setHasGeminiKey(nineRouterService.isNineRouterEnabled());
     }, []);
 
+    // Record cloud visit on application mount
+    useEffect(() => {
+        firebaseService.recordCloudVisit();
+    }, []);
+
+    // Realtime Presence Heartbeat (sync online status with admin & marquee)
+    useEffect(() => {
+        const cleanupPresence = firebaseService.startPresenceHeartbeat(
+            currentUser?.id,
+            currentUser?.name
+        );
+        return () => {
+            cleanupPresence();
+        };
+    }, [currentUser?.id, currentUser?.name]);
+
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
             if (fbUser) {
@@ -179,11 +195,6 @@ const App: React.FC = () => {
         setViewportHeight();
         window.addEventListener('resize', setViewportHeight);
         window.addEventListener('orientationchange', setViewportHeight);
-
-        return () => {
-            window.removeEventListener('resize', setViewportHeight);
-            window.removeEventListener('orientationchange', setViewportHeight);
-        };
 
         // Get app version
         const getVersion = async () => {
@@ -236,7 +247,11 @@ const App: React.FC = () => {
             console.log('🧪 Dev shortcuts loaded: window.testVeo(), window.listModels(), window.testAntigravity(), window.testNineRouter(), window.checkNineRouter()');
         });
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribe();
+            window.removeEventListener('resize', setViewportHeight);
+            window.removeEventListener('orientationchange', setViewportHeight);
+        };
     }, [checkApiKey]);
 
     // Subscribe to user balance (VND)
