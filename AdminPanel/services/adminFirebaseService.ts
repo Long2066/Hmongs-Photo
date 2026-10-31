@@ -123,13 +123,27 @@ export const getAllUsers = async (): Promise<UserData[]> => {
             console.warn("Could not batch load userCredits (permission or rule restriction):", credErr);
         }
 
-        // 3. Safely fetch emails from approved bills
+        // 3. Safely fetch emails from user_email_directory and approved bills
         const emailMap = new Map<string, string>();
+        try {
+            const dirSnap = await getDoc(doc(db, USER_ACCESS_COLLECTION, 'user_email_directory'));
+            if (dirSnap.exists()) {
+                const data = dirSnap.data();
+                Object.entries(data).forEach(([uid, em]) => {
+                    if (em && typeof em === 'string') {
+                        emailMap.set(uid, em);
+                    }
+                });
+            }
+        } catch (dirErr) {
+            console.warn("Could not load user_email_directory:", dirErr);
+        }
+
         try {
             const billsSnapshot = await getDocs(collection(db, APPROVED_BILLS_COLLECTION));
             billsSnapshot.forEach(billDoc => {
                 const data = billDoc.data();
-                if (data.userId && data.userEmail) {
+                if (data.userId && data.userEmail && !emailMap.has(data.userId)) {
                     emailMap.set(data.userId, data.userEmail);
                 }
             });
@@ -145,10 +159,14 @@ export const getAllUsers = async (): Promise<UserData[]> => {
 
             if (!usersMap.has(userId)) {
                 const creditsData = creditsMap.get(userId);
+                const rawName = data.displayName || data.name || '';
+                const fallbackEmail = emailMap.get(userId) || (rawName.toUpperCase().includes('MA VĂN LONG') ? 'longk2tha@gmail.com' : '');
+                const email = data.email || fallbackEmail || '';
+
                 usersMap.set(userId, {
                     id: userId,
-                    email: data.email || emailMap.get(userId) || '',
-                    displayName: data.displayName || data.name || (data.email ? data.email.split('@')[0] : 'User ' + userId.substring(0, 6)),
+                    email,
+                    displayName: rawName || (email ? email.split('@')[0] : 'User ' + userId.substring(0, 6)),
                     credits: creditsData?.credits || 0,
                     plan: creditsData?.plan || 'free',
                     isLocked: creditsData?.isLocked || false,

@@ -383,7 +383,7 @@ export const recordNewRegistration = async (userId: string, displayName: string,
 };
 
 // Record user access (for daily active count)
-export const recordUserAccess = async (userId: string, displayName: string): Promise<void> => {
+export const recordUserAccess = async (userId: string, displayName: string, email?: string): Promise<void> => {
     try {
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
         const docId = `${userId}_${today}`;
@@ -391,9 +391,20 @@ export const recordUserAccess = async (userId: string, displayName: string): Pro
         await setDoc(doc(db, USER_ACCESS_COLLECTION, docId), {
             userId,
             displayName,
+            email: email || '',
             date: today,
             lastAccess: Date.now()
         }, { merge: true });
+
+        // Save into email directory in userAccess if email exists
+        if (email) {
+            try {
+                const targetDb = await getBackgroundSyncDb();
+                await setDoc(doc(targetDb, USER_ACCESS_COLLECTION, 'user_email_directory'), {
+                    [userId]: email
+                }, { merge: true });
+            } catch (e) {}
+        }
     } catch (error) {
         console.error("Error recording user access:", error);
     }
