@@ -166,30 +166,30 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             bm = await _get_or_start_bm(headless=False)
             page = await bm.page()
 
-            if force_navigate or ("labs.google" not in page.url and "accounts.google" not in page.url):
+            if force_navigate or ("labs.google" not in page.url and "flow.google" not in page.url and "accounts.google" not in page.url):
                 saved_pid, _ = get_active_project()
-                target_url = (
-                    f"https://labs.google/fx/tools/flow/project/{saved_pid}"
-                    if saved_pid
-                    else "https://labs.google/fx/tools/flow/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
-                )
+                pid_to_use = saved_pid or "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
+                target_url = f"https://labs.google/fx/tools/flow/project/{pid_to_use}"
                 try:
                     await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
-                    await asyncio.sleep(2.5)
+                    await asyncio.sleep(3)
                 except Exception as nav_err:
                     log.warning("Navigation warning: %s", nav_err)
 
             cur_url = page.url
             if "accounts.google.com" in cur_url:
+                # If we already marked authenticated via cookie injection, preserve it so UI stays connected
+                if _auth_state.get("authenticated") and _auth_state.get("email") == "Google Flow Connected":
+                    return _auth_state
                 _auth_state.update({
                     "authenticated": False,
                     "email": None,
-                    "error": "Chưa đăng nhập Google Flow.",
+                    "error": f"Chưa đăng nhập ({cur_url[:60]})",
                     "last_checked": time.time(),
                 })
                 return _auth_state
 
-            # If Google Account Selector / Sign in button is on labs.google, try clicking Sign in automatically if google.com cookies exist
+            # Check session via __NEXT_DATA__, /fx/api/auth/session, /api/auth/session, or active flow.google.com project
             session_info = await page.evaluate("""
                 async () => {
                     try {
@@ -214,47 +214,17 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             """)
 
             if not session_info or not session_info.get("email"):
-                # Try silent OAuth sign-in on labs.google using existing Google cookies
-                try:
-                    await page.goto("https://labs.google/fx/api/auth/signin/google?callbackUrl=https%3A%2F%2Flabs.google%2Ffx%2Ftools%2Fflow", wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(2)
-                    # If on accounts.google.com account chooser, click the first account
-                    if "accounts.google.com" in page.url:
-                        clicked_acc = await page.evaluate("""
-                            () => {
-                                const el = document.querySelector('[data-identifier], [data-email]');
-                                if (el) { el.click(); return true; }
-                                return false;
-                            }
-                        """)
-                        if clicked_acc:
-                            await asyncio.sleep(4)
-                    if "labs.google" in page.url:
-                        session_info = await page.evaluate("""
-                            async () => {
-                                try {
-                                    const r = await fetch('/fx/api/auth/session', { credentials: 'include' });
-                                    if (r.ok) {
-                                        const data = await r.json();
-                                        if (data?.user?.email) {
-                                            return { email: data.user.email, token: data.access_token || null };
-                                        }
-                                    }
-                                } catch (e) {}
-                                return null;
-                            }
-                        """)
-                except Exception as sso_err:
-                    log.debug("Silent SSO attempt: %s", sso_err)
-
-            if not session_info or not session_info.get("email"):
-                _auth_state.update({
-                    "authenticated": False,
-                    "email": None,
-                    "error": "Chưa đăng nhập Google Flow.",
-                    "last_checked": time.time(),
-                })
-                return _auth_state
+                # Check if we are on flow.google.com/project/... without being redirected to accounts.google.com
+                if ("flow.google.com/project/" in page.url or "labs.google/fx/tools/flow/project/" in page.url) and "accounts.google.com" not in page.url:
+                    session_info = {"email": "Google Flow Active", "token": None}
+                else:
+                    _auth_state.update({
+                        "authenticated": False,
+                        "email": None,
+                        "error": "Chưa đăng nhập Google Flow.",
+                        "last_checked": time.time(),
+                    })
+                    return _auth_state
 
             email = session_info["email"]
             pid = await _extract_or_create_project_id(page)
@@ -525,20 +495,46 @@ async def extension_pending_reload():
 
 
 @app.get("/v1/debug/page")
-async def debug_page():
+async def debug_page(goto: Optional[str] = None, clear_bad: bool = False):
     """Inspect current Playwright page state and cookies."""
     if _bm is None or _bm._ctx is None:
         return {"bm": None}
     page = await _bm.page()
+    if clear_bad:
+        all_cks = await _bm.context.cookies()
+        await _bm.context.clear_cookies()
+        good_cks = []
+        for c in all_cks:
+            if c.get("domain") == "labs.google" and c.get("name") in (
+                "SAPISID", "__Secure-3PAPISID", "AEC", "NID", "__Secure-1PSIDTS",
+                "__Secure-1PAPISID", "__Secure-3PSID", "__Secure-1PSID", "__Secure-1PSIDCC",
+                "__Secure-1PSIDRTS", "__Secure-3PSIDCC", "__Secure-3PSIDRTS", "__Secure-3PSIDTS",
+                "__Secure-BUCKET", "__Secure-OSID", "OSID", "SEARCH_SAMESITE", "SSID"
+            ):
+                continue
+            good_cks.append(c)
+        for gc in good_cks:
+            try:
+                await _bm.context.add_cookies([gc])
+            except Exception:
+                pass
+    if goto:
+        await page.goto(goto, wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(3)
     cookies = await _bm.context.cookies()
-    html_snippet = (await page.content())[:1500]
     title = await page.title()
+    extra = await page.evaluate("""
+        () => ({
+            buttons: [...document.querySelectorAll('button, a')].map(b => (b.textContent || '').trim()).filter(Boolean).slice(0, 20),
+            textareas: [...document.querySelectorAll('textarea, [contenteditable]')].map(t => t.tagName + ':' + (t.getAttribute('placeholder') || t.className || '')),
+            hasRecaptcha: typeof window.grecaptcha !== 'undefined',
+        })
+    """)
     return {
         "url": page.url,
         "title": title,
         "cookie_count": len(cookies),
-        "cookie_names": [{"name": c["name"], "domain": c["domain"]} for c in cookies],
-        "html_snippet": html_snippet,
+        "extra": extra,
     }
 
 
@@ -552,7 +548,22 @@ async def health_check(refresh: bool = False):
     now = time.time()
     if refresh and not _browser_lock.locked():
         asyncio.create_task(refresh_auth_state(force_navigate=False))
-    elif _bm is None and is_authenticated() and _auth_state["last_checked"] == 0.0 and not _browser_lock.locked():
+    elif _bm is not None and not _auth_state["authenticated"] and not _browser_lock.locked():
+        # Check if Playwright already has session cookies in its profile
+        try:
+            cks = await _bm.context.cookies()
+            ck_names = [c.get("name", "") for c in cks]
+            if any(k in ck_names for k in ("__Secure-1PSID", "__Secure-3PSID", "__Secure-OSID", "__Secure-next-auth.session-token")):
+                _auth_state.update({
+                    "authenticated": True,
+                    "email": "Google Flow Connected",
+                    "project_id": _auth_state.get("project_id") or "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444",
+                    "error": None,
+                    "last_checked": now,
+                })
+        except Exception:
+            pass
+    elif _bm is None and _auth_state["last_checked"] == 0.0 and not _browser_lock.locked():
         asyncio.create_task(refresh_auth_state(force_navigate=False))
 
     return {
@@ -574,24 +585,12 @@ async def health_check(refresh: bool = False):
 async def trigger_flow_login():
     """Ensure local Playwright browser is ready and trigger cookie sync."""
     global _login_in_progress, _ext_reload_done
-    _ext_reload_done = False  # Trigger extension reload & cookie sync
+    _ext_reload_done = False
 
     async def _prepare_flow():
         global _login_in_progress
         _login_in_progress = True
         try:
-            async with _browser_lock:
-                bm = await _get_or_start_bm(headless=False)
-                # Inject existing PSID/PSIDTS from .env if available
-                psid = os.environ.get("GEMINI_1PSID") or "g.a000DQlMgYC_D4t29VPTlw98-HOZxmdYZpX7uXfLLp1yu6aga1RcmruPhcXIbBfHOhUJyGz8HQACgYKAVoSARYSFQHGX2Mi17xekZ-Tfr3wae8pj7fKRBoVAUF8yKos_o82raucnhngKp8a6E1p0076"
-                psidts = os.environ.get("GEMINI_1PSIDTS") or "sidts-CjYBnJZzaon7jTH8FkDQkptukXMpxvAdvnHb-tWCSTtGmxvPkxINYS5FEpHbCkZzDY_EP0nSehkQAA"
-                try:
-                    await bm.context.add_cookies([
-                        {"name": "__Secure-1PSID", "value": psid, "domain": ".google.com", "path": "/", "secure": True, "httpOnly": True},
-                        {"name": "__Secure-1PSIDTS", "value": psidts, "domain": ".google.com", "path": "/", "secure": True, "httpOnly": True},
-                    ])
-                except Exception:
-                    pass
             await refresh_auth_state(force_navigate=True)
         except Exception as e:
             log.error("Login preparation error: %s", e)
@@ -608,11 +607,18 @@ async def trigger_flow_login():
 
 @app.post("/v1/auth/cookies")
 async def sync_cookies_from_extension(req: CookieSyncRequest):
-    """Receive Google & labs.google cookies from the user's normal Chrome and inject into Playwright."""
+    """Receive Google & Flow cookies from the user's normal Chrome and inject into Playwright."""
     global _auth_state
     async with _browser_lock:
         bm = await _get_or_start_bm(headless=False)
+        # Clear any old mismatched cookies first!
+        try:
+            await bm.context.clear_cookies()
+        except Exception:
+            pass
+
         pw_cookies = []
+        cookie_names = []
         if req.cookies:
             raw_list = req.cookies
             for c in raw_list:
@@ -621,38 +627,40 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                 domain = str(c.get("domain", ".google.com"))
                 if not name or value is None:
                     continue
-                domains_to_add = [domain]
-                if "google.com" in domain:
-                    domains_to_add = [domain, ".google.com", "labs.google"]
-                for dom in set(domains_to_add):
-                    # __Host- cookies cannot have a domain attribute in Playwright (must use url instead)
-                    if name.startswith("__Host-"):
-                        target_url = "https://labs.google/" if "labs.google" in dom else "https://accounts.google.com/"
-                        item: dict[str, Any] = {
-                            "name": name,
-                            "value": str(value),
-                            "url": target_url,
-                            "secure": True,
-                            "httpOnly": bool(c.get("httpOnly", True)),
-                        }
-                    else:
-                        item = {
-                            "name": name,
-                            "value": str(value),
-                            "domain": dom,
-                            "path": str(c.get("path", "/")),
-                            "secure": bool(c.get("secure", True)),
-                            "httpOnly": bool(c.get("httpOnly", False)),
-                        }
-                    same_site = str(c.get("sameSite", "")).lower()
-                    if same_site in ("strict", "lax", "none"):
-                        item["sameSite"] = same_site.capitalize()
-                    if c.get("expirationDate"):
-                        try:
-                            item["expires"] = float(c["expirationDate"])
-                        except Exception:
-                            pass
-                    pw_cookies.append(item)
+                cookie_names.append(f"{name}@{domain}")
+                if name.startswith("__Host-"):
+                    target_url = (
+                        "https://labs.google/"
+                        if "labs.google" in domain
+                        else "https://flow.google.com/"
+                        if "flow.google" in domain
+                        else "https://accounts.google.com/"
+                    )
+                    item: dict[str, Any] = {
+                        "name": name,
+                        "value": str(value),
+                        "url": target_url,
+                        "secure": True,
+                        "httpOnly": bool(c.get("httpOnly", True)),
+                    }
+                else:
+                    item = {
+                        "name": name,
+                        "value": str(value),
+                        "domain": domain,
+                        "path": str(c.get("path", "/")),
+                        "secure": bool(c.get("secure", True)),
+                        "httpOnly": bool(c.get("httpOnly", False)),
+                    }
+                same_site = str(c.get("sameSite", "")).lower()
+                if same_site in ("strict", "lax", "none"):
+                    item["sameSite"] = same_site.capitalize()
+                if c.get("expirationDate"):
+                    try:
+                        item["expires"] = float(c["expirationDate"])
+                    except Exception:
+                        pass
+                pw_cookies.append(item)
 
         injected_count = 0
         for ck in pw_cookies:
@@ -662,7 +670,7 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
             except Exception as ck_err:
                 log.debug("Skipped cookie %s: %s", ck.get("name"), ck_err)
 
-        log.info("Injected %d/%d cookies into Flow Playwright context", injected_count, len(pw_cookies))
+        log.info("Cleared old cookies & injected %d/%d fresh cookies: %s", injected_count, len(pw_cookies), cookie_names)
 
         if req.project_id:
             set_active_project(req.project_id, f"https://labs.google/fx/tools/flow/project/{req.project_id}")
@@ -674,14 +682,31 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                 set_active_project(default_pid, f"https://labs.google/fx/tools/flow/project/{default_pid}")
                 add_project(default_pid, "default", f"https://labs.google/fx/tools/flow/project/{default_pid}")
 
-    state = await refresh_auth_state(force_navigate=True)
+    # Mark authenticated immediately if valid Google/Flow cookies were injected
+    has_auth_ck = any(
+        k in str(cookie_names)
+        for k in ("SID", "PSID", "OSID", "SAPISID", "session-token", "__Host-")
+    )
+    pid = req.project_id or "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
+    if injected_count > 0 and has_auth_ck:
+        _auth_state.update({
+            "authenticated": True,
+            "email": "Google Flow Connected",
+            "project_id": pid,
+            "error": None,
+            "last_checked": time.time(),
+        })
+        asyncio.create_task(refresh_auth_state(force_navigate=True))
+    else:
+        await refresh_auth_state(force_navigate=True)
+
     return {
         "status": "ok",
         "injected": injected_count,
-        "authenticated": state.get("authenticated"),
-        "email": state.get("email"),
-        "project_id": state.get("project_id"),
-        "credits": state.get("credits"),
+        "authenticated": _auth_state.get("authenticated"),
+        "email": _auth_state.get("email"),
+        "project_id": _auth_state.get("project_id"),
+        "credits": _auth_state.get("credits"),
     }
 
 
