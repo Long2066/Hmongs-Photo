@@ -123,11 +123,46 @@ export interface AiProxyCloudConfig {
     apiKey?: string;
     defaultTextModel?: string;
     defaultImageModel?: string;
+    modelPricing?: Record<string, boolean>;
     updatedAt?: number;
     updatedBy?: string;
 }
 
+const NINEROUTER_PRICING_KEY = 'ninerouter_model_pricing';
+
+export const DEFAULT_MODEL_PRICING: Record<string, boolean> = {
+    'gemini-3.1-flash-image': false, // Miễn phí
+    'gpt-image-2.5': true,           // Trả phí
+    'gpt-image-2.5-flare': true,     // Trả phí
+    'gpt-image-2.5-sunburst': true,  // Trả phí
+    'gpt-image-2': true,             // Trả phí
+    'gpt-image-1.5': false           // Miễn phí
+};
+
 let _cachedCloudConfig: AiProxyCloudConfig | null = null;
+
+export const getModelPricing = (): Record<string, boolean> => {
+    if (_cachedCloudConfig?.modelPricing) {
+        return _cachedCloudConfig.modelPricing;
+    }
+    try {
+        const stored = localStorage.getItem(NINEROUTER_PRICING_KEY);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch {}
+    return { ...DEFAULT_MODEL_PRICING };
+};
+
+export const isModelPaid = (modelId: string): boolean => {
+    const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
+    const pricing = getModelPricing();
+    if (pricing && pricing[cleanId] !== undefined) {
+        return !!pricing[cleanId];
+    }
+    // Default fallback
+    return cleanId.startsWith('gpt-image-2');
+};
 
 export const updateNineRouterConfigFromCloud = (config: Partial<AiProxyCloudConfig>): void => {
     if (config.enabled !== undefined) {
@@ -139,16 +174,23 @@ export const updateNineRouterConfigFromCloud = (config: Partial<AiProxyCloudConf
     if (config.apiKey !== undefined) {
         localStorage.setItem(NINEROUTER_API_KEY_KEY, config.apiKey.trim());
     }
+    if (config.modelPricing) {
+        localStorage.setItem(NINEROUTER_PRICING_KEY, JSON.stringify(config.modelPricing));
+    }
     _cachedCloudConfig = {
         enabled: config.enabled ?? isNineRouterEnabled(),
         url: config.url ? normalizeNineRouterUrl(config.url) : getNineRouterUrl(),
         apiKey: config.apiKey ?? getNineRouterApiKey(),
         defaultTextModel: config.defaultTextModel ?? DEFAULT_TEXT_MODEL,
         defaultImageModel: config.defaultImageModel ?? DEFAULT_IMAGE_MODEL,
+        modelPricing: config.modelPricing ?? getModelPricing(),
         updatedAt: config.updatedAt ?? Date.now()
     };
     window.dispatchEvent(new CustomEvent('ninerouter-status-changed', {
         detail: { enabled: _cachedCloudConfig.enabled }
+    }));
+    window.dispatchEvent(new CustomEvent('ninerouter-pricing-changed', {
+        detail: { pricing: _cachedCloudConfig.modelPricing }
     }));
     console.log('[CLIProxyAPI] Đồng bộ cấu hình AI Tool từ Cloud:', _cachedCloudConfig);
 };

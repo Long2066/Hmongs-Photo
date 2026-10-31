@@ -32,11 +32,12 @@ interface AiConfigManagerProps {
 }
 
 const SUPPORTED_IMAGE_MODELS = [
-    { id: 'gpt-image-2.5', name: 'GPT Image 2.5', desc: 'Mặc định - Chi tiết 8K sắc nét, tuân thủ trang phục tốt nhất' },
-    { id: 'gpt-image-2.5-flare', name: 'GPT Image 2.5 Flare', desc: 'Tốc độ phản hồi cực nhanh, tối ưu render chuyển động' },
-    { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst', desc: 'Độ tương phản cao, màu sắc rực rỡ chuẩn studio' },
-    { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Mô hình tiêu chuẩn ổn định cho xử lý chân dung' },
-    { id: 'gpt-image-1.5', name: 'GPT Image 1.5', desc: 'Mô hình cổ điển tiết kiệm băng thông' },
+    { id: 'gemini-3.1-flash-image', name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)', desc: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, ghép trang phục H’Mông', tag: 'Google - Khuyên dùng' },
+    { id: 'gpt-image-2.5', name: 'GPT Image 2.5 (OpenAI)', desc: 'Chi tiết 8K sắc nét, tuân thủ trang phục tốt nhất', tag: 'OpenAI - Cao cấp' },
+    { id: 'gpt-image-2.5-flare', name: 'GPT Image 2.5 Flare', desc: 'Tốc độ phản hồi cực nhanh, tối ưu render chuyển động', tag: 'OpenAI - Flare' },
+    { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst', desc: 'Độ tương phản cao, màu sắc rực rỡ chuẩn studio', tag: 'OpenAI - Sunburst' },
+    { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Mô hình tiêu chuẩn ổn định cho xử lý chân dung', tag: 'OpenAI - Ổn định' },
+    { id: 'gpt-image-1.5', name: 'GPT Image 1.5', desc: 'Mô hình cổ điển tiết kiệm băng thông', tag: 'OpenAI - Tiết kiệm' },
 ];
 
 const PRESETS = [
@@ -675,7 +676,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                             Mô hình tạo ảnh mặc định (Default Image Model)
                         </label>
                         <select
-                            value={config.defaultImageModel || 'gpt-image-2.5'}
+                            value={config.defaultImageModel || 'gemini-3.1-flash-image'}
                             onChange={(e) => setConfig(prev => ({ ...prev, defaultImageModel: e.target.value }))}
                             style={{
                                 width: '100%',
@@ -696,7 +697,161 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                             ))}
                         </select>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-                            Người dùng trên ImageTool vẫn có thể chủ động chuyển đổi giữa 5 model GPT này trong giao diện tạo ảnh. Lựa chọn này là model khởi tạo mặc định cho người dùng mới.
+                            Người dùng trên ImageTool vẫn có thể chủ động chuyển đổi giữa 6 model này trong giao diện tạo ảnh. Lựa chọn này là model khởi tạo mặc định cho người dùng mới.
+                        </div>
+                    </div>
+
+                    {/* Model Pricing & Access Policy (Free vs Paid Toggle) */}
+                    <div style={{
+                        marginTop: '16px',
+                        padding: '16px',
+                        background: 'var(--bg-tertiary)',
+                        borderRadius: 'var(--border-radius-sm)',
+                        border: '1px solid var(--border-light)'
+                    }}>
+                        <div style={{ marginBottom: '14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '6px',
+                                    background: 'rgba(99, 102, 241, 0.15)',
+                                    color: 'var(--accent-primary)',
+                                    fontWeight: 700,
+                                    fontSize: '0.85rem'
+                                }}>
+                                    $
+                                </span>
+                                <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Quản lý chính sách: Trả phí hay Miễn phí (Đồng bộ Realtime)
+                                </h4>
+                            </div>
+                            <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                Bật/Tắt chế độ Trả phí cho từng model. Khi <strong>Bật trả phí</strong>, người dùng trên Tool chính nếu hết số dư (về 0đ) sẽ bị <strong>làm mờ model đó và không thể chọn</strong>. Khi <strong>Tắt (Miễn phí)</strong>, mọi người dùng đều có thể sử dụng tự do.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                            gap: '10px'
+                        }}>
+                            {SUPPORTED_IMAGE_MODELS.map(model => {
+                                const pricingMap = config.modelPricing || {
+                                    'gemini-3.1-flash-image': false,
+                                    'gpt-image-2.5': true,
+                                    'gpt-image-2.5-flare': true,
+                                    'gpt-image-2.5-sunburst': true,
+                                    'gpt-image-2': true,
+                                    'gpt-image-1.5': false
+                                };
+                                const isPaid = pricingMap[model.id] ?? (model.id !== 'gemini-3.1-flash-image' && model.id !== 'gpt-image-1.5');
+
+                                return (
+                                    <div
+                                        key={model.id}
+                                        style={{
+                                            background: 'var(--bg-primary)',
+                                            border: `1px solid ${isPaid ? 'rgba(245, 158, 11, 0.4)' : 'rgba(16, 185, 129, 0.3)'}`,
+                                            borderRadius: '8px',
+                                            padding: '12px 14px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            justifyContent: 'space-between',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                                        {model.name}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                    {model.desc}
+                                                </div>
+                                            </div>
+
+                                            <span style={{
+                                                fontSize: '0.68rem',
+                                                fontWeight: 800,
+                                                padding: '2px 8px',
+                                                borderRadius: '9999px',
+                                                background: isPaid ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                                                color: isPaid ? '#d97706' : '#059669',
+                                                border: `1px solid ${isPaid ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                                                letterSpacing: '0.04em'
+                                            }}>
+                                                {isPaid ? 'TRẢ PHÍ' : 'MIỄN PHÍ'}
+                                            </span>
+                                        </div>
+
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderTop: '1px solid var(--border-light)',
+                                            paddingTop: '8px',
+                                            marginTop: '4px'
+                                        }}>
+                                            <span style={{ fontSize: '0.74rem', color: isPaid ? '#d97706' : '#059669', fontWeight: 600 }}>
+                                                {isPaid ? 'Cần số dư > 0đ (Khóa nếu 0đ)' : 'Dùng tự do (Kể cả 0đ)'}
+                                            </span>
+
+                                            <div
+                                                role="switch"
+                                                aria-checked={isPaid}
+                                                tabIndex={0}
+                                                onClick={() => {
+                                                    const currentPricing = config.modelPricing || {
+                                                        'gemini-3.1-flash-image': false,
+                                                        'gpt-image-2.5': true,
+                                                        'gpt-image-2.5-flare': true,
+                                                        'gpt-image-2.5-sunburst': true,
+                                                        'gpt-image-2': true,
+                                                        'gpt-image-1.5': false
+                                                    };
+                                                    const updatedPricing = {
+                                                        ...currentPricing,
+                                                        [model.id]: !isPaid
+                                                    };
+                                                    setConfig(prev => ({
+                                                        ...prev,
+                                                        modelPricing: updatedPricing
+                                                    }));
+                                                }}
+                                                style={{
+                                                    width: '38px',
+                                                    height: '22px',
+                                                    borderRadius: '11px',
+                                                    background: isPaid ? '#f59e0b' : '#10b981',
+                                                    position: 'relative',
+                                                    cursor: 'pointer',
+                                                    transition: 'background-color 0.2s ease',
+                                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)'
+                                                }}
+                                                title={isPaid ? 'Chuyển sang Miễn phí' : 'Chuyển sang Trả phí'}
+                                            >
+                                                <div style={{
+                                                    width: '18px',
+                                                    height: '18px',
+                                                    borderRadius: '50%',
+                                                    background: '#ffffff',
+                                                    position: 'absolute',
+                                                    top: '2px',
+                                                    left: isPaid ? '18px' : '2px',
+                                                    transition: 'left 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.25)'
+                                                }} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>

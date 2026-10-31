@@ -5,7 +5,9 @@ import {
     type ResolutionType
 } from '../services/geminiCoreService';
 import * as nineRouterService from '../services/nineRouterService';
-import { SUPPORTED_IMAGE_MODELS } from '../services/nineRouterService';
+import { SUPPORTED_IMAGE_MODELS, isModelPaid, getModelPricing } from '../services/nineRouterService';
+import { getCachedBalance } from '../services/balanceService';
+import { isProUser } from '../services/storageService';
 
 interface ModelSelectorProps {
     onModelChange?: (modelId: string) => void;
@@ -14,14 +16,23 @@ interface ModelSelectorProps {
     className?: string;
     showCostEstimate?: boolean;
     showResolution?: boolean;
+    userBalance?: number;
 }
 
 export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     onModelChange,
     onResolutionChange,
     className = '',
-    showResolution = true
+    showResolution = true,
+    userBalance: propBalance
 }) => {
+    // User Balance & Access State
+    const [userBalance, setUserBalance] = useState<number>(() =>
+        propBalance !== undefined ? propBalance : getCachedBalance()
+    );
+    const [isPro, setIsPro] = useState<boolean>(() => isProUser());
+    const [pricing, setPricing] = useState<Record<string, boolean>>(() => getModelPricing());
+
     // Selected Image Model
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         const current = nineRouterService.getNineRouterImageModel();
@@ -44,21 +55,71 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     // Current selected model object
     const currentModelObj = SUPPORTED_IMAGE_MODELS.find(m => m.id === selectedModel);
 
-    // Listen to real-time model changes from any modal/tab
+    // Check if user is out of balance
+    const isOutOfBalance = userBalance <= 0 && !isPro;
+
+    // Listen to real-time model changes, pricing changes, and balance updates
     useEffect(() => {
         const handleModelChange = (e: any) => {
             const nextModel = e.detail?.model || nineRouterService.getNineRouterImageModel();
             setSelectedModel(nextModel);
         };
 
+        const handlePricingChange = (e: any) => {
+            setPricing(e.detail?.pricing || getModelPricing());
+        };
+
+        const handleBalanceChange = () => {
+            if (propBalance === undefined) {
+                setUserBalance(getCachedBalance());
+            }
+            setIsPro(isProUser());
+        };
+
         window.addEventListener('ninerouter-model-changed', handleModelChange);
-        window.addEventListener('storage', handleModelChange);
+        window.addEventListener('ninerouter-pricing-changed', handlePricingChange);
+        window.addEventListener('storage', handleBalanceChange);
+        window.addEventListener('user-balance-changed', handleBalanceChange);
+
+        const interval = setInterval(handleBalanceChange, 3000);
 
         return () => {
             window.removeEventListener('ninerouter-model-changed', handleModelChange);
-            window.removeEventListener('storage', handleModelChange);
+            window.removeEventListener('ninerouter-pricing-changed', handlePricingChange);
+            window.removeEventListener('storage', handleBalanceChange);
+            window.removeEventListener('user-balance-changed', handleBalanceChange);
+            clearInterval(interval);
         };
-    }, []);
+    }, [propBalance]);
+
+    // Keep balance state synced if prop passed
+    useEffect(() => {
+        if (propBalance !== undefined) {
+            setUserBalance(propBalance);
+        }
+    }, [propBalance]);
+
+    // Auto-fallback if currently selected model is paid and user is out of balance
+    useEffect(() => {
+        const currentIsPaid = pricing[selectedModel] !== undefined
+            ? pricing[selectedModel]
+            : isModelPaid(selectedModel);
+
+        if (currentIsPaid && isOutOfBalance) {
+            // Find first free model
+            const freeModel = SUPPORTED_IMAGE_MODELS.find(m => {
+                const paid = pricing[m.id] !== undefined ? pricing[m.id] : isModelPaid(m.id);
+                return !paid;
+            }) || SUPPORTED_IMAGE_MODELS[0];
+
+            if (freeModel && freeModel.id !== selectedModel) {
+                console.log(`[ModelSelector] Model ${selectedModel} is paid but balance is 0. Auto-fallback to ${freeModel.id}`);
+                setSelectedModel(freeModel.id);
+                nineRouterService.setNineRouterImageModel(freeModel.id);
+                onModelChange?.(freeModel.id);
+            }
+        }
+    }, [isOutOfBalance, pricing, selectedModel, onModelChange]);
 
     // Outside click listener to auto-close dropdown
     useEffect(() => {
@@ -78,11 +139,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
 
     // Choose a predefined model
     const handleSelectModel = useCallback((modelId: string) => {
+        const paid = pricing[modelId] !== undefined ? pricing[modelId] : isModelPaid(modelId);
+        if (paid && isOutOfBalance) {
+            alert(`Model này là Trả phí. Số dư của bạn hiện là 0đ. Vui lòng nạp thêm để mở khóa hoặc chọn model Miễn phí.`);
+            return;
+        }
+
         setSelectedModel(modelId);
         nineRouterService.setNineRouterImageModel(modelId);
         onModelChange?.(modelId);
         setIsOpen(false); // Auto-collapse on selection for clean UX
-    }, [onModelChange]);
+    }, [onModelChange, pricing, isOutOfBalance]);
 
     // Handle resolution change
     const handleResolutionChange = useCallback((res: ResolutionType) => {
@@ -103,17 +170,30 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         setCustomModelInput('');
     }, [customModelInput, onModelChange]);
 
+    const isCurrentPaid = currentModelObj
+        ? (pricing[currentModelObj.id] !== undefined ? pricing[currentModelObj.id] : isModelPaid(currentModelObj.id))
+        : isModelPaid(selectedModel);
+
     return (
         <div className={`space-y-3.5 ${className}`}>
             {/* Header: Title */}
             <div>
-                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5">
-                    Model Tạo Ảnh
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Model Tạo Ảnh
+                    </label>
+                    <span className="text-[10px] text-slate-500 font-medium">
+                        {isOutOfBalance ? (
+                            <span className="text-amber-700 font-semibold">Số dư: 0đ (Khóa model trả phí)</span>
+                        ) : (
+                            <span className="text-slate-600">Đồng bộ Cloud</span>
+                        )}
+                    </span>
+                </div>
 
                 {/* Collapsible Dropdown Selector - Dạng nổi (Floating Overlay) */}
                 <div className={`relative ${isOpen ? 'z-40' : 'z-10'}`} ref={dropdownRef}>
-                    {/* Collapsed Trigger Button - Gọn nhất, chỉ hiển thị mỗi tên model */}
+                    {/* Collapsed Trigger Button */}
                     <button
                         type="button"
                         onClick={() => setIsOpen(prev => !prev)}
@@ -124,9 +204,18 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         }`}
                         aria-expanded={isOpen}
                     >
-                        <span className="text-xs sm:text-[13px] font-semibold text-slate-800 truncate">
-                            {currentModelObj ? currentModelObj.name : selectedModel.replace('ag/', '').replace('openrouter/', '')}
-                        </span>
+                        <div className="flex items-center gap-2 truncate min-w-0">
+                            <span className="text-xs sm:text-[13px] font-semibold text-slate-800 truncate">
+                                {currentModelObj ? currentModelObj.name : selectedModel.replace('ag/', '').replace('openrouter/', '')}
+                            </span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                                isCurrentPaid
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                                {isCurrentPaid ? 'Trả phí' : 'Miễn phí'}
+                            </span>
+                        </div>
 
                         {/* Chevron Icon */}
                         <svg
@@ -139,34 +228,58 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         </svg>
                     </button>
 
-                    {/* Floating Dropdown Overlay (Lồng lên trên, dạng nổi, không đẩy xuống dưới) */}
+                    {/* Floating Dropdown Overlay */}
                     {isOpen && (
                         <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl ring-1 ring-slate-900/5 p-1 z-50 animate-fade-in">
-                            {/* List of Models - Gọn gàng chỉ hiển thị tên model */}
-                            <div className="max-h-[220px] overflow-y-auto custom-scrollbar space-y-0.5">
+                            {/* List of Models */}
+                            <div className="max-h-[240px] overflow-y-auto custom-scrollbar space-y-0.5">
                                 {SUPPORTED_IMAGE_MODELS.map((model) => {
                                     const isSelected = selectedModel === model.id;
+                                    const paid = pricing[model.id] !== undefined
+                                        ? pricing[model.id]
+                                        : isModelPaid(model.id);
+                                    const isLocked = paid && isOutOfBalance;
+
                                     return (
                                         <button
                                             key={model.id}
                                             type="button"
+                                            disabled={isLocked}
                                             onClick={() => handleSelectModel(model.id)}
-                                            className={`w-full px-3 py-2 rounded-lg text-left transition-colors flex items-center justify-between gap-2 min-h-[38px] cursor-pointer ${
-                                                isSelected
-                                                    ? 'bg-indigo-50 text-indigo-700 font-bold'
-                                                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100/70 font-medium'
+                                            className={`w-full px-3 py-2 rounded-lg text-left transition-all flex items-center justify-between gap-2 min-h-[38px] ${
+                                                isLocked
+                                                    ? 'opacity-40 cursor-not-allowed bg-slate-50/70 select-none grayscale'
+                                                    : isSelected
+                                                        ? 'bg-indigo-50 text-indigo-700 font-bold cursor-pointer'
+                                                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100/70 font-medium cursor-pointer'
                                             }`}
+                                            title={isLocked ? 'Model trả phí - Số dư của bạn là 0đ' : model.description}
                                         >
-                                            <span className="text-xs truncate">
-                                                {model.name}
-                                            </span>
+                                            <div className="flex items-center gap-2 truncate min-w-0">
+                                                <span className="text-xs truncate">
+                                                    {model.name}
+                                                </span>
+                                                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full flex-shrink-0 tracking-wider ${
+                                                    isLocked
+                                                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                                        : paid
+                                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                }`}>
+                                                    {isLocked ? 'Khóa (0đ)' : paid ? 'Trả phí' : 'Miễn phí'}
+                                                </span>
+                                            </div>
 
-                                            {/* Selected Checkmark */}
-                                            {isSelected && (
+                                            {/* Selected Checkmark or Lock Icon */}
+                                            {isLocked ? (
+                                                <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                </svg>
+                                            ) : isSelected ? (
                                                 <svg className="w-4 h-4 text-indigo-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                                 </svg>
-                                            )}
+                                            ) : null}
                                         </button>
                                     );
                                 })}

@@ -508,6 +508,13 @@ const App: React.FC = () => {
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
 
+        // Check if selected model is paid and user has 0 balance
+        const activeImgModel = nineRouterService.getNineRouterImageModel();
+        if (nineRouterService.isModelPaid(activeImgModel) && userBalance <= 0 && !storage.isProUser()) {
+            setError(`Model "${activeImgModel}" là model Trả phí. Số dư của bạn hiện là 0đ. Vui lòng nạp thêm để tiếp tục hoặc chọn model Miễn phí.`);
+            return;
+        }
+
         // Read specific creative inputs
         const cInputs = modeStates['creative'].creativeInputs!;
 
