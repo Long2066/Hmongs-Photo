@@ -631,20 +631,16 @@ export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
  * Get current AI Proxy configuration from Firestore
  */
 export const getAiProxyConfig = async (): Promise<AiProxyConfig> => {
-    try {
-        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-            return {
-                ...DEFAULT_AI_PROXY_CONFIG,
-                ...(docSnap.data() as Partial<AiProxyConfig>)
-            };
-        }
-        return DEFAULT_AI_PROXY_CONFIG;
-    } catch (error) {
-        console.error('[AdminFirebase] Error fetching AI Proxy config:', error);
-        return DEFAULT_AI_PROXY_CONFIG;
+    const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
+    // Read from server (not cache) so admin always sees the persisted value
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+        return {
+            ...DEFAULT_AI_PROXY_CONFIG,
+            ...(docSnap.data() as Partial<AiProxyConfig>)
+        };
     }
+    return DEFAULT_AI_PROXY_CONFIG;
 };
 
 /**
@@ -662,6 +658,11 @@ export const saveAiProxyConfig = async (
             updatedBy: adminEmail || 'Admin'
         };
         await setDoc(docRef, dataToSave, { merge: true });
+        // Verify the write actually persisted on the server
+        const verify = await getDoc(docRef);
+        if (!verify.exists() || verify.data()?.updatedAt !== dataToSave.updatedAt) {
+            throw new Error('Không xác minh được dữ liệu đã lưu trên Firestore');
+        }
         console.log('[AdminFirebase] Saved AI Proxy config to Firestore successfully');
     } catch (error) {
         console.error('[AdminFirebase] Error saving AI Proxy config:', error);

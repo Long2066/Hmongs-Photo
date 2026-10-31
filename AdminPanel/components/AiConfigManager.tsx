@@ -51,6 +51,7 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
     const [testing, setTesting] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [statusResult, setStatusResult] = useState<{
         connected: boolean;
         latencyMs?: number;
@@ -66,13 +67,15 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
 
     const loadConfig = async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const current = await getAiProxyConfig();
             setConfig(current);
             // Run an initial quick connection test
             testConnection(current.url, current.apiKey);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to load AI Proxy config:', err);
+            setLoadError(err?.message || 'Không đọc được cấu hình từ Firestore');
         } finally {
             setLoading(false);
         }
@@ -225,6 +228,29 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                     </div>
                 </div>
             </div>
+
+            {/* Load Error Banner */}
+            {loadError && (
+                <div role="alert" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '14px 18px',
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    borderRadius: 'var(--border-radius)',
+                    color: '#991b1b',
+                    marginBottom: '20px'
+                }}>
+                    <XCircle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: '0.85rem', lineHeight: 1.6 }}>
+                        <strong>Không tải được cấu hình đã lưu.</strong> {loadError}
+                    </div>
+                    <button type="button" className="btn btn-secondary" onClick={loadConfig} style={{ minHeight: '44px' }}>
+                        <RefreshCw size={16} /> Thử lại
+                    </button>
+                </div>
+            )}
 
             {/* Success Toast Banner */}
             {saveSuccess && (

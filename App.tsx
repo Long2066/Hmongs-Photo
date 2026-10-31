@@ -133,8 +133,12 @@ const App: React.FC = () => {
     // Record cloud visit on application mount
     useEffect(() => {
         firebaseService.recordCloudVisit();
+    }, []);
 
-        // Subscribe to Realtime Cloud AI Proxy Configuration from Admin Panel
+    // Subscribe to Realtime Cloud AI Proxy Configuration from Admin Panel.
+    // Firestore rules require an authenticated user, so (re)subscribe once the user is logged in.
+    useEffect(() => {
+        if (!currentUser?.id) return;
         const unsubscribeProxy = firebaseService.subscribeToAiProxyConfig((config) => {
             console.log('[App] Received AI Proxy Cloud Config update:', config ? { enabled: config.enabled, url: config.url } : 'none');
             nineRouterService.updateNineRouterConfigFromCloud(config);
@@ -144,7 +148,7 @@ const App: React.FC = () => {
         return () => {
             unsubscribeProxy();
         };
-    }, []);
+    }, [currentUser?.id]);
 
     // Realtime Presence Heartbeat (sync online status with admin & marquee)
     useEffect(() => {
