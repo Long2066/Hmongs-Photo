@@ -86,5 +86,11 @@ service cloud.firestore {
       allow read: if isAuthenticated();   // Tool clients (logged in) read config
       allow write: if isAuthenticated();  // Admin có thể lưu cấu hình
     }
+
+    // === APP CONFIG (Terms, Announcements, etc.) ===
+    match /appConfig/{docId} {
+      allow read: if true;                // Public read để hiển thị điều khoản trước khi đăng ký
+      allow write: if isAdmin();          // Chỉ admin cập nhật được điều khoản
+    }
   }
 }

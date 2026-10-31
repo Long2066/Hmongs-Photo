@@ -157,7 +157,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                     return;
                 }
                 if (!termsAccepted) {
-                    setError('Vui lòng đồng ý với Điều khoản sử dụng để tiếp tục.');
+                    setError('⚠️ Vui lòng đọc và bấm "Tôi đồng ý" với Điều khoản sử dụng để tiếp tục tạo tài khoản.');
                     return;
                 }
 
@@ -428,6 +428,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                 isOpen={showTermsModal}
                 onClose={() => setShowTermsModal(false)}
                 onAccept={() => setTermsAccepted(true)}
+                onReject={() => setTermsAccepted(false)}
             />
         </div>
     );

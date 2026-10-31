@@ -1395,30 +1395,18 @@ export interface TermsData {
     updatedAt: Date | null;
 }
 
-const DEFAULT_TERMS_CONTENT = `📜 ĐIỀU KHOẢN SỬ DỤNG TOOLPHOTO2025
-Cập nhật: 31/01/2026
-
-1. ĐỘ TUỔI - Bạn phải đủ 18 tuổi để sử dụng ImageTool.
-
-2. TÀI KHOẢN - Bạn chịu trách nhiệm bảo mật tài khoản. Không chia sẻ với người khác.
-
-3. NỘI DUNG AI - Nội dung AI tạo ra có thể không chính xác. Bạn chịu trách nhiệm kiểm tra.
-
-4. NỘI DUNG BỊ CẤM - Cấm tạo: khiêu dâm, bạo lực, deepfake, vi phạm pháp luật.
-
-5. QUYỀN SỞ HỮU - Bạn giữ toàn quyền với ảnh tải lên và được sử dụng thương mại.
-
-6. BẢO MẬT - Ảnh tải lên KHÔNG lưu trên server.
-
-7. GIỚI HẠN - Dịch vụ có thể gián đoạn hoặc thay đổi tính năng.
-
-8. MIỄN TRỪ - Dịch vụ cung cấp "như hiện có", không chịu trách nhiệm thiệt hại gián tiếp.
-
-9. CHẤM DỨT - Chúng tôi có quyền khóa tài khoản nếu vi phạm.
-
-10. PHÁP LUẬT - Điều khoản tuân theo pháp luật Việt Nam.
-
-Bằng việc đăng ký, bạn đồng ý với các điều khoản trên.`;
+const DEFAULT_TERMS_CONTENT = `📜 ĐIỀU KHOẢN SỬ DỤNG IMAGETOOL
+1. Chấp thuận: Đăng ký tài khoản đồng nghĩa bạn đã đọc, hiểu và đồng ý toàn bộ điều khoản này.
+2. Bảo mật: Bạn tự chịu trách nhiệm bảo mật mật khẩu và mọi hoạt động dưới tài khoản của mình.
+3. Gói cước: Gói Free tặng 20 ảnh/ngày; gói Plus/Pro nạp kích hoạt tự động, tính phí 500đ/ảnh.
+4. Không hoàn tiền: Số dư và gói dịch vụ sau khi nạp thành công không thể quy đổi hay hoàn lại tiền mặt.
+5. Bảo mật ảnh: Ảnh tải lên chỉ phục vụ xử lý AI, cam kết không bán hay chia sẻ cho bên thứ 3.
+6. Lưu trữ: Lịch sử ảnh tạm tự động xóa sau 72 giờ để bảo mật, bạn vui lòng tải ảnh về máy ngay khi tạo.
+7. Quyền sở hữu: Bạn có toàn quyền sử dụng hình ảnh do AI tạo ra cho mục đích cá nhân hoặc thương mại.
+8. Nghiêm cấm: Tuyệt đối không tạo ảnh khỏa thân (18+), bạo lực, bôi nhọ người khác hoặc vi phạm pháp luật.
+9. Chế tài: Cố tình vi phạm chính sách hoặc gian lận sẽ bị khóa tài khoản vĩnh viễn và không hoàn lại số dư.
+10. Hỗ trợ: Kết quả AI mang tính sáng tạo; mọi sự cố thanh toán hay kỹ thuật vui lòng gửi yêu cầu qua mục Hỗ trợ.
+11. Trách nhiệm pháp lý: Nếu vi phạm các điều khoản trên liên quan tới hành chính, dân sự, hình sự,... cá nhân vi phạm hoàn toàn chịu trách nhiệm trước pháp luật Việt Nam. Nhà phát triển không chịu trách nhiệm trước bất kì hành vi nào do người dùng gây ra.`;
 
 // Get terms content from Firestore
 export const getTermsContent = async (): Promise<TermsData> => {
@@ -1441,7 +1429,7 @@ export const getTermsContent = async (): Promise<TermsData> => {
             updatedAt: null
         };
     } catch (error) {
-        console.error('Error getting terms:', error);
+        console.warn('Fallback to local terms content:', error);
         return {
             content: DEFAULT_TERMS_CONTENT,
             version: '1.0',
@@ -1452,24 +1440,40 @@ export const getTermsContent = async (): Promise<TermsData> => {
 
 // Subscribe to terms updates (realtime)
 export const subscribeToTerms = (callback: (terms: TermsData) => void) => {
-    const docRef = doc(db, 'appConfig', 'terms');
+    try {
+        const docRef = doc(db, 'appConfig', 'terms');
 
-    return onSnapshot(docRef, (docSnap) => {
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            callback({
-                content: data.content || DEFAULT_TERMS_CONTENT,
-                version: data.version || '1.0',
-                updatedAt: data.updatedAt?.toDate() || null
-            });
-        } else {
+        return onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                callback({
+                    content: data.content || DEFAULT_TERMS_CONTENT,
+                    version: data.version || '1.0',
+                    updatedAt: data.updatedAt?.toDate() || null
+                });
+            } else {
+                callback({
+                    content: DEFAULT_TERMS_CONTENT,
+                    version: '1.0',
+                    updatedAt: null
+                });
+            }
+        }, (error) => {
+            console.warn('Terms listener notice, using default terms:', error);
             callback({
                 content: DEFAULT_TERMS_CONTENT,
                 version: '1.0',
                 updatedAt: null
             });
-        }
-    });
+        });
+    } catch (err) {
+        callback({
+            content: DEFAULT_TERMS_CONTENT,
+            version: '1.0',
+            updatedAt: null
+        });
+        return () => {};
+    }
 };
 
 
