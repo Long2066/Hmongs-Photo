@@ -432,24 +432,86 @@ export const getTodayActiveCount = async (): Promise<number> => {
     }
 };
 
-// Subscribe to realtime registration updates
+// Subscribe to realtime registration updates (filters out test/mock accounts and deduplicates)
 export const subscribeToRegistrations = (
-    callback: (registrations: { displayName: string, timestamp: number }[]) => void,
-    limitCount: number = 5
+    callback: (registrations: { displayName: string, timestamp: number }[], totalCount?: number) => void,
+    limitCount: number = 8
 ) => {
     const q = query(
         collection(db, REGISTRATIONS_COLLECTION),
-        orderBy("timestamp", "desc"),
-        limit(limitCount)
+        orderBy("timestamp", "desc")
     );
 
     return onSnapshot(q, (snapshot) => {
-        const registrations = snapshot.docs.map(doc => ({
-            displayName: doc.data().displayName,
-            timestamp: doc.data().timestamp
-        }));
-        callback(registrations);
+        const testPatterns = /test|agent|sample|demo/i;
+        const uniqueNames = new Set<string>();
+        const registrations: { displayName: string, timestamp: number }[] = [];
+
+        snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            const name = (data.displayName || '').trim();
+            const email = (data.email || '').trim();
+
+            if (name && !testPatterns.test(name) && !testPatterns.test(email)) {
+                if (!uniqueNames.has(name.toLowerCase())) {
+                    uniqueNames.add(name.toLowerCase());
+                    registrations.push({
+                        displayName: name,
+                        timestamp: data.timestamp || Date.now()
+                    });
+                }
+            }
+        });
+
+        callback(registrations.slice(0, limitCount), snapshot.size);
     });
+};
+
+export interface ActiveUserData {
+    displayName: string;
+    lastAccess: number;
+}
+
+// Subscribe to real users active today from userAccess
+export const subscribeToTodayActiveUsers = (
+    callback: (users: ActiveUserData[]) => void
+): (() => void) => {
+    const today = new Date().toISOString().split('T')[0];
+    let unsub: (() => void) | null = null;
+
+    getBackgroundSyncDb().then(targetDb => {
+        const q = query(
+            collection(targetDb, USER_ACCESS_COLLECTION),
+            where("date", "==", today)
+        );
+        unsub = onSnapshot(q, (snapshot) => {
+            const testPatterns = /test|agent|guest_cloud_sync/i;
+            const seen = new Set<string>();
+            const active: ActiveUserData[] = [];
+
+            snapshot.docs.forEach(d => {
+                const data = d.data();
+                const name = (data.displayName || '').trim();
+                if (name && !testPatterns.test(name) && !seen.has(name.toLowerCase())) {
+                    seen.add(name.toLowerCase());
+                    active.push({
+                        displayName: name,
+                        lastAccess: data.lastAccess || Date.now()
+                    });
+                }
+            });
+            active.sort((a, b) => b.lastAccess - a.lastAccess);
+            callback(active);
+        }, (err) => {
+            console.warn("Today active users listener warning:", err);
+        });
+    }).catch(err => {
+        console.warn("Error subscribing to today active users:", err);
+    });
+
+    return () => {
+        if (unsub) unsub();
+    };
 };
 
 // Subscribe to today's active count
@@ -1045,6 +1107,7 @@ export interface AiProxyConfig {
     apiKey: string;
     defaultTextModel?: string;
     defaultImageModel?: string;
+    modelPricing?: Record<string, boolean>;
     updatedAt?: number;
     updatedBy?: string;
 }

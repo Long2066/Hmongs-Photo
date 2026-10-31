@@ -612,6 +612,7 @@ export interface AiProxyConfig {
     apiKey: string;
     defaultTextModel?: string;
     defaultImageModel?: string;
+    modelPricing?: Record<string, boolean>;
     updatedAt?: number;
     updatedBy?: string;
 }
@@ -625,6 +626,14 @@ export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
     apiKey: '',
     defaultTextModel: 'claude-opus-5-5-high',
     defaultImageModel: 'gpt-image-2.5',
+    modelPricing: {
+        'gemini-3.1-flash-image': false, // Miễn phí
+        'gpt-image-2.5': true,           // Trả phí
+        'gpt-image-2.5-flare': true,     // Trả phí
+        'gpt-image-2.5-sunburst': true,  // Trả phí
+        'gpt-image-2': true,             // Trả phí
+        'gpt-image-1.5': false           // Miễn phí
+    }
 };
 
 /**
