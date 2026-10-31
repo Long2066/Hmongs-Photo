@@ -255,38 +255,84 @@ class FlowUI:
     # ------------------------------------------------------------------
 
     async def upload_image(self, page, image_path: str) -> bool:
-        for sel in [
-            'button[aria-label*="Thêm thành phần" i]',
-            'button[aria-label*="Add" i]',
-            'button:has-text("Add Media")',
-        ]:
-            add_btn = page.locator(sel).first
-            if await add_btn.count() > 0:
-                try:
-                    await add_btn.click(timeout=3000)
-                    await asyncio.sleep(1)
-                    break
-                except Exception:
-                    continue
-        file_input = page.locator("input[type='file']").first
-        if await file_input.count() > 0:
-            await file_input.set_input_files(image_path)
-            await asyncio.sleep(2)
-            return True
-        try:
-            async with page.expect_file_chooser(timeout=3000) as fc_info:
-                for sel in ["[aria-label*='upload' i]", ".upload-zone", "[class*='upload']"]:
-                    el = page.locator(sel).first
-                    if await el.count() > 0:
-                        await el.click()
+        """Upload a start frame image on Google Flow (Vietnamese & English Boq UI)."""
+        # 1. Open the Start-frame ("Bắt đầu" / "Start") or Add Media picker
+        picker_btn = page.locator(
+            'button:has-text("uploadTải nội dung"), '
+            'button:has-text("Tải nội dung nghe nhìn lên"), '
+            'button:has-text("Upload")'
+        ).last
+        if await picker_btn.count() == 0:
+            for trigger_sel in [
+                'button:has-text("Bắt đầu"):not([aria-label*="tạo"])',
+                'button:has-text("Start")',
+                'button[aria-label*="Thêm thành phần" i]',
+                'button:has-text("Add Media")',
+            ]:
+                trig = page.locator(trigger_sel).first
+                if await trig.count() > 0:
+                    try:
+                        await trig.click(timeout=3000)
+                        await asyncio.sleep(1.0)
                         break
-            fc = await fc_info.value
-            await fc.set_files(image_path)
-            await asyncio.sleep(2)
-            return True
-        except Exception as e:
-            log.warning("File chooser upload failed: %s", e)
-        return False
+                    except Exception:
+                        continue
+
+        # 2. Click "uploadTải nội dung nghe nhìn lên" and set the file via expect_file_chooser
+        picker_btn = page.locator(
+            'button:has-text("upload"), '
+            'button:has-text("Tải nội dung nghe nhìn lên"), '
+            'button:has-text("Upload")'
+        ).last
+        if await picker_btn.count() > 0:
+            try:
+                async with page.expect_file_chooser(timeout=8000) as fc_info:
+                    await picker_btn.click(timeout=4000)
+                fc = await fc_info.value
+                await fc.set_files(image_path)
+            except Exception as e:
+                log.warning("File chooser upload failed: %s", e)
+                return False
+        else:
+            file_input = page.locator("input[type='file']").first
+            if await file_input.count() > 0:
+                await file_input.set_input_files(image_path)
+            else:
+                log.warning("Could not find upload button or file input")
+                return False
+
+        # 3. Wait for the image upload to finish ("Đang tải lên" disappears)
+        for _ in range(30):
+            await asyncio.sleep(1.0)
+            uploading = await page.evaluate("""
+                () => document.body.innerText.includes('Đang tải lên') ||
+                      document.body.innerText.includes('Uploading')
+            """)
+            if not uploading:
+                break
+
+        await asyncio.sleep(1.0)
+
+        # 4. If the picker modal is still open, select the first option and click "Thêm vào câu lệnh" if present
+        first_opt = page.locator('[role="option"]').first
+        if await first_opt.count() > 0:
+            try:
+                await first_opt.click(timeout=2000)
+                await asyncio.sleep(0.6)
+            except Exception:
+                pass
+
+        add_to_prompt = page.locator('button:has-text("Thêm vào câu lệnh"), button:has-text("Add to prompt")').last
+        if await add_to_prompt.count() > 0:
+            try:
+                if not await add_to_prompt.is_disabled():
+                    await add_to_prompt.click(timeout=2000)
+                    await asyncio.sleep(0.8)
+            except Exception:
+                pass
+
+        log.info("Uploaded start-frame image successfully: %s", image_path)
+        return True
 
     # ------------------------------------------------------------------
     # Gallery & media extraction (project page)

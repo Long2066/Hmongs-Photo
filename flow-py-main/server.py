@@ -431,10 +431,16 @@ async def _run_video_generation_job(
             ratio = AspectRatio.PORTRAIT if aspect_mode == "portrait" else AspectRatio.LANDSCAPE
             await ui.set_aspect_ratio(page, ratio)
             await ui.set_count(page, 1)
-            await ui.fill_prompt(page, prompt)
 
             if start_image_path:
-                await ui.upload_image(page, str(start_image_path))
+                job_entry["progress_text"] = "Đang tải ảnh gốc lên khung Bắt đầu của Google Flow..."
+                up_ok = await ui.upload_image(page, str(start_image_path))
+                if not up_ok:
+                    job_entry["status"] = "failed"
+                    job_entry["error"] = "Không thể tải ảnh đầu vào lên Google Flow."
+                    return
+
+            await ui.fill_prompt(page, prompt)
 
             job_entry["progress_text"] = "Đang gửi lệnh tạo video Veo 3.1..."
             submitted = await ui.click_submit(page)
@@ -628,10 +634,25 @@ async def extension_pending_reload():
 
 
 @app.get("/v1/debug/page")
-async def debug_page(goto: Optional[str] = None, test_dl: bool = False):
+async def debug_page(goto: Optional[str] = None, test_dl: bool = False, inspect_add: bool = False):
     """Inspect current Playwright page state and cookies."""
     bm = await _get_or_start_bm(headless=False)
     page = await bm.page()
+    if inspect_add:
+        info = await page.evaluate("""
+            () => ({
+                options: [...document.querySelectorAll('[role=option], button')].map(b => ({
+                    tag: b.tagName,
+                    role: b.getAttribute('role'),
+                    text: (b.textContent || '').trim(),
+                    aria: b.getAttribute('aria-label'),
+                    selected: b.getAttribute('aria-selected'),
+                    y: Math.round(b.getBoundingClientRect().y),
+                })).filter(x => x.y > 0 && (x.role === 'option' || x.text.includes('Bắt đầu') || x.text.includes('Thêm vào') || x.text.includes('test_img'))),
+                bodyText: document.body.innerText.slice(-800)
+            })
+        """)
+        return info
     if test_dl:
         import urllib.request
         out_path = OUTPUT_DIR / "test_dl.mp4"
