@@ -146,6 +146,140 @@ const TypingText: React.FC<{ text: string; onComplete: () => void }> = ({ text, 
     );
 };
 
+/**
+ * AnimatedRobot Component: A lively, modern floating AI mascot
+ * with antenna signal glow, waving arm, blinking cyan eyes, and pulsing energy core.
+ */
+const AnimatedRobot: React.FC = () => {
+    return (
+        <div className="relative flex flex-col items-center justify-center select-none pt-0.5 group">
+            <style>{`
+                @keyframes robotBobMotion {
+                    0%, 100% { transform: translateY(0px); }
+                    50% { transform: translateY(-5px); }
+                }
+                @keyframes robotWaveMotion {
+                    0%, 100% { transform: rotate(0deg); }
+                    25% { transform: rotate(-32deg); }
+                    50% { transform: rotate(-8deg); }
+                    75% { transform: rotate(-30deg); }
+                }
+                @keyframes robotBlinkMotion {
+                    0%, 92%, 100% { transform: scaleY(1); }
+                    96% { transform: scaleY(0.1); }
+                }
+                @keyframes robotShadowMotion {
+                    0%, 100% { transform: scale(1); opacity: 0.35; }
+                    50% { transform: scale(0.7); opacity: 0.15; }
+                }
+                .anim-robot-float {
+                    animation: robotBobMotion 3s ease-in-out infinite;
+                }
+                .anim-robot-wave {
+                    animation: robotWaveMotion 2.2s ease-in-out infinite;
+                    transform-origin: 18px 42px;
+                }
+                .anim-robot-blink {
+                    animation: robotBlinkMotion 3.8s infinite;
+                    transform-origin: center;
+                }
+                .anim-robot-shadow {
+                    animation: robotShadowMotion 3s ease-in-out infinite;
+                }
+            `}</style>
+
+            {/* Ambient Aura Glow */}
+            <div className="absolute w-12 h-12 bg-indigo-500/15 rounded-full blur-md -top-1 pointer-events-none" />
+
+            {/* Floating Robot Body */}
+            <div className="anim-robot-float relative flex items-center justify-center transition-transform group-hover:scale-105">
+                <svg
+                    width="44"
+                    height="54"
+                    viewBox="0 0 72 86"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="drop-shadow-sm"
+                >
+                    <defs>
+                        <linearGradient id="robotHeadGrad" x1="16" y1="16" x2="56" y2="52" gradientUnits="userSpaceOnUse">
+                            <stop stopColor="#6366F1" />
+                            <stop offset="0.5" stopColor="#4F46E5" />
+                            <stop offset="1" stopColor="#7C3AED" />
+                        </linearGradient>
+                        <linearGradient id="robotBodyGrad" x1="22" y1="48" x2="50" y2="76" gradientUnits="userSpaceOnUse">
+                            <stop stopColor="#4338CA" />
+                            <stop offset="1" stopColor="#312E81" />
+                        </linearGradient>
+                        <linearGradient id="robotVisorGrad" x1="20" y1="26" x2="52" y2="44" gradientUnits="userSpaceOnUse">
+                            <stop stopColor="#0F172A" />
+                            <stop offset="1" stopColor="#020617" />
+                        </linearGradient>
+                        <radialGradient id="robotEyeGlow" cx="50%" cy="50%" r="50%">
+                            <stop stopColor="#67E8F9" />
+                            <stop offset="1" stopColor="#06B6D4" />
+                        </radialGradient>
+                    </defs>
+
+                    {/* Antenna */}
+                    <line x1="36" y1="7" x2="36" y2="17" stroke="#818CF8" strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="36" cy="6" r="4" fill="#22D3EE" />
+                    <circle cx="36" cy="6" r="6" stroke="#22D3EE" strokeWidth="1" opacity="0.6">
+                        <animate attributeName="r" values="3.5;7.5;3.5" dur="1.8s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" values="0.8;0;0.8" dur="1.8s" repeatCount="indefinite" />
+                    </circle>
+
+                    {/* Ears / Headset */}
+                    <rect x="11" y="27" width="5" height="11" rx="2.5" fill="#818CF8" />
+                    <rect x="56" y="27" width="5" height="11" rx="2.5" fill="#818CF8" />
+
+                    {/* Robot Head */}
+                    <rect x="15" y="16" width="42" height="32" rx="14" fill="url(#robotHeadGrad)" stroke="#A5B4FC" strokeWidth="1.2" />
+
+                    {/* Visor / Face Screen */}
+                    <rect x="20" y="23" width="32" height="19" rx="8" fill="url(#robotVisorGrad)" stroke="#38BDF8" strokeWidth="0.8" />
+
+                    {/* Blinking Cyan Eyes */}
+                    <g className="anim-robot-blink">
+                        <circle cx="29" cy="31" r="3" fill="url(#robotEyeGlow)" />
+                        <circle cx="30" cy="30" r="0.9" fill="#FFFFFF" />
+                        <circle cx="43" cy="31" r="3" fill="url(#robotEyeGlow)" />
+                        <circle cx="44" cy="30" r="0.9" fill="#FFFFFF" />
+                    </g>
+
+                    {/* Cute Smile Line */}
+                    <path d="M32 37 C34 38.8, 38 38.8, 40 37" stroke="#22D3EE" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+
+                    {/* Left Waving Arm */}
+                    <g className="anim-robot-wave">
+                        <path d="M19 49 C13 45, 9 37, 8 30 C11 29, 14 31, 14 34 C15 38, 18 43, 21 46" fill="#818CF8" stroke="#4F46E5" strokeWidth="0.8" strokeLinecap="round" />
+                        <circle cx="9" cy="29" r="3.2" fill="#A5B4FC" />
+                    </g>
+
+                    {/* Right Resting Arm */}
+                    <path d="M53 49 C57 53, 60 59, 58 63 C55 64, 53 62, 52 59 C51 55, 50 52, 51 49" fill="#818CF8" stroke="#4F46E5" strokeWidth="0.8" strokeLinecap="round" />
+
+                    {/* Robot Body */}
+                    <rect x="23" y="47" width="26" height="23" rx="8" fill="url(#robotBodyGrad)" stroke="#6366F1" strokeWidth="1" />
+
+                    {/* Chest Glowing Core */}
+                    <circle cx="36" cy="56" r="4" fill="#1E1B4B" stroke="#818CF8" strokeWidth="0.8" />
+                    <circle cx="36" cy="56" r="2.2" fill="#38BDF8">
+                        <animate attributeName="opacity" values="0.4;1;0.4" dur="1.4s" repeatCount="indefinite" />
+                    </circle>
+
+                    {/* Feet */}
+                    <rect x="27" y="69" width="6" height="4.5" rx="2" fill="#6366F1" />
+                    <rect x="39" y="69" width="6" height="4.5" rx="2" fill="#6366F1" />
+                </svg>
+            </div>
+
+            {/* Dynamic Ground Shadow */}
+            <div className="anim-robot-shadow w-6 h-1.5 bg-indigo-950/25 rounded-full blur-[1px] mt-0.5" />
+        </div>
+    );
+};
+
 interface SupportHubProps {
     userName?: string;
     userEmail?: string;

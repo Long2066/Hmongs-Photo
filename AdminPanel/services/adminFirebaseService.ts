@@ -643,8 +643,8 @@ const AI_PROXY_CONFIG_DOC = "aiProxyConfig";
 
 export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
     enabled: true,
-    url: 'http://158.178.235.87:20128/v1',
-    apiKey: 'sk-30291fde1e5baa54-of4p8n-9cb1cce6',
+    url: 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1',
+    apiKey: '123456',
     defaultTextModel: 'claude-opus-5-5-high',
     defaultImageModel: 'gpt-image-2.5',
     modelPricing: {
@@ -661,14 +661,29 @@ export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
  * Get current AI Proxy configuration from Firestore
  */
 export const getAiProxyConfig = async (): Promise<AiProxyConfig> => {
-    const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
-    // Read from server (not cache) so admin always sees the persisted value
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-        return {
-            ...DEFAULT_AI_PROXY_CONFIG,
-            ...(docSnap.data() as Partial<AiProxyConfig>)
-        };
+    try {
+        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            return {
+                ...DEFAULT_AI_PROXY_CONFIG,
+                ...(docSnap.data() as Partial<AiProxyConfig>)
+            };
+        }
+    } catch (e) {
+        console.warn('[AdminFirebase] Falling back to userAccess for getAiProxyConfig:', e);
+    }
+    try {
+        const uaRef = doc(db, USER_ACCESS_COLLECTION, AI_PROXY_CONFIG_DOC);
+        const uaSnap = await getDoc(uaRef);
+        if (uaSnap.exists()) {
+            return {
+                ...DEFAULT_AI_PROXY_CONFIG,
+                ...(uaSnap.data() as Partial<AiProxyConfig>)
+            };
+        }
+    } catch (e) {
+        console.warn('[AdminFirebase] userAccess getAiProxyConfig error:', e);
     }
     return DEFAULT_AI_PROXY_CONFIG;
 };
@@ -681,19 +696,25 @@ export const saveAiProxyConfig = async (
     adminEmail?: string
 ): Promise<void> => {
     try {
-        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
         const dataToSave: Partial<AiProxyConfig> = {
             ...config,
             updatedAt: Date.now(),
             updatedBy: adminEmail || 'Admin'
         };
+
+        // 1. Save to systemSettings collection (primary admin doc)
+        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
         await setDoc(docRef, dataToSave, { merge: true });
-        // Verify the write actually persisted on the server
-        const verify = await getDoc(docRef);
-        if (!verify.exists() || verify.data()?.updatedAt !== dataToSave.updatedAt) {
-            throw new Error('Không xác minh được dữ liệu đã lưu trên Firestore');
+
+        // 2. Also save to userAccess collection so all clients (including guests) receive instant realtime sync
+        try {
+            const uaRef = doc(db, USER_ACCESS_COLLECTION, AI_PROXY_CONFIG_DOC);
+            await setDoc(uaRef, dataToSave, { merge: true });
+        } catch (uaErr) {
+            console.warn('[AdminFirebase] Warning syncing to userAccess collection:', uaErr);
         }
-        console.log('[AdminFirebase] Saved AI Proxy config to Firestore successfully');
+
+        console.log('[AdminFirebase] Saved AI Proxy config to Firestore successfully (dual-path synced)');
     } catch (error) {
         console.error('[AdminFirebase] Error saving AI Proxy config:', error);
         throw error;

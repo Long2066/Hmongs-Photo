@@ -48,8 +48,9 @@ const SUPPORTED_IMAGE_MODELS = [
 ];
 
 const PRESETS = [
+    { label: 'Cloudflare Tunnel (Khuyên dùng)', url: 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1', desc: 'Máy chủ Cloudflare HTTPS bảo mật & tốc độ cao' },
     { label: 'VPS Cloud', url: 'http://158.178.235.87:20128/v1', desc: 'Máy chủ Cloud tốc độ cao' },
-    { label: 'Localhost', url: 'http://127.0.0.1:20128/v1', desc: 'Máy chủ phát triển máy trạm' },
+    { label: 'Localhost', url: 'http://127.0.0.1:8317/v1', desc: 'Máy chủ phát triển máy trạm' },
 ];
 
 export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {

@@ -8,8 +8,8 @@
 import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
-const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_NINEROUTER_API_KEY = 'sk-30291fde1e5baa54-of4p8n-9cb1cce6';
+const DEFAULT_NINEROUTER_URL = 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1';
+const DEFAULT_NINEROUTER_API_KEY = '123456';
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
 
@@ -286,11 +286,14 @@ export const setNineRouterUrl = (url: string): void => {
 };
 
 export const getNineRouterUrl = (): string => {
-    if (_cachedCloudConfig?.url) {
+    if (_cachedCloudConfig?.url && !_cachedCloudConfig.url.includes('158.178.235.87:20128')) {
         return normalizeNineRouterUrl(_cachedCloudConfig.url);
     }
-    const url = localStorage.getItem(NINEROUTER_URL_KEY) || DEFAULT_NINEROUTER_URL;
-    return normalizeNineRouterUrl(url);
+    const url = localStorage.getItem(NINEROUTER_URL_KEY);
+    if (url && !url.includes('158.178.235.87:20128')) {
+        return normalizeNineRouterUrl(url);
+    }
+    return DEFAULT_NINEROUTER_URL;
 };
 
 export const setNineRouterApiKey = (key: string): void => {
@@ -302,11 +305,11 @@ export const setNineRouterApiKey = (key: string): void => {
 };
 
 export const getNineRouterApiKey = (): string => {
-    if (_cachedCloudConfig?.apiKey && _cachedCloudConfig.apiKey.trim()) {
+    if (_cachedCloudConfig?.apiKey && _cachedCloudConfig.apiKey.trim() && !_cachedCloudConfig.apiKey.startsWith('sk-30291fde')) {
         return _cachedCloudConfig.apiKey.trim();
     }
     const stored = localStorage.getItem(NINEROUTER_API_KEY_KEY);
-    if (stored && stored.trim()) {
+    if (stored && stored.trim() && !stored.startsWith('sk-30291fde')) {
         return stored.trim();
     }
     return DEFAULT_NINEROUTER_API_KEY;
@@ -981,68 +984,71 @@ export interface ChatResponseResult {
 }
 
 /**
- * Maps logical text model IDs to the exact active upstream models on NineRouter gateway.
- * Live verified models on NineRouter (158.178.235.87:20128):
- * - Claude Opus: 'ag/claude-opus-4-6-thinking', 'ag/claude-sonnet-4-6', 'ag/claude-opus-5-5-high'
- * - ChatGPT 6.1: 'ag/claude-sonnet-4-6', 'EDULANAI', 'ag/gpt-oss-120b-medium'
- * - Gemini 4 Argon: 'ag/gemini-4-argon-high', 'ag/gemini-4-argon-medium'
- * - Gemini 3.8 Flash: 'ag/gemini-3.8-flash', 'ag/gemini-3.8-flash-high'
+ * Maps logical text model IDs to the exact active upstream models on CLIProxyAPI.
+ * Verified models on CLIProxyAPI (mrna-consistent-temp-anthropology.trycloudflare.com):
+ * - Claude: 'claude-opus-4-6-thinking', 'claude-opus-5-5-high', 'claude-sonnet-4-6', 'claude-sonnet-5-5-high'
+ * - ChatGPT: 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.6-sol', 'gpt-6.1-terra'
+ * - Gemini: 'gemini-4-argon-high', 'gemini-3.8-flash-high', 'gemini-3-flash', 'gemini-3.1-flash-lite'
  */
 export const mapTextModelToCandidates = (preferred?: string): string[] => {
     const raw = (preferred || '').trim();
-    const clean = raw.replace(/^openrouter\//i, '').trim();
+    const clean = raw.replace(/^openrouter\//i, '').replace(/^ag\//i, '').trim();
 
     if (!clean || clean === 'auto') {
         return [
-            'ag/claude-opus-4-6-thinking',
-            'ag/gemini-4-argon-high',
-            'ag/claude-sonnet-4-6',
-            'ag/gemini-3.8-flash'
+            'claude-opus-4-6-thinking',
+            'gpt-6.1-sol',
+            'gemini-3.8-flash-high',
+            'gemini-3-flash',
+            'claude-sonnet-4-6',
+            'gpt-6-sol'
         ];
     }
 
     if (clean.includes('opus')) {
         return [
-            'ag/claude-opus-4-6-thinking',
-            'ag/claude-sonnet-4-6',
-            'ag/claude-opus-5-5-high',
             'claude-opus-5-5-high',
-            'ag/gemini-4-argon-high'
+            'claude-opus-4-6-thinking',
+            'claude-sonnet-4-6',
+            'claude-sonnet-5-5-high',
+            'gpt-6.1-sol'
         ];
     }
 
     if (clean.includes('chatgpt') || clean.includes('gpt-6') || clean.includes('gpt') || clean.includes('sol')) {
         return [
-            'ag/claude-sonnet-4-6',
-            'EDULANAI',
-            'ag/gpt-oss-120b-medium',
-            'ag/gemini-4-argon-high'
+            'gpt-6.1-sol',
+            'gpt-6-sol',
+            'gpt-5.6-sol',
+            'gpt-6.1-terra',
+            'claude-sonnet-4-6'
         ];
     }
 
     if (clean.includes('argon') || clean.includes('gemini-4')) {
         return [
-            'ag/gemini-4-argon-high',
-            'ag/gemini-4-argon-medium',
-            'ag/gemini-3.8-flash',
-            'gemini-4-argon'
+            'gemini-4-argon-high',
+            'gemini-3.8-flash-high',
+            'gemini-3-flash',
+            'gemini-3.1-flash-lite'
         ];
     }
 
     if (clean.includes('3.8') || clean.includes('flash')) {
         return [
-            'ag/gemini-3.8-flash',
-            'ag/gemini-3.8-flash-high',
-            'gemini-3.8-flash'
+            'gemini-3.8-flash-high',
+            'gemini-3-flash',
+            'gemini-3.1-flash-lite'
         ];
     }
 
     return [
-        clean.startsWith('ag/') ? clean : `ag/${clean}`,
         clean,
-        'ag/claude-opus-4-6-thinking',
-        'ag/gemini-4-argon-high',
-        'ag/gemini-3.8-flash'
+        `ag/${clean}`,
+        'claude-opus-4-6-thinking',
+        'gpt-6.1-sol',
+        'gemini-3.8-flash-high',
+        'gemini-3-flash'
     ];
 };
 
