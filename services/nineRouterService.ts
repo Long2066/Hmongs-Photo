@@ -985,58 +985,57 @@ export interface ChatResponseResult {
 
 /**
  * Maps logical text model IDs to the exact active upstream models on CLIProxyAPI.
- * Verified models on CLIProxyAPI (mrna-consistent-temp-anthropology.trycloudflare.com):
- * - Claude: 'claude-opus-4-6-thinking', 'claude-opus-5-5-high', 'claude-sonnet-4-6', 'claude-sonnet-5-5-high'
- * - ChatGPT: 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.6-sol', 'gpt-6.1-terra'
- * - Gemini: 'gemini-4-argon-high', 'gemini-3.8-flash-high', 'gemini-3-flash', 'gemini-3.1-flash-lite'
+ * Chuỗi 4 mô hình luân phiên chuẩn theo đúng cấu hình hệ thống:
+ * ① Ưu tiên 1: Claude Opus 5.5 (High) (claude-opus-5-5-high)
+ * ② Ưu tiên 2: ChatGPT 6.1 Sol (gpt-6.1-sol)
+ * ③ Ưu tiên 3: Gemini 4 Argon (gemini-4-argon-high / gemini-4-argon)
+ * ④ Ưu tiên 4: Gemini 3.8 Flash (gemini-3.8-flash-high / gemini-3.8-flash / gemini-3-flash)
  */
 export const mapTextModelToCandidates = (preferred?: string): string[] => {
     const raw = (preferred || '').trim();
     const clean = raw.replace(/^openrouter\//i, '').replace(/^ag\//i, '').trim();
 
-    if (!clean || clean === 'auto') {
-        return [
-            'claude-opus-4-6-thinking',
-            'gpt-6.1-sol',
-            'gemini-3.8-flash-high',
-            'gemini-3-flash',
-            'claude-sonnet-4-6',
-            'gpt-6-sol'
-        ];
-    }
-
-    if (clean.includes('opus')) {
+    // Nếu chọn Auto hoặc chọn Claude Opus 5.5: Luân phiên đúng theo 4 bậc Ưu tiên 1 -> 2 -> 3 -> 4
+    if (!clean || clean === 'auto' || clean.includes('opus')) {
         return [
             'claude-opus-5-5-high',
-            'claude-opus-4-6-thinking',
-            'claude-sonnet-4-6',
-            'claude-sonnet-5-5-high',
-            'gpt-6.1-sol'
+            'gpt-6.1-sol',
+            'gemini-4-argon-high',
+            'gemini-4-argon',
+            'gemini-3.8-flash-high',
+            'gemini-3.8-flash',
+            'gemini-3-flash'
         ];
     }
 
+    // Nếu chọn ChatGPT 6.1: Ưu tiên 2 -> 3 -> 4
     if (clean.includes('chatgpt') || clean.includes('gpt-6') || clean.includes('gpt') || clean.includes('sol')) {
         return [
             'gpt-6.1-sol',
-            'gpt-6-sol',
-            'gpt-5.6-sol',
-            'gpt-6.1-terra',
-            'claude-sonnet-4-6'
+            'gemini-4-argon-high',
+            'gemini-4-argon',
+            'gemini-3.8-flash-high',
+            'gemini-3.8-flash',
+            'gemini-3-flash'
         ];
     }
 
+    // Nếu chọn Gemini 4: Ưu tiên 3 -> 4
     if (clean.includes('argon') || clean.includes('gemini-4')) {
         return [
             'gemini-4-argon-high',
+            'gemini-4-argon',
             'gemini-3.8-flash-high',
-            'gemini-3-flash',
-            'gemini-3.1-flash-lite'
+            'gemini-3.8-flash',
+            'gemini-3-flash'
         ];
     }
 
+    // Nếu chọn Gemini 3.8 Flash: Ưu tiên 4
     if (clean.includes('3.8') || clean.includes('flash')) {
         return [
             'gemini-3.8-flash-high',
+            'gemini-3.8-flash',
             'gemini-3-flash',
             'gemini-3.1-flash-lite'
         ];
@@ -1044,11 +1043,10 @@ export const mapTextModelToCandidates = (preferred?: string): string[] => {
 
     return [
         clean,
-        `ag/${clean}`,
-        'claude-opus-4-6-thinking',
+        'claude-opus-5-5-high',
         'gpt-6.1-sol',
-        'gemini-3.8-flash-high',
-        'gemini-3-flash'
+        'gemini-4-argon-high',
+        'gemini-3.8-flash-high'
     ];
 };
 
