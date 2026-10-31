@@ -35,6 +35,9 @@ export interface NineRouterImageRequest {
     shotType?: string;
     style?: string;
     model?: string;
+    // Task-specific routing and prompt handling
+    taskType?: 'create' | 'extract' | 'edit' | 'relight' | 'profile' | 'upscale' | 'mix' | 'restore' | 'raw';
+    rawPrompt?: boolean;
     // VIP-related options
     useVIPPrompt?: boolean;
     hasMaleAccessories?: boolean;
@@ -1273,18 +1276,116 @@ export const generateImageViaNineRouter = async (
     const framingDirective = getAspectFramingDirective(request.aspectRatio, request.shotType);
     const shotDirective = getShotTypeDirective(request.shotType);
 
-    // Strict directives enforcing Korean visual idol aesthetic, aspect ratio, physical grounding, and 100% outfit cloning
-    const strictFramingHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+    // Determine task type (extract, edit, mix, relight, upscale, profile, restore, create)
+    const taskType = request.taskType || (
+        request.prompt.includes('CLOTHING EXTRACTION') ? 'extract' :
+        request.prompt.includes('OUTFIT MIXING') ? 'mix' :
+        request.prompt.includes('RELIGHTING TASK') ? 'relight' :
+        request.prompt.includes('PHOTO RESTORATION') ? 'restore' :
+        request.prompt.includes('IMAGE UPSCALING') || request.prompt.includes('UPSCALE') ? 'upscale' :
+        request.prompt.includes('ID PHOTO') || request.prompt.includes('PROFILE PHOTO') ? 'profile' :
+        request.prompt.includes('IMAGE EDITING') ? 'edit' :
+        'create'
+    );
+
+    let systemHeader = '';
+    let geminiInstruction = '';
+
+    if (request.rawPrompt) {
+        systemHeader = '';
+        geminiInstruction = request.prompt;
+    } else if (taskType === 'extract') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** HIGH-FIDELITY CLOTHING & COSTUME EXTRACTION DIRECTIVE (GHOST MANNEQUIN) ***
+- GOAL: Isolate and extract ONLY the authentic clothing, traditional ethnic dress, headdress, and accessories shown in the reference image.
+- 100% FAITHFUL COLOR & TEXTILE ACCURACY (CRITICAL):
+  * You MUST preserve the EXACT colors from the input photo (e.g. if the costume is RED with brocade trim, it MUST remain 100% RED; NEVER turn it into indigo, blue, black, or any generic costume).
+  * Faithfully replicate all embroidery stitches, tassels, fringes, pleats, patterns, fabrics, and jewelry present in the reference photo.
+  * DO NOT hallucinate silver torque necklaces, collars, or accessories that are NOT in the original image.
+- GHOST MANNEQUIN / FLAT LAY PRESENTATION:
+  * Present the complete clothing upright in 3D Ghost Mannequin style or Flat Lay e-commerce presentation.
+  * COMPLETELY REMOVE the person (no face, head, skin, limbs, body, or feet).
+  * COMPLETELY REMOVE the background (no flowers, fields, mountains, sky, or scenery).
+  * Clean, solid, pure white studio background with soft natural contact shadow beneath the hem.`;
+
+        geminiInstruction = `*** HIGH-FIDELITY CLOTHING EXTRACTION INSTRUCTION ***
+Analyze the attached reference image carefully.
+CRITICAL RULES:
+1. 100% FAITHFUL COLOR PRESERVATION: Retain the EXACT colors (red, white, yellow, blue, etc.), patterns, embroidery, and materials from the reference photo. If the reference outfit is RED, the extracted outfit MUST be RED. Do NOT replace with a different ethnic dress.
+2. GHOST MANNEQUIN / ZERO HUMAN: Completely remove the human subject (no face, skin, limbs, or body) and remove all background scenery. Present ONLY the clothing, headwear, and authentic accessories on a clean, solid, pure white studio background.
+3. PRESERVE ORIGINAL EMBROIDERY & DETAILS: Keep all authentic tassels, trims, motifs, and accessories exactly as shown in the reference image without adding unrelated jewelry.`;
+    } else if (taskType === 'edit') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** HIGH-FIDELITY IMAGE EDITING DIRECTIVE ***
+- Maintain the visual consistency, identity, clothing, and composition of the reference image.
+- Apply ONLY the specific image editing modifications requested by the user.
+- DO NOT alter untouched regions of the image or hallucinate random costume changes unless requested.`;
+
+        geminiInstruction = `*** IMAGE EDITING TASK ***
+Examine the attached reference image. Apply the requested edits precisely while maintaining the identity, core composition, and details of the original image:
+${request.prompt}`;
+    } else if (taskType === 'mix') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** HIGH-FASHION OUTFIT FUSION DIRECTIVE ***
+- Synthesize and blend elements, patterns, colors, and textures from the provided reference outfits into a stunning, harmonious fashion design.`;
+
+        geminiInstruction = `*** OUTFIT FUSION TASK ***
+Inspect the attached outfit reference images. Synthesize their fabrics, colors, motifs, and silhouettes into a unified, high-fashion presentation.`;
+    } else if (taskType === 'relight') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** SCENE RELIGHTING & AMBIANCE DIRECTIVE ***
+- Preserve the subject, face, clothing colors, embroidery, and composition of the original reference image 100% intact.
+- Strictly alter the lighting direction, color temperature, highlights, and ambient shadow atmosphere as specified.`;
+
+        geminiInstruction = `*** SCENE RELIGHTING TASK ***
+Preserve the subject, clothing, and composition of the reference image. Adjust only the lighting, color temperature, and ambiance according to the scene instructions.`;
+    } else if (taskType === 'upscale') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** ULTRA-HD UPSCALE & RESTORATION DIRECTIVE ***
+- Preserve 100% of all facial features, expressions, clothing colors, embroidery, and composition of the reference image.
+- Enhance sharpness, micro-textures, and 8K clarity without altering or hallucinating new elements.`;
+
+        geminiInstruction = `*** ULTRA-HD IMAGE RESTORATION & UPSCALE TASK ***
+Preserve 100% of the pixels, face, clothing, and composition of the attached image. Enhance micro-textures, crispness, and ultra-high-definition clarity.`;
+    } else if (taskType === 'profile') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: 1:1 ***
+*** PROFESSIONAL PORTRAIT / ID PHOTO DIRECTIVE ***
+- Centered portrait framing, sharp focus on face and upper bust, clean studio background, natural flattering lighting.`;
+
+        geminiInstruction = `*** PROFESSIONAL PORTRAIT / ID PHOTO TASK ***
+Generate a polished, centered, professional ID/profile portrait maintaining realistic facial proportions and professional lighting.`;
+    } else {
+        // Standard Creative Generation (taskType === 'create')
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
 *** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
 - PHYSICAL GROUNDING (CRITICAL): Subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky, hovering above mountains, or rendered as giant titans towering over miniature landscapes.
 - 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements (market stalls, houses, tents, fences, and trees).
 *** MANDATORY KOREAN IDOL VISUAL & 100% OUTFIT CLONING PROTOCOL ***
 - CHARACTER VISUAL (MANDATORY): Always depict stunning, ultra-attractive Korean K-Pop Idol / Ulzzang visuals (flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawline, tall and graceful build).
 - REFERENCE PHOTOS ROLE: Input reference images are strictly for CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
-- OUTFIT REPLICATION: Faithfully clone 100% of the authentic traditional H'Mông hand-embroidery, pleated batik indigo skirts, vivid brocade motifs, silver torque collar necklaces, and accessories onto the handsome/beautiful Korean idol.
+- OUTFIT REPLICATION: Faithfully clone 100% of the authentic traditional garments, hand-embroidery, brocade motifs, and accessories directly from the input reference photos onto the handsome/beautiful Korean idol, faithfully preserving the original outfit's colors (whether red, blue, green, black, white, or indigo) and textures.
 - CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose all subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
-    const fullDirective = [strictFramingHeader, framingDirective, shotDirective].filter(Boolean).join('\n\n');
-    const combinedPrompt = `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`;
+
+        geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
+Inspect all ${referenceImages.length} attached input reference image(s).
+CRITICAL RULES:
+1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape. Human scale relative to surrounding stalls and buildings must be strictly 1:1.
+2. CHARACTER VISUAL: The character MUST be an ultra-attractive Korean K-Pop Idol / Ulzzang (flawless luminous porcelain glass skin, double eyelids, captivating eyes, sharp jawline, high fashion charisma).
+3. CLOTHING & ACCESSORIES ONLY: Attached images provide CLOTHING, TEXTILES, EMBROIDERY, AND ACCESSORIES ONLY. DO NOT use the face, skin tone, or identity from the reference image. Clone 100% of the authentic garment embroidery, colors, patterns, and accessories directly from the reference photo(s) onto this Korean idol model, faithfully preserving the original colors (red, white, black, blue, etc.) and craftsmanship.
+4. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`;
+    }
+
+    const fullDirective = request.rawPrompt
+        ? ''
+        : (taskType === 'create'
+            ? [systemHeader, framingDirective, shotDirective].filter(Boolean).join('\n\n')
+            : (taskType === 'extract'
+                ? [systemHeader].filter(Boolean).join('\n\n')
+                : [systemHeader, framingDirective].filter(Boolean).join('\n\n')));
+
+    const combinedPrompt = fullDirective
+        ? `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`
+        : request.prompt;
 
     // Build candidate models order based on user selection
     const isGeminiSelected = activeModel.toLowerCase().includes('gemini');
@@ -1308,19 +1409,13 @@ export const generateImageViaNineRouter = async (
 
     for (const candidateModel of candidateModels) {
         try {
-            console.log(`[CLIProxyAPI] Attempting image generation with candidate: ${candidateModel}, ratio: ${ratio}, size: ${standardSize}`);
+            console.log(`[CLIProxyAPI] Attempting image generation with candidate: ${candidateModel}, ratio: ${ratio}, size: ${standardSize}, task: ${taskType}`);
 
             // PATH A: Gemini multimodal via /v1/chat/completions
             if (candidateModel.toLowerCase().includes('gemini')) {
                 const userContent: any[] = [{
                     type: 'text',
-                    text: `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
-Inspect all ${referenceImages.length} attached input reference image(s).
-CRITICAL RULES:
-1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape. Human scale relative to surrounding stalls and buildings must be strictly 1:1.
-2. CHARACTER VISUAL: The character MUST be an ultra-attractive Korean K-Pop Idol / Ulzzang (flawless luminous porcelain glass skin, double eyelids, captivating eyes, sharp jawline, high fashion charisma).
-3. CLOTHING & ACCESSORIES ONLY: Attached images provide CLOTHING, TEXTILES, EMBROIDERY, AND ACCESSORIES ONLY. DO NOT use the face, skin tone, or identity from the reference image. Clone 100% of the traditional H'Mông embroidery, pleated skirts, brocade patterns, and silver torque collar necklaces onto this Korean idol model.
-4. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`
+                    text: geminiInstruction
                 }];
 
                 referenceImages.forEach((img, idx) => {

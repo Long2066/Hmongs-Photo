@@ -1425,7 +1425,8 @@ export const generateImagesFromPromptsList = async (
                             aspectRatio: aspectRatio,
                             resolution: resolution,
                             shotType: shotType,
-                            style: style
+                            style: style,
+                            taskType: 'create'
                         });
                         if (base64Image) {
                             usedNineRouter = true;
@@ -1821,7 +1822,8 @@ export const generateIdPhotos = async (
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
                         referenceImages: imageParts,
-                        aspectRatio
+                        aspectRatio,
+                        taskType: 'profile'
                     });
                     if (base64Image) {
                         console.log(`[ID Photo ${index + 1}] Generated via 9Router`);
@@ -1964,7 +1966,8 @@ ${ULTRA_SHARP_QUALITY}`;
             try {
                 const result = await nineRouterService.generateImageViaNineRouter({
                     prompt: enhancedPrompt,
-                    referenceImages: [imagePart]
+                    referenceImages: [imagePart],
+                    taskType: 'edit'
                 });
                 if (result) return result;
                 throw new Error('NINEROUTER_EDIT_FAILED');
@@ -2089,7 +2092,8 @@ ${ULTRA_SHARP_QUALITY}`;
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt: variationPrompt,
-                        referenceImages: [imagePart]
+                        referenceImages: [imagePart],
+                        taskType: 'edit'
                     });
                 } catch (err) {
                     console.error('9Router edit failed:', err);
@@ -2167,7 +2171,8 @@ export const mixMatchOutfit = async (
             try {
                 return await nineRouterService.generateImageViaNineRouter({
                     prompt: `OUTFIT MIXING TASK: Analyze the two input outfit images. Create a NEW fashion design that combines elements from both inputs. Blend the textures, patterns, and silhouettes. Create a harmonious fusion. Display the result as a high-quality fashion photograph on a mannequin or model. Style: Modern Avant-Garde Fusion.`,
-                    referenceImages: [outfit1, outfit2]
+                    referenceImages: [outfit1, outfit2],
+                    taskType: 'mix'
                 });
             } catch (err) {
                 console.error('[9Router] mixMatchOutfit failed:', err);
@@ -2246,8 +2251,15 @@ export const extractClothing = async (
         if (status.connected) {
             try {
                 return await nineRouterService.generateImageViaNineRouter({
-                    prompt: `CLOTHING EXTRACTION TASK: Identify the main outfit/clothing worn by the person. Remove the person and the background. Isolate ONLY the clothing/outfit on plain white background. Ghost Mannequin style.`,
-                    referenceImages: [imagePart]
+                    prompt: `CLOTHING EXTRACTION & GHOST MANNEQUIN TASK:
+Analyze the input reference image carefully. Identify the exact outfit, clothing, headwear, and authentic accessories worn by the person.
+MANDATORY DIRECTIVES:
+1. 100% FAITHFUL COLOR & EMBROIDERY ACCURACY: Preserve the EXACT colors of the original outfit (for example, if the outfit is RED with colorful brocade, it MUST be 100% RED with identical brocade). Do NOT change the colors to indigo, blue, or any other style.
+2. GHOST MANNEQUIN PRESENTATION: Remove the person completely (no face, head, skin, hands, arms, legs, or body). Present the clothing, headdress, and authentic accessories standing upright on an invisible 3D ghost mannequin against a clean, plain white studio background.
+3. PRESERVE EVERY DETAIL: Keep all authentic tassels, trims, embroidery motifs, belts, and fabric textures exactly as they appear in the reference photo.`,
+                    referenceImages: [{ ...imagePart, label: 'Costume To Extract' }],
+                    taskType: 'extract',
+                    aspectRatio: '1:1'
                 });
             } catch (err) {
                 console.error('[9Router] extractClothing failed:', err);
@@ -2261,20 +2273,18 @@ export const extractClothing = async (
     const useVipMode = systemApiKey !== null;
     const geminiApiKey = getStoredApiKey('gemini');
 
-    const prompt = `
-    CLOTHING EXTRACTION TASK:
-    Analyze the input image carefully. Identify the main outfit/clothing worn by the person.
-    ACTION:
-    1. Completely remove the person (head, hands, skin, legs, feet) and the background.
-    2. Isolate ONLY the clothing/outfit.
-    3. Present the clothing on a transparent background or plain white background, similar to a "Ghost Mannequin" or "Flat Lay" product photography style.
-    4. Ensure the clothing retains all original textures, colors, and folds.
-    5. The output should be just the clothes, ready for an e-commerce catalog.
-    
-    ${CLEAN_OUTPUT_REQUIREMENTS}
-    
-    ${ULTRA_SHARP_QUALITY}
-    `;
+    const prompt = `CLOTHING EXTRACTION & GHOST MANNEQUIN TASK:
+Analyze the input reference image carefully. Identify the main outfit, headwear, and clothing worn by the person.
+ACTION:
+1. Completely remove the person (head, face, skin, hands, legs, feet) and remove the entire background.
+2. Isolate ONLY the clothing/outfit, headwear, and authentic accessories.
+3. Present the clothing on a transparent or pure plain white background, in a high-end "Ghost Mannequin" or "Flat Lay" product photography style.
+4. CRITICAL MANDATORY COLOR RULE: Ensure the clothing retains all original colors (if the outfit is RED, it must stay 100% RED), fabric textures, embroidery patterns, and folds.
+5. The output should be just the authentic clothes, ready for an e-commerce catalog.
+
+${CLEAN_OUTPUT_REQUIREMENTS}
+
+${ULTRA_SHARP_QUALITY}`;
 
     // VIP Mode
     if (useVipMode && systemApiKey) {
@@ -2354,7 +2364,8 @@ export const relightImage = async (
             try {
                 return await nineRouterService.generateImageViaNineRouter({
                     prompt,
-                    referenceImages: [imagePart]
+                    referenceImages: [imagePart],
+                    taskType: 'relight'
                 });
             } catch (err) {
                 console.error('[9Router] relightImage failed:', err);
@@ -2438,7 +2449,8 @@ export const upscaleImage = async (apiKey: string, imagePart: ImagePart, resolut
             console.log('[Upscale] Using 9Router mode');
             const result = await nineRouterService.generateImageViaNineRouter({
                 prompt,
-                referenceImages: [imagePart]
+                referenceImages: [imagePart],
+                taskType: 'upscale'
             });
             if (result) return result;
             throw new Error('NINEROUTER_UPSCALE_FAILED');
@@ -2574,7 +2586,8 @@ export const upscaleImages = async (
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
-                        referenceImages: [imagePart]
+                        referenceImages: [imagePart],
+                        taskType: 'upscale'
                     });
                 } catch (err) {
                     console.error('9Router upscale failed:', err);
@@ -2677,7 +2690,8 @@ export const generateProfilePic = async (
             const result = await nineRouterService.generateImageViaNineRouter({
                 prompt,
                 referenceImages: [imagePart],
-                aspectRatio: '1:1'
+                aspectRatio: '1:1',
+                taskType: 'profile'
             });
             if (result) return result;
             throw new Error('NINEROUTER_PROFILE_FAILED');
@@ -2829,7 +2843,8 @@ export const generateProfilePics = async (
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
                         referenceImages: [imagePart],
-                        aspectRatio: '1:1'
+                        aspectRatio: '1:1',
+                        taskType: 'profile'
                     });
                 } catch (err) {
                     console.error('9Router profile failed:', err);
