@@ -169,7 +169,15 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
     global _bm
     if _bm is not None and _bm._ctx is not None:
         try:
-            _ = _bm._ctx.pages
+            # Actually verify CDP connection is still alive!
+            if _bm._cdp_browser is not None and not _bm._cdp_browser.is_connected():
+                raise RuntimeError("CDP browser disconnected")
+            pages = _bm._ctx.pages
+            if pages:
+                _ = pages[0].url
+            else:
+                p = await _bm._ctx.new_page()
+                _bm._page = p
             return _bm
         except Exception:
             try:
@@ -210,7 +218,7 @@ async def _extract_or_create_project_id(page) -> Optional[str]:
 
 async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
     """Check if the browser profile is logged in to Google Flow and refresh credits/project."""
-    global _auth_state, _client
+    global _auth_state, _client, _bm
     async with _browser_lock:
         try:
             bm = await _get_or_start_bm(headless=False)
@@ -300,6 +308,13 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
 
         except Exception as e:
             log.error("refresh_auth_state error: %s", e)
+            if "closed" in str(e).lower():
+                try:
+                    if _bm:
+                        await _bm.stop()
+                except Exception:
+                    pass
+                _bm = None
             _auth_state.update({
                 "authenticated": False,
                 "error": str(e),
@@ -359,7 +374,7 @@ async def _run_video_generation_job(
     model_override: Optional[str] = None,
 ):
     """Execute Flow video generation directly on the live Google Flow Angular UI and download MP4."""
-    global _shared_bearer_token, _shared_bearer_ts
+    global _shared_bearer_token, _shared_bearer_ts, _bm
     job_entry = _jobs[job_id]
     job_entry["status"] = "processing"
     job_entry["progress_text"] = "Đang chuẩn bị trình duyệt Google Flow..."
@@ -578,8 +593,20 @@ async def _run_video_generation_job(
 
     except Exception as exc:
         log.exception("[%s] Video generation failed:", job_id)
+        if "closed" in str(exc).lower():
+            try:
+                if _bm:
+                    await _bm.stop()
+            except Exception:
+                pass
+            _bm = None
+            job_entry["error"] = (
+                "Cửa sổ trình duyệt Google Flow nền vừa bị đóng trong lúc render. "
+                "Hệ thống đã tự khởi động lại ở chế độ thu nhỏ — vui lòng bấm Tạo Video lại!"
+            )
+        else:
+            job_entry["error"] = str(exc)
         job_entry["status"] = "failed"
-        job_entry["error"] = str(exc)
     finally:
         if start_image_path and start_image_path.exists():
             try:
