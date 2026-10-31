@@ -1061,17 +1061,17 @@ const App: React.FC = () => {
                                 onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
                             />
 
-                            {/* A4 Print Button for ID Photo Mode */}
+                            {/* Professional Print Button for ID Photo Mode (A4 / A5 / A6 / A7) */}
                             {mode === 'id_photo' && !isLoading && currentData.outputs.some(img => img !== null) && (
                                 <div className="flex justify-center mt-4">
                                     <button
                                         onClick={() => setA4PrintPreviewOpen(true)}
-                                        className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-green-500/30 transition-all active:scale-95"
+                                        className="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white font-bold rounded-xl shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 transition-all active:scale-95 cursor-pointer text-sm tracking-wide"
                                     >
                                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                                         </svg>
-                                        📄 IN ẢNH THẺ A4
+                                        <span>🖨️ IN ẢNH THẺ CHUYÊN NGHIỆP (A4 / A5 / A6 / A7)</span>
                                     </button>
                                 </div>
                             )}
@@ -1099,6 +1099,12 @@ const App: React.FC = () => {
                 <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />
             )}
             {isDownloadHelpOpen && <DownloadHelpModal onClose={() => setDownloadHelpOpen(false)} />}
+            {isA4PrintPreviewOpen && (
+                <A4PrintPreview
+                    images={currentData.outputs.filter((img): img is string => img !== null)}
+                    onClose={() => setA4PrintPreviewOpen(false)}
+                />
+            )}
 
             {/* Auto-update notification (only shows in Electron) */}
             <UpdateNotification />
