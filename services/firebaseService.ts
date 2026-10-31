@@ -5,7 +5,9 @@ import {
     sendPasswordResetEmail,
     sendEmailVerification,
     User as FirebaseUser,
-    updateProfile
+    updateProfile,
+    signInWithPopup,
+    GoogleAuthProvider
 } from "firebase/auth";
 import {
     collection,
@@ -52,6 +54,30 @@ export const loginUser = async (email: string, pass: string): Promise<FirebaseUs
     return userCredential.user;
 };
 
+export const loginWithGoogle = async (): Promise<FirebaseUser> => {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
+
+    const displayName = user.displayName || user.email?.split('@')[0] || 'User';
+    const email = user.email || '';
+
+    // Check if user has an existing record or credit doc; if first time, register & record access
+    try {
+        const userCreditRef = doc(db, "userCredits", user.uid);
+        const userDoc = await getDoc(userCreditRef);
+        if (!userDoc.exists()) {
+            await recordNewRegistration(user.uid, displayName, email);
+        }
+        await recordUserAccess(user.uid, displayName, email);
+    } catch (e) {
+        console.warn('[loginWithGoogle] Metadata sync warning:', e);
+    }
+
+    return user;
+};
+
 export const logoutUser = async (): Promise<void> => {
     await signOut(auth);
 };
@@ -69,7 +95,7 @@ const CLOUD_VISITS_DOC = "cloudVisits";
 const DAILY_VISITS_COLLECTION = "dailyVisits";
 const ACTIVE_SESSIONS_COLLECTION = "activeSessions";
 const REGISTRATIONS_COLLECTION = "registrations";
-const USER_ACCESS_COLLECTION = "userAccess";
+export const USER_ACCESS_COLLECTION = "userAccess";
 const GLOBAL_CLOUD_VISITS_DOC = "global_cloud_visits";
 
 const CACHED_STATS_KEY = "cloud_stats_cache";
@@ -87,7 +113,7 @@ export interface CloudStats {
 let backgroundSyncDb: any = null;
 let backgroundSyncPromise: Promise<any> | null = null;
 
-const getBackgroundSyncDb = async (): Promise<any> => {
+export const getBackgroundSyncDb = async (): Promise<any> => {
     if (backgroundSyncDb) return backgroundSyncDb;
     if (typeof window === 'undefined') return db;
 

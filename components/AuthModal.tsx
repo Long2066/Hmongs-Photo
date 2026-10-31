@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as firebaseAuth from '../services/firebaseService';
+import { isDisposableEmail, checkDeviceAccountLimit, recordDeviceAccount } from '../services/antiFraudService';
 import { User } from '../types';
 import TermsModal from './TermsModal';
 
@@ -21,6 +22,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     const [countdown, setCountdown] = useState(15);
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [showTermsModal, setShowTermsModal] = useState(false);
+    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
     // Animation text effect
     const [welcomeText, setWelcomeText] = useState('');
@@ -60,6 +62,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
 
     const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+    const handleGoogleSignIn = async () => {
+        setError('');
+        setInfoMessage('');
+        setIsGoogleLoading(true);
+
+        try {
+            const fbUser = await firebaseAuth.loginWithGoogle();
+            const email = fbUser.email || '';
+
+            // Kiểm tra giới hạn thiết bị tối đa 2 tài khoản
+            const deviceCheck = await checkDeviceAccountLimit(email, fbUser.uid);
+            if (!deviceCheck.allowed) {
+                await firebaseAuth.logoutUser();
+                setError(deviceCheck.message || '⚠️ Thiết bị này đã đạt giới hạn tối đa 2 tài khoản đăng nhập.');
+                return;
+            }
+            await recordDeviceAccount(email, fbUser.uid);
+
+            const user: User = {
+                id: fbUser.uid,
+                username: fbUser.email || '',
+                name: fbUser.displayName || fbUser.email?.split('@')[0] || 'User',
+                avatar: fbUser.photoURL || `https://ui-avatars.com/api/?name=${fbUser.displayName || 'User'}&background=random`
+            };
+            onAuthSuccess(user);
+        } catch (err: any) {
+            console.error('Google Sign In Error:', err);
+            if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+                return;
+            }
+            if (err.code === 'auth/popup-blocked') {
+                setError('Trình duyệt đã chặn cửa sổ đăng nhập Google. Vui lòng cho phép pop-up để tiếp tục.');
+                return;
+            }
+            if (err.code === 'auth/unauthorized-domain') {
+                setError('Tên miền trang web chưa được cấp phép trong Firebase Auth Console.');
+                return;
+            }
+            let msg = 'Đăng nhập Google thất bại.';
+            if (err.message) {
+                msg += ` (${err.message})`;
+            }
+            setError(msg);
+        } finally {
+            setIsGoogleLoading(false);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -79,6 +129,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                     setError('⚠️ Email chưa được xác minh!\n\nVui lòng kiểm tra hộp thư (kể cả mục Spam) và nhấn vào link xác minh để kích hoạt tài khoản.\n\nNếu không nhận được email, hãy đăng ký lại hoặc liên hệ hỗ trợ.');
                     return;
                 }
+
+                // Kiểm tra giới hạn thiết bị tối đa 2 tài khoản
+                const deviceCheck = await checkDeviceAccountLimit(email, fbUser.uid);
+                if (!deviceCheck.allowed) {
+                    await firebaseAuth.logoutUser();
+                    setError(deviceCheck.message || '⚠️ Thiết bị này đã đạt giới hạn tối đa 2 tài khoản đăng nhập.');
+                    return;
+                }
+                await recordDeviceAccount(email, fbUser.uid);
+
                 // Construct local User object from Firebase User
                 const user: User = {
                     id: fbUser.uid,
@@ -100,7 +160,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                     setError('Vui lòng đồng ý với Điều khoản sử dụng để tiếp tục.');
                     return;
                 }
-                await firebaseAuth.registerUser(email, password, name);
+
+                // Cơ chế 1: Chặn email rác, email tạm thời 10 phút (Temp-mail)
+                const emailCheck = isDisposableEmail(email);
+                if (emailCheck.isDisposable) {
+                    setError(emailCheck.reason || '⚠️ Hệ thống không chấp nhận địa chỉ email tạm thời / rác.');
+                    return;
+                }
+
+                // Cơ chế 2: Giới hạn thiết bị tối đa 2 tài khoản (kiểm tra trước khi tạo tài khoản Firebase)
+                const deviceCheck = await checkDeviceAccountLimit(email);
+                if (!deviceCheck.allowed) {
+                    setError(deviceCheck.message || '⚠️ Thiết bị này đã đạt giới hạn tối đa 2 tài khoản.');
+                    return;
+                }
+
+                const newUser = await firebaseAuth.registerUser(email, password, name);
+                await recordDeviceAccount(email, newUser.uid);
+
                 // IMPORTANT: Logout immediately to prevent onAuthStateChanged from hiding modal
                 await firebaseAuth.logoutUser();
                 // Clear any errors and show verification pending view with countdown
@@ -219,6 +296,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                 </div>
                             )}
 
+                            {/* Google Sign In Button */}
+                            {view !== 'forgot' && (
+                                <div className="mb-4">
+                                    <button
+                                        type="button"
+                                        onClick={handleGoogleSignIn}
+                                        disabled={isGoogleLoading}
+                                        className="w-full flex items-center justify-center gap-3 py-3 px-4 min-h-[46px] bg-white hover:bg-slate-50 active:scale-[0.98] border border-slate-200/90 rounded-xl font-semibold text-sm sm:text-base text-slate-700 shadow-sm hover:shadow transition-all disabled:opacity-60 disabled:cursor-not-allowed group focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                                    >
+                                        {isGoogleLoading ? (
+                                            <div className="flex items-center gap-2 text-indigo-600 font-medium">
+                                                <svg className="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                                                </svg>
+                                                <span>Đang kết nối Google...</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
+                                                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                                </svg>
+                                                <span>{view === 'signup' ? 'Đăng ký nhanh bằng Google' : 'Đăng nhập bằng Google'}</span>
+                                            </>
+                                        )}
+                                    </button>
+
+                                    {/* Divider */}
+                                    <div className="relative my-4 flex items-center justify-center">
+                                        <div className="border-t border-slate-200/80 w-full"></div>
+                                        <span className="bg-white/95 px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider relative">
+                                            Hoặc với Email
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
                             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                                 {view === 'forgot' ? (
                                     <>
@@ -279,7 +396,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                     </div>
                                 )}
 
-                                {error && <div className="text-red-500 text-sm font-medium bg-red-50 p-3 rounded-lg text-center animate-pulse">{error}</div>}
+                                {error && <div className="text-red-600 text-xs sm:text-sm font-medium bg-red-50/90 border border-red-200/80 p-3.5 rounded-xl text-left whitespace-pre-line leading-relaxed shadow-sm animate-fade-in">{error}</div>}
                                 {infoMessage && <div className="text-green-600 text-sm font-medium bg-green-50 p-3 rounded-lg text-center animate-pulse">{infoMessage}</div>}
 
                                 <button type="submit" className="w-full mt-2 px-6 py-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 animate-gradient-x text-white font-bold rounded-xl hover:shadow-xl hover:shadow-indigo-500/40 transition-all transform active:scale-[0.98]">
