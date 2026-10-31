@@ -362,13 +362,12 @@ export const getNineRouterTextModel = (): string => {
 
 // Helper to resolve request URL (handles browser CORS proxying for remote endpoints)
 export const resolveRequestUrl = (targetUrl: string): string => {
-    if (typeof window !== 'undefined' && !(window as any).electronAPI?.isElectron) {
+    if (targetUrl.startsWith('https://') || targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1')) {
+        return targetUrl;
+    }
+    if (typeof window !== 'undefined' && !(window as any).electronAPI?.isElectron && window.location.protocol === 'https:') {
         try {
-            const parsed = new URL(targetUrl, window.location.href);
-            const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
-            if (!isLocal) {
-                return `/api/cors-proxy?url=${encodeURIComponent(targetUrl)}`;
-            }
+            return '/api/cors-proxy?url=' + encodeURIComponent(targetUrl);
         } catch {
             // keep original
         }

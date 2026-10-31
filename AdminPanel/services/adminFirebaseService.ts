@@ -860,16 +860,11 @@ export const subscribeToAiProxyConfig = (
  * Helper to resolve request URL through cors-proxy if calling external host from browser
  */
 const resolveProxyUrl = (targetUrl: string): string => {
-    if (typeof window !== 'undefined') {
-        try {
-            const parsed = new URL(targetUrl, window.location.href);
-            const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
-            if (!isLocal) {
-                return `/api/cors-proxy?url=${encodeURIComponent(targetUrl)}`;
-            }
-        } catch {
-            // keep original
-        }
+    if (targetUrl.startsWith('https://') || targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1')) {
+        return targetUrl;
+    }
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        return "/api/cors-proxy?url=" + encodeURIComponent(targetUrl);
     }
     return targetUrl;
 };
