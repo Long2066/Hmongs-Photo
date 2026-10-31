@@ -141,17 +141,18 @@ async def _ensure_cdp_chrome_running() -> bool:
             encoding="utf-8",
         )
     try:
-        subprocess.run(
-            ["schtasks", "/Create", "/TN", "FlowChromeCDP", "/TR", str(bat_path), "/SC", "ONCE", "/ST", "00:00", "/IT", "/F"],
-            capture_output=True,
-            timeout=5,
+        ps_cmd = (
+            f'$action = New-ScheduledTaskAction -Execute "{bat_path}"; '
+            '$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; '
+            'Register-ScheduledTask -TaskName "FlowChromeCDP" -Action $action -Settings $settings -Force | Out-Null; '
+            'Start-ScheduledTask -TaskName "FlowChromeCDP"'
         )
         subprocess.run(
-            ["schtasks", "/Run", "/TN", "FlowChromeCDP"],
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
             capture_output=True,
-            timeout=5,
+            timeout=8,
         )
-        for _ in range(10):
+        for _ in range(12):
             await asyncio.sleep(0.5)
             try:
                 with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:

@@ -288,12 +288,14 @@ class FlowUI:
                 pass
 
         # 1. Open the Start-frame ("Bắt đầu" / "Start") picker
-        picker_btn = page.locator(
+        picker_sel = (
             'button:has-text("uploadTải nội dung"), '
             'button:has-text("Tải nội dung nghe nhìn lên"), '
-            'button:has-text("Upload")'
-        ).last
-        if await picker_btn.count() == 0:
+            'button:has-text("Upload media")'
+        )
+        for attempt in range(3):
+            if await page.locator(picker_sel).count() > 0:
+                break
             for trigger_sel in [
                 'button:has-text("Bắt đầu"):not([aria-label*="tạo"])',
                 'button:has-text("Start")',
@@ -308,13 +310,20 @@ class FlowUI:
                         break
                     except Exception:
                         continue
+            # Also try JS click fallback on "Bắt đầu"
+            if await page.locator(picker_sel).count() == 0:
+                await page.evaluate("""
+                    () => {
+                        const btn = [...document.querySelectorAll('button')].find(
+                            b => (b.textContent || '').trim() === 'Bắt đầu' || (b.textContent || '').trim() === 'Start'
+                        );
+                        if (btn) btn.click();
+                    }
+                """)
+                await asyncio.sleep(1.0)
 
-        # 2. Click "uploadTải nội dung nghe nhìn lên" and set the file via expect_file_chooser
-        picker_btn = page.locator(
-            'button:has-text("upload"), '
-            'button:has-text("Tải nội dung nghe nhìn lên"), '
-            'button:has-text("Upload")'
-        ).last
+        # 2. Click "uploadTải nội dung nghe nhìn lên" (NOT the sidebar "drive_folder_upload Tệp tải lên"!)
+        picker_btn = page.locator(picker_sel).last
         if await picker_btn.count() > 0:
             try:
                 async with page.expect_file_chooser(timeout=8000) as fc_info:
