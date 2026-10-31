@@ -32,6 +32,7 @@ import { subscribeToUserCredits, updateUserCredits } from './services/firebaseSe
 import { getSystemApiKey, getModelConfig, getSelectedImageModel, formatVND } from './services/geminiCoreService';
 import { deductBalance, getCachedBalance, addUsageRecord } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
+import { checkDeviceAccountLimit, recordDeviceAccount } from './services/antiFraudService';
 import * as nineRouterService from './services/nineRouterService';
 import { auth } from './src/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -175,6 +176,18 @@ const App: React.FC = () => {
                 }
 
                 // Email is verified - allow access
+                // Anti-fraud: Kiểm tra giới hạn tối đa 2 tài khoản trên mỗi thiết bị
+                const deviceCheck = await checkDeviceAccountLimit(fbUser.email || '', fbUser.uid);
+                if (!deviceCheck.allowed) {
+                    console.warn('[AntiFraud] Device limit reached for:', fbUser.email);
+                    await firebaseService.logoutUser();
+                    storage.logoutUser();
+                    setCurrentUser(null);
+                    setAuthModalOpen(true);
+                    return;
+                }
+                await recordDeviceAccount(fbUser.email || '', fbUser.uid);
+
                 const user: User = {
                     id: fbUser.uid,
                     username: fbUser.email || '',
