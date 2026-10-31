@@ -48,7 +48,7 @@ const SUPPORTED_IMAGE_MODELS = [
 ];
 
 const PRESETS = [
-    { label: 'Cloudflare Tunnel', url: 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1' },
+    { label: 'Ngrok Tunnel', url: 'https://753c-158-178-235-87.ngrok-free.app/v1' },
     { label: 'VPS Cloud', url: 'http://158.178.235.87:20128/v1' },
     { label: 'Localhost', url: 'http://127.0.0.1:8317/v1' },
 ];
@@ -173,9 +173,9 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
         try {
             const parsed = new URL(config.url);
             const webBase = `${parsed.protocol}//${parsed.host}`;
-            window.open(webBase, '_blank', 'noopener,noreferrer');
+            window.open(`${webBase}/management.html`, '_blank', 'noopener,noreferrer');
         } catch {
-            window.open('http://158.178.235.87:20128/', '_blank', 'noopener,noreferrer');
+            window.open('https://753c-158-178-235-87.ngrok-free.app/management.html', '_blank', 'noopener,noreferrer');
         }
     };
 

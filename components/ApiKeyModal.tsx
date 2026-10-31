@@ -359,7 +359,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                 <div className="flex items-center gap-1.5 text-[10px]">
                                     <button
                                         type="button"
-                                        onClick={() => isAdminUnlocked ? applyUrlPreset('https://mrna-consistent-temp-anthropology.trycloudflare.com/v1') : focusPasswordInput()}
+                                        onClick={() => isAdminUnlocked ? applyUrlPreset('https://753c-158-178-235-87.ngrok-free.app/v1') : focusPasswordInput()}
                                         disabled={!isAdminUnlocked}
                                         className={`font-semibold px-2 py-0.5 rounded-md transition-colors ${
                                             isAdminUnlocked
@@ -390,7 +390,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                     onChange={(e) => isAdminUnlocked && setNineRouterUrlState(e.target.value)}
                                     onClick={!isAdminUnlocked ? focusPasswordInput : undefined}
                                     readOnly={!isAdminUnlocked}
-                                    placeholder="https://mrna-consistent-temp-anthropology.trycloudflare.com/v1"
+                                    placeholder="https://753c-158-178-235-87.ngrok-free.app/v1"
                                     className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-mono transition-all ${
                                         isAdminUnlocked
                                             ? 'bg-slate-50/70 border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 placeholder:text-slate-400'
@@ -481,7 +481,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                         return;
                                     }
                                     const base = (nineRouterUrl || '').replace(/\/v1\/?$/, '');
-                                    const dashboardUrl = base ? `${base}/management.html#/auth-files/` : 'https://mrna-consistent-temp-anthropology.trycloudflare.com/management.html#/auth-files/';
+                                    const dashboardUrl = base ? `${base}/management.html#/auth-files/` : 'https://753c-158-178-235-87.ngrok-free.app/management.html#/auth-files/';
                                     window.open(dashboardUrl, '_blank');
                                 }}
                                 className={`w-full py-2.5 px-4 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border ${

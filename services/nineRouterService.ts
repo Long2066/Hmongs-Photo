@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NineRouter Integration Service
  * 
  * This service provides integration with 9Router,
@@ -8,7 +8,7 @@
 import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
-const DEFAULT_NINEROUTER_URL = 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1';
+const DEFAULT_NINEROUTER_URL = 'https://753c-158-178-235-87.ngrok-free.app/v1';
 const DEFAULT_NINEROUTER_API_KEY = '123456';
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
@@ -382,8 +382,27 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutM
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
+        const mergedHeaders: Record<string, string> = {
+            'ngrok-skip-browser-warning': 'true'
+        };
+        if (options.headers) {
+            if (options.headers instanceof Headers) {
+                options.headers.forEach((v, k) => {
+                    mergedHeaders[k] = v;
+                });
+            } else if (Array.isArray(options.headers)) {
+                options.headers.forEach(([k, v]) => {
+                    mergedHeaders[k] = v;
+                });
+            } else {
+                Object.assign(mergedHeaders, options.headers);
+            }
+        }
+        mergedHeaders['ngrok-skip-browser-warning'] = 'true';
+
         const response = await fetch(finalUrl, {
             ...options,
+            headers: mergedHeaders,
             signal: controller.signal
         });
         clearTimeout(id);
@@ -556,7 +575,9 @@ const extractImageFromChatResponse = (parsed: ParsedNineRouterResponse): string 
 export const checkConnection = async (customUrl?: string, customApiKey?: string): Promise<NineRouterStatus> => {
     const baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
     const apiKey = customApiKey !== undefined ? customApiKey.trim() : getNineRouterApiKey();
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+        'ngrok-skip-browser-warning': 'true'
+    };
     if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
@@ -1614,3 +1635,5 @@ CRITICAL RULES:
 
     throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh. Vui lòng kiểm tra lại trạng thái kết nối.');
 };
+
+

@@ -751,7 +751,7 @@ const AI_PROXY_CONFIG_DOC = "aiProxyConfig";
 
 export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
     enabled: true,
-    url: 'https://mrna-consistent-temp-anthropology.trycloudflare.com/v1',
+    url: 'https://753c-158-178-235-87.ngrok-free.app/v1',
     apiKey: '123456',
     defaultTextModel: 'claude-opus-5-5-high',
     defaultImageModel: 'gpt-image-2.5',
@@ -893,7 +893,9 @@ export const checkProxyConnection = async (
     const testEndpoint = `${cleanUrl}/models`;
     const targetUrl = resolveProxyUrl(testEndpoint);
 
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+        'ngrok-skip-browser-warning': 'true'
+    };
     if (apiKey && apiKey.trim()) {
         headers['Authorization'] = `Bearer ${apiKey.trim()}`;
     }

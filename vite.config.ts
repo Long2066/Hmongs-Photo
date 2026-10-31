@@ -46,13 +46,16 @@ export default defineConfig(({ mode }) => {
                 return;
               }
 
-              const headers: Record<string, string> = {};
+              const headers: Record<string, string> = {
+                'ngrok-skip-browser-warning': 'true'
+              };
               for (const [key, value] of Object.entries(req.headers)) {
                 const lower = key.toLowerCase();
                 if (!['host', 'origin', 'referer'].includes(lower) && typeof value === 'string') {
                   headers[key] = value;
                 }
               }
+              headers['ngrok-skip-browser-warning'] = 'true';
 
               const chunks: Buffer[] = [];
               for await (const chunk of req) {
