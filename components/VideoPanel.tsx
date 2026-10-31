@@ -65,6 +65,8 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     const handleLoginClick = async () => {
         setIsTriggeringLogin(true);
+        // Mở trực tiếp tab Google Flow ngay trên trình duyệt Chrome của người dùng
+        window.open('https://labs.google/fx/tools/flow', '_blank', 'noopener,noreferrer');
         try {
             await triggerFlowBrowserLogin();
             const health = await checkVideoServerHealth(true);

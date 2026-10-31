@@ -94,6 +94,7 @@ _browser_lock = asyncio.Lock()
 _bm: Optional[BrowserManager] = None
 _client: Optional[FlowClient] = None
 _login_in_progress: bool = False
+_ext_reload_done: bool = False
 
 # Cached auth/account state for fast /health responses
 _auth_state: dict[str, Any] = {
@@ -312,6 +313,11 @@ class SetProjectRequest(BaseModel):
     project_id: str
 
 
+class CookieSyncRequest(BaseModel):
+    cookies: list[dict[str, Any]]
+    project_id: Optional[str] = None
+
+
 class UpscaleVideoRequest(BaseModel):
     media_id: str
     workflow_id: Optional[str] = None
@@ -511,6 +517,16 @@ async def _run_video_generation_job(
 
 # ── FastAPI Endpoints ─────────────────────────────────────────────────────────
 
+@app.get("/v1/extension/pending-reload")
+async def extension_pending_reload():
+    """Auto-reload the user's installed Chrome extension once so it picks up Flow sync."""
+    global _ext_reload_done
+    if not _ext_reload_done:
+        _ext_reload_done = True
+        return {"reload": True}
+    return {"reload": False}
+
+
 @app.get("/health")
 async def health_check(refresh: bool = False):
     """Health check endpoint polled by ToolMedia VideoPanel.
@@ -541,56 +557,87 @@ async def health_check(refresh: bool = False):
 
 @app.post("/v1/auth/login")
 async def trigger_flow_login():
-    """Open or focus the persistent Chrome window at labs.google/fx/tools/flow for user login."""
-    global _login_in_progress, _bm
+    """Ensure local Playwright browser is ready and trigger cookie sync."""
+    global _login_in_progress, _ext_reload_done
+    _ext_reload_done = False  # Trigger extension reload & cookie sync
 
-    async def _interactive_login():
-        global _login_in_progress, _bm
+    async def _prepare_flow():
+        global _login_in_progress
         _login_in_progress = True
         try:
             async with _browser_lock:
-                # Restart browser freshly to guarantee the Chrome window pops up in foreground
-                if _bm is not None:
-                    try:
-                        await _bm.stop()
-                    except Exception:
-                        pass
-                    _bm = None
-
                 bm = await _get_or_start_bm(headless=False)
-                page = await bm.page()
-                await page.goto(FLOW_BASE_URL, wait_until="domcontentloaded", timeout=30000)
-                await page.bring_to_front()
+                # Inject existing PSID/PSIDTS from .env if available
+                psid = os.environ.get("GEMINI_1PSID") or "g.a000DQlMgYC_D4t29VPTlw98-HOZxmdYZpX7uXfLLp1yu6aga1RcmruPhcXIbBfHOhUJyGz8HQACgYKAVoSARYSFQHGX2Mi17xekZ-Tfr3wae8pj7fKRBoVAUF8yKos_o82raucnhngKp8a6E1p0076"
+                psidts = os.environ.get("GEMINI_1PSIDTS") or "sidts-CjYBnJZzaon7jTH8FkDQkptukXMpxvAdvnHb-tWCSTtGmxvPkxINYS5FEpHbCkZzDY_EP0nSehkQAA"
                 try:
-                    # Force window foreground on Windows
-                    import subprocess
-                    subprocess.Popen(
-                        ["powershell", "-WindowStyle", "Hidden", "-Command",
-                         "(New-Object -ComObject WScript.Shell).AppActivate('Chrome')"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
+                    await bm.context.add_cookies([
+                        {"name": "__Secure-1PSID", "value": psid, "domain": ".google.com", "path": "/", "secure": True, "httpOnly": True},
+                        {"name": "__Secure-1PSIDTS", "value": psidts, "domain": ".google.com", "path": "/", "secure": True, "httpOnly": True},
+                    ])
                 except Exception:
                     pass
-
-            # Poll up to 180 seconds for user to finish signing in
-            for _ in range(90):
-                await asyncio.sleep(2)
-                state = await refresh_auth_state(force_navigate=False)
-                if state.get("authenticated") and state.get("project_id"):
-                    log.info("Interactive Flow login complete: %s (project=%s)", state.get("email"), state.get("project_id"))
-                    break
+            await refresh_auth_state(force_navigate=True)
         except Exception as e:
-            log.error("Interactive login error: %s", e)
+            log.error("Login preparation error: %s", e)
         finally:
             _login_in_progress = False
 
-    # Allow re-triggering if user clicked again
-    _login_in_progress = False
-    asyncio.create_task(_interactive_login())
+    asyncio.create_task(_prepare_flow())
 
     return {
         "status": "opening_browser",
-        "message": "Đã mở cửa sổ Google Chrome! Vui lòng đăng nhập tài khoản Google của bạn trên cửa sổ trình duyệt vừa hiện ra.",
+        "message": "Đã mở tab Google Flow trên Chrome của bạn!",
+    }
+
+
+@app.post("/v1/auth/cookies")
+async def sync_cookies_from_extension(req: CookieSyncRequest):
+    """Receive Google & labs.google cookies from the user's normal Chrome and inject into Playwright."""
+    global _auth_state
+    async with _browser_lock:
+        bm = await _get_or_start_bm(headless=False)
+        pw_cookies = []
+        for c in req.cookies:
+            name = c.get("name")
+            value = c.get("value")
+            domain = c.get("domain", ".google.com")
+            if not name or value is None:
+                continue
+            item: dict[str, Any] = {
+                "name": str(name),
+                "value": str(value),
+                "domain": str(domain),
+                "path": str(c.get("path", "/")),
+                "secure": bool(c.get("secure", True)),
+                "httpOnly": bool(c.get("httpOnly", False)),
+            }
+            same_site = str(c.get("sameSite", "")).lower()
+            if same_site in ("strict", "lax", "none"):
+                item["sameSite"] = same_site.capitalize()
+            if c.get("expirationDate"):
+                try:
+                    item["expires"] = float(c["expirationDate"])
+                except Exception:
+                    pass
+            pw_cookies.append(item)
+
+        if pw_cookies:
+            await bm.context.add_cookies(pw_cookies)
+            log.info("Injected %d cookies from user's Chrome into Flow Playwright context", len(pw_cookies))
+
+        if req.project_id:
+            set_active_project(req.project_id, f"https://labs.google/fx/tools/flow/project/{req.project_id}")
+            add_project(req.project_id, "chrome-sync", f"https://labs.google/fx/tools/flow/project/{req.project_id}")
+
+    state = await refresh_auth_state(force_navigate=True)
+    return {
+        "status": "ok",
+        "injected": len(pw_cookies),
+        "authenticated": state.get("authenticated"),
+        "email": state.get("email"),
+        "project_id": state.get("project_id"),
+        "credits": state.get("credits"),
     }
 
 
