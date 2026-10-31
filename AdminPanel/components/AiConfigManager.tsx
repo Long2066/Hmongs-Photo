@@ -68,6 +68,38 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
         error?: string;
         checkedAt?: number;
     } | null>(null);
+    const [pricingSaving, setPricingSaving] = useState<string | null>(null);
+
+    // Auto-save & sync model pricing immediately to Firestore
+    const handleToggleModelPricing = async (modelId: string, currentIsPaid: boolean) => {
+        const nextIsPaid = !currentIsPaid;
+        const currentPricing = config.modelPricing || {
+            'gemini-3.1-flash-image': false,
+            'gpt-image-2.5': true,
+            'gpt-image-2.5-flare': true,
+            'gpt-image-2.5-sunburst': true,
+            'gpt-image-2': true,
+            'gpt-image-1.5': false
+        };
+        const updatedPricing = {
+            ...currentPricing,
+            [modelId]: nextIsPaid
+        };
+        const updatedConfig = {
+            ...config,
+            modelPricing: updatedPricing
+        };
+        setConfig(updatedConfig);
+        setPricingSaving(modelId);
+        try {
+            await saveAiProxyConfig(updatedConfig, admin.email || 'admin');
+            console.log(`[AiConfigManager] Auto-synced model pricing to Cloud: ${modelId} -> ${nextIsPaid ? 'PAID' : 'FREE'}`);
+        } catch (err) {
+            console.error('Failed to auto-save model pricing:', err);
+        } finally {
+            setTimeout(() => setPricingSaving(null), 800);
+        }
+    };
 
     // Load initial config from Cloud Firestore
     useEffect(() => {
