@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     LayoutDashboard,
     Users,
+    Inbox,
     Bell,
     LogOut,
     Shield,
@@ -9,6 +10,7 @@ import {
     Cpu
 } from 'lucide-react';
 import { AdminUser, logoutAdmin } from '../services/adminAuthService';
+import { subscribeToFeedback } from '../services/adminFirebaseService';
 
 interface SidebarProps {
     currentPage: string;
@@ -17,6 +19,15 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) => {
+    const [unreadFeedbackCount, setUnreadFeedbackCount] = useState<number>(0);
+
+    useEffect(() => {
+        const unsub = subscribeToFeedback((_, unread) => {
+            setUnreadFeedbackCount(unread);
+        });
+        return () => unsub();
+    }, []);
+
     const handleLogout = async () => {
         if (confirm('Bạn có chắc muốn đăng xuất?')) {
             await logoutAdmin();
@@ -26,6 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'users', label: 'Quản lý Users', icon: Users },
+        { id: 'feedback', label: 'Hòm thư góp ý', icon: Inbox, badge: unreadFeedbackCount },
         { id: 'notifications', label: 'Gửi thông báo', icon: Bell },
         { id: 'clothing', label: 'Thư viện Trang phục', icon: Shirt },
         { id: 'ai-config', label: 'Cấu hình AI Tool', icon: Cpu },
@@ -49,9 +61,27 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
                         key={item.id}
                         className={`nav-item ${currentPage === item.id ? 'active' : ''}`}
                         onClick={() => onPageChange(item.id)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                     >
-                        <item.icon size={20} />
-                        {item.label}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <item.icon size={20} />
+                            <span>{item.label}</span>
+                        </div>
+                        {item.badge !== undefined && item.badge > 0 && (
+                            <span style={{
+                                background: '#e11d48',
+                                color: '#ffffff',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                borderRadius: '999px',
+                                minWidth: '20px',
+                                textAlign: 'center',
+                                boxShadow: '0 1px 3px rgba(225, 29, 72, 0.4)'
+                            }} className="font-mono tabular-nums">
+                                {item.badge}
+                            </span>
+                        )}
                     </button>
                 ))}
             </nav>

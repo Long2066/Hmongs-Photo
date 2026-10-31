@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Hàm kiểm tra user đã đăng nhập
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Hàm kiểm tra sở hữu dữ liệu
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Hàm kiểm tra quyền Admin
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == 'longk2tha@gmail.com' ||
+        request.auth.token.email == 'maholong12a4@gmail.com'
+      );
+    }
+    
+    // === REGISTRATIONS (cho phép đọc public để hiển thị marquee) ===
+    match /registrations/{docId} {
+      allow read: if true;  // Public read cho marquee
+      allow create: if isAuthenticated();
+    }
+    
+    // === USER ACCESS ===
+    match /userAccess/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // === ACTIVITY LOG ===
+    match /activityLog/{docId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // === HISTORY (deprecated) ===
+    match /history/{docId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // === USER CREDITS ===
+    match /userCredits/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // === APPROVED BILLS ===
+    match /approvedBills/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+    
+    // === FAILED BILLS ===
+    match /failedBills/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // === NOTIFICATIONS ===
+    match /notifications/{docId} {
+      allow read: if true;  // Public read để user thấy thông báo trước khi đăng nhập
+      allow write: if isAuthenticated();  // Admin đã đăng nhập được tạo, sửa, xóa thông báo
+    }
+    
+    // === CLOTHING TEMPLATES ===
+    match /clothing_templates/{docId} {
+      allow read: if isAuthenticated();  // User đăng nhập mới đọc được
+      allow write: if isAuthenticated();  // Admin viết qua AdminPanel
+    }
+    
+    // === SYSTEM SETTINGS (AI Proxy config - managed from AdminPanel) ===
+    match /systemSettings/{docId} {
+      allow read: if isAuthenticated();   // Tool clients (logged in) read config
+      allow write: if isAuthenticated();  // Admin có thể lưu cấu hình
+    }
+  }
+}

@@ -4,11 +4,12 @@ import AdminLogin from './components/AdminLogin';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import UserList from './components/UserList';
+import FeedbackInbox from './components/FeedbackInbox';
 import NotificationSender from './components/NotificationSender';
 import ClothingManager from './components/ClothingManager';
 import AiConfigManager from './components/AiConfigManager';
 
-type Page = 'dashboard' | 'users' | 'notifications' | 'clothing' | 'ai-config';
+type Page = 'dashboard' | 'users' | 'feedback' | 'notifications' | 'clothing' | 'ai-config';
 
 const App: React.FC = () => {
     const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -54,6 +55,8 @@ const App: React.FC = () => {
                 return <Dashboard />;
             case 'users':
                 return <UserList />;
+            case 'feedback':
+                return <FeedbackInbox admin={admin} />;
             case 'notifications':
                 return <NotificationSender admin={admin} />;
             case 'clothing':
@@ -80,4 +83,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
