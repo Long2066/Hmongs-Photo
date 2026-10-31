@@ -136,11 +136,10 @@ const App: React.FC = () => {
     }, []);
 
     // Subscribe to Realtime Cloud AI Proxy Configuration from Admin Panel.
-    // Firestore rules require an authenticated user, so (re)subscribe once the user is logged in.
+    // Syncs modelPricing, URL, API Key & ON/OFF switch in real time for all users (guests & authenticated)
     useEffect(() => {
-        if (!currentUser?.id) return;
         const unsubscribeProxy = firebaseService.subscribeToAiProxyConfig((config) => {
-            console.log('[App] Received AI Proxy Cloud Config update:', config ? { enabled: config.enabled, url: config.url } : 'none');
+            console.log('[App] Received AI Proxy Cloud Config update:', config ? { enabled: config.enabled, url: config.url, pricing: config.modelPricing } : 'none');
             nineRouterService.updateNineRouterConfigFromCloud(config);
             setHasGeminiKey(nineRouterService.isNineRouterEnabled());
         });
@@ -148,7 +147,7 @@ const App: React.FC = () => {
         return () => {
             unsubscribeProxy();
         };
-    }, [currentUser?.id]);
+    }, []);
 
     // Realtime Presence Heartbeat (sync online status with admin & marquee)
     useEffect(() => {
@@ -395,66 +394,68 @@ const App: React.FC = () => {
         setPendingGeneration(null);
     };
 
-    // Validate subscription plan quota & model before generation
+    // Validate subscription plan quota & model before generation (dynamic via Firebase sync)
     const validateSubscriptionBeforeGenerate = useCallback((requestedImages: number): boolean => {
         if (!currentUser) return false;
         if (storage.isAdmin()) return true;
 
-        const effectivePlan = firebaseService.resolveEffectivePlan(
-            firebaseService.getCachedUserPlan(currentUser.id),
-            userBalance
-        );
+        const activeModel = nineRouterService.getNineRouterImageModel();
+        const isPaidModel = nineRouterService.isModelPaid(activeModel);
 
-        if (effectivePlan === 'free') {
-            // Force GPT 1.5 model for Free tier
-            const activeModel = nineRouterService.getNineRouterImageModel();
-            if (activeModel !== firebaseService.FREE_ALLOWED_MODEL) {
-                nineRouterService.setNineRouterImageModel(firebaseService.FREE_ALLOWED_MODEL);
-            }
-
-            const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
-            if (remainingFree <= 0) {
-                setError(`Bạn đã sử dụng hết ${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí trong ngày của Gói Free. Vui lòng vào Trang cá nhân nâng cấp Gói Plus (50.000đ) hoặc Gói Pro (100.000đ) để tiếp tục tạo ảnh không giới hạn!`);
-                return false;
-            }
-            if (requestedImages > remainingFree) {
-                setError(`Gói Free của bạn chỉ còn ${remainingFree}/${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí hôm nay (bạn đang chọn tạo ${requestedImages} ảnh). Vui lòng giảm số lượng ảnh hoặc nâng cấp Gói Plus / Pro tại Trang cá nhân.`);
-                return false;
+        // If the model is configured as Free in Admin Panel (synchronized via Firebase):
+        if (!isPaidModel) {
+            // Free model: anyone can use freely, even with 0đ balance!
+            if (userBalance < firebaseService.IMAGE_COST_VND) {
+                const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
+                if (remainingFree <= 0) {
+                    setError(`Bạn đã sử dụng hết ${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí trong ngày. Vui lòng nạp thêm tiền hoặc nâng cấp gói tại Trang cá nhân để tạo ảnh không giới hạn!`);
+                    return false;
+                }
+                if (requestedImages > remainingFree) {
+                    setError(`Bạn chỉ còn ${remainingFree}/${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí hôm nay (đang chọn tạo ${requestedImages} ảnh). Vui lòng giảm số lượng ảnh hoặc nạp thêm tiền.`);
+                    return false;
+                }
             }
             return true;
         }
 
-        // Plus or Pro tier: costs 500 VND / image
+        // Model is configured as Paid in Admin Panel:
+        // Requires user balance >= requestedImages * 500 VND
         const requiredVND = requestedImages * firebaseService.IMAGE_COST_VND;
         if (userBalance < requiredVND) {
-            setError(`Số dư hiện tại (${formatVND(userBalance)}) không đủ để tạo ${requestedImages} ảnh (cần ${formatVND(requiredVND)} — 500đ/ảnh). Vui lòng vào Trang cá nhân mua thêm Gói Plus hoặc Gói Pro.`);
+            setError(`Mô hình "${activeModel}" là mô hình Trả phí (500đ/ảnh). Số dư hiện tại (${formatVND(userBalance)}) không đủ để tạo ${requestedImages} ảnh (cần ${formatVND(requiredVND)}). Vui lòng chuyển sang mô hình Miễn phí (như Gemini 3.1 Flash, GPT Image 1.5) hoặc nạp thêm tiền tại Trang cá nhân.`);
             return false;
         }
 
         return true;
     }, [currentUser, userBalance]);
 
-    // Deduct balance (500đ/image for Plus & Pro) or increment daily Free counter after successful generation
+    // Deduct balance (500đ/image for Paid models) or increment daily Free counter for Free models
     const deductBalanceForVIP = async (imagesCount: number = 1, generationType: string = 'image_generation') => {
         if (!currentUser || imagesCount <= 0) return;
         if (storage.isAdmin() && userBalance <= 0) return;
 
+        const modelId = nineRouterService.getNineRouterImageModel();
+        const isPaidModel = nineRouterService.isModelPaid(modelId);
+
+        // If model is Free (synchronized via Firebase config):
+        if (!isPaidModel) {
+            if (userBalance < firebaseService.IMAGE_COST_VND) {
+                await firebaseService.incrementDailyFreeUsage(currentUser.id, imagesCount);
+            }
+            console.log(`[FREE MODEL] Model "${modelId}" is FREE. Skipping balance deduction.`);
+            return;
+        }
+
+        // If model is Paid:
+        const pricePerImage = firebaseService.IMAGE_COST_VND; // 500 VND / image
+        const totalCost = imagesCount * pricePerImage;
         const effectivePlan = firebaseService.resolveEffectivePlan(
             firebaseService.getCachedUserPlan(currentUser.id),
             userBalance
         );
 
-        if (effectivePlan === 'free') {
-            await firebaseService.incrementDailyFreeUsage(currentUser.id, imagesCount);
-            console.log(`[FREE PLAN] Used ${imagesCount} free image(s) today.`);
-            return;
-        }
-
-        const pricePerImage = firebaseService.IMAGE_COST_VND; // 500 VND / image
-        const totalCost = imagesCount * pricePerImage;
-        const modelId = nineRouterService.getNineRouterImageModel();
-
-        console.log(`[SUBSCRIPTION ${effectivePlan.toUpperCase()}] Deducting ${formatVND(totalCost)} (${pricePerImage}đ x ${imagesCount} ảnh)`);
+        console.log(`[SUBSCRIPTION ${effectivePlan.toUpperCase()}] Deducting ${formatVND(totalCost)} (${pricePerImage}đ x ${imagesCount} ảnh for ${modelId})`);
 
         // Deduct from local balance and add usage record
         deductBalance(totalCost, {

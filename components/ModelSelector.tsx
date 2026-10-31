@@ -10,7 +10,6 @@ import { getCachedBalance } from '../services/balanceService';
 import { isAdmin } from '../services/storageService';
 import {
     SubscriptionPlan,
-    FREE_ALLOWED_MODEL,
     FREE_DAILY_IMAGE_LIMIT,
     IMAGE_COST_VND,
     getCachedUserPlan,
@@ -46,10 +45,31 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         getDailyFreeRemaining()
     );
 
+    // Dynamic model pricing synced via Firebase
+    const [pricingMap, setPricingMap] = useState<Record<string, boolean>>(() =>
+        nineRouterService.getModelPricing()
+    );
+
     // Effective Plan considering balance & admin status
     const effectivePlan: SubscriptionPlan = isAdmin()
         ? 'pro'
         : resolveEffectivePlan(userPlan, userBalance);
+
+    // Helper: Determine if a model is Paid according to Firebase real-time sync
+    const checkIsPaid = useCallback((modelId: string): boolean => {
+        const clean = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
+        if (pricingMap && pricingMap[clean] !== undefined) {
+            return !!pricingMap[clean];
+        }
+        return nineRouterService.isModelPaid(clean);
+    }, [pricingMap]);
+
+    // Helper: Determine if a model is locked (Paid model when user balance is 0đ and not admin)
+    const checkIsLocked = useCallback((modelId: string): boolean => {
+        if (isAdmin()) return false;
+        const isPaid = checkIsPaid(modelId);
+        return isPaid && userBalance < IMAGE_COST_VND;
+    }, [checkIsPaid, userBalance]);
 
     // Selected Image Model
     const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -73,11 +93,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     // Current selected model object
     const currentModelObj = SUPPORTED_IMAGE_MODELS.find(m => m.id === selectedModel);
 
-    // Sync state with real-time events
+    // Sync state with real-time events (Firebase config updates, balance changes, model changes)
     useEffect(() => {
         const handleModelChange = (e: any) => {
             const nextModel = e.detail?.model || nineRouterService.getNineRouterImageModel();
             setSelectedModel(nextModel);
+        };
+
+        const handlePricingChange = (e: any) => {
+            const updated = e.detail?.pricing || nineRouterService.getModelPricing();
+            console.log('[ModelSelector] Realtime pricing update from Firebase:', updated);
+            setPricingMap({ ...updated });
         };
 
         const handleBalanceAndPlanChange = (e?: any) => {
@@ -92,6 +118,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         };
 
         window.addEventListener('ninerouter-model-changed', handleModelChange);
+        window.addEventListener('ninerouter-pricing-changed', handlePricingChange);
         window.addEventListener('storage', handleBalanceAndPlanChange);
         window.addEventListener('user-balance-changed', handleBalanceAndPlanChange);
 
@@ -99,6 +126,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
 
         return () => {
             window.removeEventListener('ninerouter-model-changed', handleModelChange);
+            window.removeEventListener('ninerouter-pricing-changed', handlePricingChange);
             window.removeEventListener('storage', handleBalanceAndPlanChange);
             window.removeEventListener('user-balance-changed', handleBalanceAndPlanChange);
             clearInterval(interval);
@@ -111,14 +139,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         }
     }, [propBalance]);
 
-    // Enforce Free tier model restriction (only GPT Image 1.5 allowed on Free)
+    // Dynamic auto-fallback: if currently selected model is locked (Paid model & 0đ balance),
+    // automatically fall back to the first available Free model
     useEffect(() => {
-        if (effectivePlan === 'free' && selectedModel !== FREE_ALLOWED_MODEL) {
-            setSelectedModel(FREE_ALLOWED_MODEL);
-            nineRouterService.setNineRouterImageModel(FREE_ALLOWED_MODEL);
-            onModelChange?.(FREE_ALLOWED_MODEL);
+        if (checkIsLocked(selectedModel)) {
+            const availableFree = SUPPORTED_IMAGE_MODELS.find(m => !checkIsPaid(m.id))?.id || 'gemini-3.1-flash-image';
+            console.log(`[ModelSelector] Active model ${selectedModel} is locked (0đ balance). Switching to free model: ${availableFree}`);
+            setSelectedModel(availableFree);
+            nineRouterService.setNineRouterImageModel(availableFree);
+            onModelChange?.(availableFree);
         }
-    }, [effectivePlan, selectedModel, onModelChange]);
+    }, [selectedModel, checkIsLocked, checkIsPaid, onModelChange]);
 
     // Enforce Free & Plus resolution restriction (max FHD; 2K and 4K are Pro only)
     useEffect(() => {
@@ -145,10 +176,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         };
     }, [isOpen]);
 
-    // Choose a predefined model
+    // Choose a model
     const handleSelectModel = useCallback((modelId: string) => {
-        if (effectivePlan === 'free' && modelId !== FREE_ALLOWED_MODEL) {
-            alert('Gói Free chỉ hỗ trợ model GPT Image 1.5 (tối đa 20 ảnh/ngày). Vui lòng nâng cấp Gói Plus (50.000đ) hoặc Gói Pro (100.000đ) tại Trang cá nhân để mở khóa toàn bộ model AI!');
+        if (checkIsLocked(modelId)) {
+            alert('Mô hình này đang ở chế độ Trả phí (500đ/ảnh). Số dư của bạn hiện tại là 0đ. Vui lòng nạp thêm tiền trong Trang cá nhân hoặc chọn mô hình Miễn phí (như Gemini 3.1 Flash, GPT Image 1.5) để tiếp tục tạo ảnh!');
             return;
         }
 
@@ -156,7 +187,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         nineRouterService.setNineRouterImageModel(modelId);
         onModelChange?.(modelId);
         setIsOpen(false);
-    }, [effectivePlan, onModelChange]);
+    }, [checkIsLocked, onModelChange]);
 
     // Handle resolution change
     const handleResolutionChange = useCallback((res: ResolutionType) => {
@@ -175,8 +206,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     const handleApplyCustomModel = useCallback(() => {
         const trimmed = customModelInput.trim();
         if (!trimmed) return;
-        if (effectivePlan === 'free' && trimmed !== FREE_ALLOWED_MODEL) {
-            alert('Gói Free chỉ hỗ trợ model GPT 1.5. Vui lòng nâng cấp Gói Plus hoặc Pro.');
+        if (checkIsLocked(trimmed)) {
+            alert('Mô hình này yêu cầu số dư > 0đ để sử dụng.');
             return;
         }
         setSelectedModel(trimmed);
@@ -185,28 +216,32 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         setIsOpen(false);
         setShowCustomInput(false);
         setCustomModelInput('');
-    }, [customModelInput, effectivePlan, onModelChange]);
+    }, [customModelInput, checkIsLocked, onModelChange]);
+
+    const activeModelIsPaid = checkIsPaid(selectedModel);
 
     return (
         <div className={`space-y-3.5 ${className}`}>
-            {/* Header: Title & Active Tier Badge */}
+            {/* Header: Title & Dynamic Free/Paid Status Badge */}
             <div>
                 <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
                         Model Tạo Ảnh
                     </label>
                     <span className="text-[11px] font-semibold">
-                        {effectivePlan === 'free' ? (
-                            <span className="text-amber-700 font-mono tabular-nums">
-                                Gói Free: Còn {freeRemaining}/{FREE_DAILY_IMAGE_LIMIT} ảnh hôm nay
-                            </span>
-                        ) : effectivePlan === 'plus' ? (
-                            <span className="text-emerald-700 font-mono tabular-nums">
-                                Gói Plus • {IMAGE_COST_VND}đ/ảnh
-                            </span>
+                        {!activeModelIsPaid ? (
+                            userBalance < IMAGE_COST_VND ? (
+                                <span className="text-emerald-700 font-mono tabular-nums">
+                                    Miễn phí • Còn {freeRemaining}/{FREE_DAILY_IMAGE_LIMIT} ảnh hôm nay
+                                </span>
+                            ) : (
+                                <span className="text-emerald-700 font-mono tabular-nums">
+                                    Model Miễn phí (0đ/ảnh)
+                                </span>
+                            )
                         ) : (
                             <span className="text-indigo-600 font-mono tabular-nums">
-                                Gói Pro • {IMAGE_COST_VND}đ/ảnh
+                                Trả phí • {IMAGE_COST_VND}đ/ảnh
                             </span>
                         )}
                     </span>
@@ -229,11 +264,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                 {currentModelObj ? currentModelObj.name : selectedModel.replace('ag/', '').replace('openrouter/', '')}
                             </span>
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 uppercase tracking-wider ${
-                                selectedModel === FREE_ALLOWED_MODEL && effectivePlan === 'free'
+                                !activeModelIsPaid
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                     : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                             }`}>
-                                {effectivePlan === 'free' ? 'Gói Free' : '500đ/ảnh'}
+                                {!activeModelIsPaid ? 'Miễn phí' : '500đ/ảnh'}
                             </span>
                         </div>
 
@@ -253,7 +288,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                             <div className="max-h-[250px] overflow-y-auto custom-scrollbar space-y-0.5">
                                 {SUPPORTED_IMAGE_MODELS.map((model) => {
                                     const isSelected = selectedModel === model.id;
-                                    const isLocked = effectivePlan === 'free' && model.id !== FREE_ALLOWED_MODEL;
+                                    const isPaid = checkIsPaid(model.id);
+                                    const isLocked = checkIsLocked(model.id);
 
                                     return (
                                         <button
@@ -268,20 +304,20 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                                         ? 'bg-indigo-50 text-indigo-700 font-bold cursor-pointer'
                                                         : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100/70 font-medium cursor-pointer'
                                             }`}
-                                            title={isLocked ? 'Cần gói Plus hoặc Pro để mở khóa model này' : model.description}
+                                            title={isLocked ? 'Mô hình Trả phí (500đ/ảnh). Cần số dư > 0đ để sử dụng' : model.description}
                                         >
                                             <div className="flex items-center gap-2 truncate min-w-0">
                                                 <span className="text-xs truncate">
                                                     {model.name}
                                                 </span>
                                                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 uppercase tracking-wider ${
-                                                    isLocked
-                                                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                                        : model.id === FREE_ALLOWED_MODEL
-                                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                    !isPaid
+                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                        : isLocked
+                                                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                                             : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                                                 }`}>
-                                                    {isLocked ? 'Plus / Pro' : model.id === FREE_ALLOWED_MODEL ? 'Free / 500đ' : 'Plus / Pro'}
+                                                    {!isPaid ? 'Miễn phí' : isLocked ? 'Cần số dư > 0đ' : 'Trả phí • 500đ'}
                                                 </span>
                                             </div>
 
@@ -299,43 +335,41 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                 })}
                             </div>
 
-                            {/* Optional Custom Model Input Box (Plus/Pro only) */}
-                            {effectivePlan !== 'free' && (
-                                <div className="border-t border-slate-100 mt-1 pt-1 px-1">
-                                    {!showCustomInput ? (
+                            {/* Optional Custom Model Input Box */}
+                            <div className="border-t border-slate-100 mt-1 pt-1 px-1">
+                                {!showCustomInput ? (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowCustomInput(true);
+                                        }}
+                                        className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50/70 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                                    >
+                                        <span className="text-sm leading-none font-bold">+</span>
+                                        <span>Nhập ID model khác...</span>
+                                    </button>
+                                ) : (
+                                    <div className="p-1 flex gap-1.5 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                            type="text"
+                                            value={customModelInput}
+                                            onChange={(e) => setCustomModelInput(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCustomModel(); }}
+                                            placeholder="vd: gpt-image-2.5, gpt-image-1.5..."
+                                            className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 outline-none focus:border-indigo-600 focus:bg-white"
+                                            autoFocus
+                                        />
                                         <button
                                             type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setShowCustomInput(true);
-                                            }}
-                                            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50/70 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                                            onClick={handleApplyCustomModel}
+                                            className="px-2.5 py-1 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer"
                                         >
-                                            <span className="text-sm leading-none font-bold">+</span>
-                                            <span>Nhập ID model khác...</span>
+                                            Lưu
                                         </button>
-                                    ) : (
-                                        <div className="p-1 flex gap-1.5 animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                                            <input
-                                                type="text"
-                                                value={customModelInput}
-                                                onChange={(e) => setCustomModelInput(e.target.value)}
-                                                onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCustomModel(); }}
-                                                placeholder="vd: gpt-image-2.5, gpt-image-1.5..."
-                                                className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 outline-none focus:border-indigo-600 focus:bg-white"
-                                                autoFocus
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={handleApplyCustomModel}
-                                                className="px-2.5 py-1 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer"
-                                            >
-                                                Lưu
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
