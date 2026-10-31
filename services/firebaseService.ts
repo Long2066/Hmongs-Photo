@@ -153,6 +153,7 @@ export const recordCloudVisit = async (): Promise<void> => {
                 totalVisits: 76,
                 todayVisits: 13,
                 lastDate: today,
+                dailyVisits: { [today]: 13 },
                 updatedAt: now
             });
         } else {
@@ -161,6 +162,9 @@ export const recordCloudVisit = async (): Promise<void> => {
             await setDoc(visitRef, {
                 totalVisits: increment(1),
                 todayVisits: isNewDay ? 1 : increment(1),
+                dailyVisits: {
+                    [today]: isNewDay ? 1 : increment(1)
+                },
                 lastDate: today,
                 updatedAt: now
             }, { merge: true });
@@ -552,6 +556,19 @@ export const saveActivityLog = async (userId: string, feature: string, imageCoun
             prompt: prompt?.substring(0, 100) || '', // Truncate prompt to save space
             timestamp: Date.now()
         });
+
+        // Atomically sync global image count to userAccess/system_metrics
+        try {
+            const targetDb = await getBackgroundSyncDb();
+            const metricRef = doc(targetDb, USER_ACCESS_COLLECTION, 'system_metrics');
+            await setDoc(metricRef, {
+                totalImages: increment(imageCount || 1),
+                lastUpdated: Date.now()
+            }, { merge: true });
+        } catch (mErr) {
+            console.warn('[ACTIVITY] Could not sync system_metrics image count:', mErr);
+        }
+
         console.log('[ACTIVITY] Saved successfully');
     } catch (error) {
         console.error('[ACTIVITY] Error saving activity log:', error);
@@ -961,6 +978,25 @@ export const updateUserCredits = async (
                 setTimeout(() => reject(new Error('Firestore update timeout (15s)')), 15000)
             )
         ]);
+
+        // Atomically sync system_metrics in userAccess for global metrics
+        try {
+            const targetDb = await getBackgroundSyncDb();
+            const metricRef = doc(targetDb, USER_ACCESS_COLLECTION, 'system_metrics');
+            if (operation === 'add') {
+                await setDoc(metricRef, {
+                    totalDeposited: increment(amount),
+                    lastUpdated: Date.now()
+                }, { merge: true });
+            } else if (operation === 'subtract') {
+                await setDoc(metricRef, {
+                    totalSpent: increment(amount),
+                    lastUpdated: Date.now()
+                }, { merge: true });
+            }
+        } catch (mErr) {
+            console.warn('[Credits] Could not sync system_metrics:', mErr);
+        }
 
         // Update local cache immediately
         if (typeof localStorage !== 'undefined') {

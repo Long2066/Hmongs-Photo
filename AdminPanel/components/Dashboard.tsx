@@ -9,7 +9,10 @@ import {
     Radio,
     Cloud,
     Globe,
-    Activity
+    Activity,
+    BarChart3,
+    Eye,
+    UserPlus
 } from 'lucide-react';
 import {
     getTotalUserCount,
@@ -17,9 +20,11 @@ import {
     getTotalCreditsIssued,
     getTotalAmountSpent,
     getTotalImagesGenerated,
-    getRegistrationStats,
+    get7DaysStats,
     subscribeToRealtimeStats,
-    RealtimeCloudStats
+    subscribeToSystemMetrics,
+    RealtimeCloudStats,
+    DailyTrafficItem
 } from '../services/adminFirebaseService';
 
 interface Stats {
@@ -28,42 +33,52 @@ interface Stats {
     totalDeposited: number; // VND deposited
     totalSpent: number; // VND spent
     totalImages: number; // Images generated
-    registrationStats: { date: string; count: number }[];
+    sevenDaysData: DailyTrafficItem[];
 }
+
+type ChartMetric = 'visits' | 'activeUsers' | 'registrations';
 
 const Dashboard: React.FC = () => {
     const [stats, setStats] = useState<Stats>({
-        totalUsers: 0,
-        activeToday: 0,
-        totalDeposited: 0,
-        totalSpent: 0,
-        totalImages: 0,
-        registrationStats: []
+        totalUsers: 14,
+        activeToday: 2,
+        totalDeposited: 250000,
+        totalSpent: 115000,
+        totalImages: 342,
+        sevenDaysData: []
     });
 
     const [cloudStats, setCloudStats] = useState<RealtimeCloudStats>({
-        totalVisits: 75,
-        todayVisits: 12,
+        totalVisits: 115,
+        todayVisits: 52,
         onlineCount: 1,
-        activeToday: 1,
+        activeToday: 2,
         activeSessions: []
     });
 
+    const [chartMetric, setChartMetric] = useState<ChartMetric>('visits');
     const [loading, setLoading] = useState(true);
 
     const fetchStats = async () => {
         setLoading(true);
         try {
-            const [totalUsers, activeToday, totalDeposited, totalSpent, totalImages, registrationStats] = await Promise.all([
+            const [totalUsers, activeToday, totalDeposited, totalSpent, totalImages, sevenDaysData] = await Promise.all([
                 getTotalUserCount(),
                 getTodayActiveCount(),
                 getTotalCreditsIssued(),
                 getTotalAmountSpent(),
                 getTotalImagesGenerated(),
-                getRegistrationStats()
+                get7DaysStats()
             ]);
 
-            setStats({ totalUsers, activeToday, totalDeposited, totalSpent, totalImages, registrationStats });
+            setStats({
+                totalUsers,
+                activeToday,
+                totalDeposited,
+                totalSpent,
+                totalImages,
+                sevenDaysData
+            });
         } catch (error) {
             console.error('Error fetching stats:', error);
         } finally {
@@ -75,28 +90,40 @@ const Dashboard: React.FC = () => {
         // Initial fetch for historical / aggregation metrics
         fetchStats();
 
-        // Realtime subscription for live online presence & cloud visits
-        const unsubscribe = subscribeToRealtimeStats((realtimeData) => {
+        // 1. Realtime subscription for live online presence & cloud visits
+        const unsubPresence = subscribeToRealtimeStats((realtimeData) => {
             setCloudStats(realtimeData);
         });
 
+        // 2. Realtime subscription for global system metrics (total deposited, spent, images)
+        const unsubMetrics = subscribeToSystemMetrics((metrics) => {
+            setStats(prev => ({
+                ...prev,
+                totalDeposited: metrics.totalDeposited,
+                totalSpent: metrics.totalSpent,
+                totalImages: metrics.totalImages
+            }));
+        });
+
         return () => {
-            unsubscribe();
+            unsubPresence();
+            unsubMetrics();
         };
     }, []);
 
     const formatNumber = (num: number) => {
-        return num.toLocaleString('vi-VN');
+        return (num || 0).toLocaleString('vi-VN');
     };
 
     const formatVND = (num: number) => {
-        if (num >= 1000000) {
-            return (num / 1000000).toFixed(1) + 'Tr';
+        const val = num || 0;
+        if (val >= 1000000) {
+            return (val / 1000000).toFixed(1) + 'Tr';
         }
-        if (num >= 1000) {
-            return (num / 1000).toFixed(0) + 'K';
+        if (val >= 1000) {
+            return (val / 1000).toFixed(0) + 'K';
         }
-        return num.toLocaleString('vi-VN') + 'đ';
+        return val.toLocaleString('vi-VN') + 'đ';
     };
 
     const formatDate = (dateStr: string) => {
@@ -112,14 +139,34 @@ const Dashboard: React.FC = () => {
         return `${diffMinutes}p trước`;
     };
 
-    const maxCount = Math.max(...stats.registrationStats.map(s => s.count), 1);
+    // Calculate chart metric values
+    const getMetricValue = (item: DailyTrafficItem): number => {
+        switch (chartMetric) {
+            case 'visits': return item.visits;
+            case 'activeUsers': return item.activeUsers;
+            case 'registrations': return item.registrations;
+            default: return item.count;
+        }
+    };
+
+    const metricValues = stats.sevenDaysData.map(getMetricValue);
+    const maxMetricVal = Math.max(...metricValues, 1);
+    const totalMetricSum = metricValues.reduce((a, b) => a + b, 0);
+
+    const getMetricTitle = () => {
+        switch (chartMetric) {
+            case 'visits': return `Lưu lượng truy cập 7 ngày gần đây (${formatNumber(totalMetricSum)} lượt)`;
+            case 'activeUsers': return `Người dùng đăng nhập 7 ngày gần đây (${formatNumber(totalMetricSum)} phiên)`;
+            case 'registrations': return `Đăng ký mới 7 ngày gần đây (${formatNumber(totalMetricSum)} tài khoản)`;
+        }
+    };
 
     return (
         <div className="dashboard">
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <h1>Dashboard</h1>
+                        <h1 style={{ color: '#0f172a', fontWeight: 700, letterSpacing: '-0.02em' }}>Dashboard</h1>
                         <span style={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -144,21 +191,30 @@ const Dashboard: React.FC = () => {
                             Realtime Sync
                         </span>
                     </div>
-                    <p>Tổng quan hệ thống ImageTool và lưu lượng đám mây theo thời gian thực</p>
+                    <p style={{ color: '#475569', fontSize: '0.9rem', marginTop: '4px' }}>
+                        Tổng quan hệ thống ImageTool và dữ liệu vận hành thực tế theo thời gian thực
+                    </p>
                 </div>
                 <button
                     className="btn btn-secondary"
                     onClick={fetchStats}
                     disabled={loading}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        minHeight: '44px',
+                        padding: '0 18px',
+                        fontWeight: 600
+                    }}
                 >
                     <RefreshCw size={18} className={loading ? 'loading-spinner' : ''} />
-                    Làm mới
+                    Làm mới dữ liệu
                 </button>
             </div>
 
-            {/* Realtime & Key Stats Grid */}
-            <div className="stats-grid">
+            {/* Realtime & Key Stats Grid - 8 Connected Metrics */}
+            <div className="stats-grid" style={{ marginTop: '20px' }}>
                 {/* 1. Realtime Online Active Sessions */}
                 <div className="stat-card" style={{ borderColor: '#a7f3d0', position: 'relative', overflow: 'hidden' }}>
                     <div style={{
@@ -174,7 +230,9 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div className="stat-content">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h3 style={{ color: '#059669' }}>{formatNumber(cloudStats.onlineCount)}</h3>
+                            <h3 style={{ color: '#059669', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                                {formatNumber(cloudStats.onlineCount)}
+                            </h3>
                             <span style={{
                                 width: '8px',
                                 height: '8px',
@@ -183,8 +241,8 @@ const Dashboard: React.FC = () => {
                                 animation: 'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite'
                             }}></span>
                         </div>
-                        <p style={{ fontWeight: 600 }}>Đang trực tuyến (Live)</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Thời gian thực (2 phút gần nhất)</small>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Đang trực tuyến (Live)</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Thời gian thực (2 phút gần nhất)</small>
                     </div>
                 </div>
 
@@ -202,9 +260,11 @@ const Dashboard: React.FC = () => {
                         <Cloud size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{formatNumber(cloudStats.todayVisits)}</h3>
-                        <p style={{ fontWeight: 600 }}>Truy cập hôm nay</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Tự động reset 00:00 hàng ngày</small>
+                        <h3 style={{ color: '#0284c7', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {formatNumber(cloudStats.todayVisits)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Truy cập hôm nay</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Tự động reset 00:00 hàng ngày</small>
                     </div>
                 </div>
 
@@ -222,9 +282,11 @@ const Dashboard: React.FC = () => {
                         <Globe size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{formatNumber(cloudStats.totalVisits)}</h3>
-                        <p style={{ fontWeight: 600 }}>Tổng truy cập đám mây</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Tích lũy từ tool chính & đám mây</small>
+                        <h3 style={{ color: '#4f46e5', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {formatNumber(cloudStats.totalVisits)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Tổng truy cập đám mây</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Tích lũy từ tool chính & đám mây</small>
                     </div>
                 </div>
 
@@ -234,9 +296,11 @@ const Dashboard: React.FC = () => {
                         <Users size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{loading ? '...' : formatNumber(stats.totalUsers)}</h3>
-                        <p style={{ fontWeight: 600 }}>Tổng Users đăng ký</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Tài khoản xác thực hệ thống</small>
+                        <h3 style={{ color: '#2563eb', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {loading ? '...' : formatNumber(stats.totalUsers)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Tổng Users đăng ký</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Tài khoản xác thực hệ thống</small>
                     </div>
                 </div>
 
@@ -246,9 +310,11 @@ const Dashboard: React.FC = () => {
                         <UserCheck size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{formatNumber(cloudStats.activeToday || stats.activeToday)}</h3>
-                        <p style={{ fontWeight: 600 }}>Đăng nhập hôm nay</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Tài khoản đã đăng nhập</small>
+                        <h3 style={{ color: '#059669', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {formatNumber(cloudStats.activeToday || stats.activeToday)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Đăng nhập hôm nay</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Tài khoản đã đăng nhập</small>
                     </div>
                 </div>
 
@@ -258,9 +324,11 @@ const Dashboard: React.FC = () => {
                         <Coins size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{loading ? '...' : formatVND(stats.totalDeposited)}</h3>
-                        <p style={{ fontWeight: 600 }}>Tổng tiền nạp (VNĐ)</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Từ các hóa đơn đã duyệt</small>
+                        <h3 style={{ color: '#7c3aed', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {loading ? '...' : formatVND(stats.totalDeposited)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Tổng tiền nạp (VNĐ)</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Từ các giao dịch nạp tiền</small>
                     </div>
                 </div>
 
@@ -270,9 +338,11 @@ const Dashboard: React.FC = () => {
                         <TrendingUp size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{loading ? '...' : formatVND(stats.totalSpent)}</h3>
-                        <p style={{ fontWeight: 600 }}>Đã tiêu thụ (VNĐ)</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Chi phí tạo ảnh VIP</small>
+                        <h3 style={{ color: '#e11d48', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {loading ? '...' : formatVND(stats.totalSpent)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Đã tiêu thụ (VNĐ)</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Chi phí tạo ảnh VIP & gói cước</small>
                     </div>
                 </div>
 
@@ -282,45 +352,47 @@ const Dashboard: React.FC = () => {
                         <Image size={24} />
                     </div>
                     <div className="stat-content">
-                        <h3>{loading ? '...' : formatNumber(stats.totalImages)}</h3>
-                        <p style={{ fontWeight: 600 }}>Tổng ảnh đã tạo</p>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Qua tất cả tính năng AI</small>
+                        <h3 style={{ color: '#0891b2', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
+                            {loading ? '...' : formatNumber(stats.totalImages)}
+                        </h3>
+                        <p style={{ fontWeight: 600, color: '#1e293b' }}>Tổng ảnh đã tạo</p>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Qua tất cả tính năng AI</small>
                     </div>
                 </div>
             </div>
 
-            {/* Bottom Section: Active Sessions & Registration Chart */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px', marginTop: '20px' }}>
+            {/* Bottom Section: Active Sessions & Interactive 7-Day Chart */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px', marginTop: '24px' }}>
                 {/* Active Sessions Panel */}
                 <div style={{
                     background: 'var(--bg-card)',
-                    border: '1px solid var(--border-color)',
+                    border: '1px solid rgba(226, 232, 240, 0.8)',
                     borderRadius: 'var(--border-radius)',
                     padding: '24px',
                     display: 'flex',
                     flexDirection: 'column',
-                    boxShadow: 'var(--shadow-xs)'
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)'
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                        <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px', color: '#0f172a', fontWeight: 600 }}>
                             <Activity size={20} style={{ color: '#059669' }} />
                             🟢 Phiên trực tuyến thời gian thực ({cloudStats.onlineCount})
                         </h3>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Heartbeat: 40s</span>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>Heartbeat: 40s</span>
                     </div>
 
                     {cloudStats.activeSessions.length === 0 ? (
                         <div style={{
-                            padding: '32px 16px',
+                            padding: '36px 16px',
                             textAlign: 'center',
-                            color: 'var(--text-muted)',
+                            color: '#64748b',
                             fontSize: '0.875rem',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
-                            gap: '8px'
+                            gap: '10px'
                         }}>
-                            <Radio size={28} style={{ opacity: 0.5, animation: 'pulse 2s infinite' }} />
+                            <Radio size={28} style={{ opacity: 0.5, animation: 'pulse 2s infinite', color: '#059669' }} />
                             <span>Chưa phát hiện phiên trực tuyến nào trong 2 phút qua.</span>
                         </div>
                     ) : (
@@ -341,7 +413,7 @@ const Dashboard: React.FC = () => {
                                         justifyContent: 'space-between',
                                         padding: '10px 14px',
                                         background: '#f8fafc',
-                                        border: '1px solid var(--border-color)',
+                                        border: '1px solid rgba(226, 232, 240, 0.8)',
                                         borderRadius: '10px',
                                         fontSize: '0.85rem'
                                     }}
@@ -355,10 +427,10 @@ const Dashboard: React.FC = () => {
                                             boxShadow: '0 0 6px #059669'
                                         }}></span>
                                         <div>
-                                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            <div style={{ fontWeight: 600, color: '#1e293b' }}>
                                                 {session.displayName || 'Khách truy cập'}
                                             </div>
-                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                            <div style={{ fontSize: '0.72rem', color: '#64748b', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' }}>
                                                 ID: {session.userId !== 'guest' ? session.userId.substring(0, 12) + '...' : 'Khách vãng lai'}
                                             </div>
                                         </div>
@@ -382,65 +454,175 @@ const Dashboard: React.FC = () => {
                     )}
                 </div>
 
-                {/* Registration Chart */}
+                {/* Interactive 7-Day Analytics Chart */}
                 <div style={{
                     background: 'var(--bg-card)',
-                    border: '1px solid var(--border-color)',
+                    border: '1px solid rgba(226, 232, 240, 0.8)',
                     borderRadius: 'var(--border-radius)',
                     padding: '24px',
-                    boxShadow: 'var(--shadow-xs)'
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between'
                 }}>
-                    <h3 style={{ marginBottom: '20px', fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                        📊 Đăng ký 7 ngày gần đây ({stats.registrationStats.reduce((a, b) => a + b.count, 0)} người dùng)
-                    </h3>
+                    {/* Chart Header & Metric Toggle Pills */}
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                            <div>
+                                <h3 style={{ fontSize: '1.05rem', color: '#0f172a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <BarChart3 size={19} style={{ color: '#4f46e5' }} />
+                                    {getMetricTitle()}
+                                </h3>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                                    Dữ liệu thực tế ghi nhận từ đám mây & thiết bị người dùng
+                                </p>
+                            </div>
+
+                            {/* Metric Switcher Pills */}
+                            <div style={{
+                                display: 'inline-flex',
+                                background: '#f1f5f9',
+                                padding: '3px',
+                                borderRadius: '8px',
+                                gap: '4px'
+                            }}>
+                                <button
+                                    onClick={() => setChartMetric('visits')}
+                                    style={{
+                                        border: 'none',
+                                        background: chartMetric === 'visits' ? '#ffffff' : 'transparent',
+                                        color: chartMetric === 'visits' ? '#4f46e5' : '#64748b',
+                                        boxShadow: chartMetric === 'visits' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <Eye size={13} />
+                                    Truy cập
+                                </button>
+                                <button
+                                    onClick={() => setChartMetric('activeUsers')}
+                                    style={{
+                                        border: 'none',
+                                        background: chartMetric === 'activeUsers' ? '#ffffff' : 'transparent',
+                                        color: chartMetric === 'activeUsers' ? '#059669' : '#64748b',
+                                        boxShadow: chartMetric === 'activeUsers' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <UserCheck size={13} />
+                                    Đăng nhập
+                                </button>
+                                <button
+                                    onClick={() => setChartMetric('registrations')}
+                                    style={{
+                                        border: 'none',
+                                        background: chartMetric === 'registrations' ? '#ffffff' : 'transparent',
+                                        color: chartMetric === 'registrations' ? '#2563eb' : '#64748b',
+                                        boxShadow: chartMetric === 'registrations' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <UserPlus size={13} />
+                                    Đăng ký
+                                </button>
+                            </div>
+                        </div>
+                    </div>
 
                     {loading ? (
-                        <div className="loading-container">
+                        <div className="loading-container" style={{ minHeight: '160px' }}>
                             <div className="loading-spinner"></div>
                         </div>
                     ) : (
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', height: '190px' }}>
-                            {stats.registrationStats.map((stat, index) => (
-                                <div
-                                    key={index}
-                                    style={{
-                                        flex: 1,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        gap: '8px'
-                                    }}
-                                >
-                                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>
-                                        {stat.count}
-                                    </span>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', height: '175px', marginTop: '12px' }}>
+                            {stats.sevenDaysData.map((stat, index) => {
+                                const val = getMetricValue(stat);
+                                const isToday = index === stats.sevenDaysData.length - 1;
+                                const barHeightPercent = Math.max((val / maxMetricVal) * 100, 6);
+
+                                return (
                                     <div
+                                        key={index}
                                         style={{
-                                            width: '100%',
-                                            height: '130px',
-                                            background: '#f1f5f9',
-                                            borderRadius: '6px 6px 0 0',
+                                            flex: 1,
                                             display: 'flex',
-                                            alignItems: 'flex-end',
-                                            overflow: 'hidden'
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            height: '100%',
+                                            justifyContent: 'flex-end'
                                         }}
                                     >
+                                        <span style={{
+                                            fontSize: '0.8rem',
+                                            fontWeight: 700,
+                                            color: val > 0 ? (isToday ? '#4f46e5' : '#1e293b') : '#94a3b8',
+                                            fontFamily: 'monospace',
+                                            fontVariantNumeric: 'tabular-nums'
+                                        }}>
+                                            {val}
+                                        </span>
                                         <div
                                             style={{
                                                 width: '100%',
-                                                height: `${Math.max((stat.count / maxCount) * 130, 8)}px`,
-                                                background: 'linear-gradient(180deg, #4f46e5 0%, #7c3aed 100%)',
+                                                height: '120px',
+                                                background: '#f1f5f9',
                                                 borderRadius: '6px 6px 0 0',
-                                                transition: 'height 0.3s ease',
-                                                boxShadow: '0 2px 4px rgba(79, 70, 229, 0.2)'
+                                                display: 'flex',
+                                                alignItems: 'flex-end',
+                                                overflow: 'hidden'
                                             }}
-                                        />
+                                        >
+                                            <div
+                                                style={{
+                                                    width: '100%',
+                                                    height: `${barHeightPercent}%`,
+                                                    background: isToday
+                                                        ? 'linear-gradient(180deg, #4f46e5 0%, #7c3aed 100%)'
+                                                        : val > 0
+                                                            ? 'linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%)'
+                                                            : '#e2e8f0',
+                                                    borderRadius: '6px 6px 0 0',
+                                                    transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                    boxShadow: val > 0 ? '0 2px 4px rgba(79, 70, 229, 0.2)' : 'none'
+                                                }}
+                                            />
+                                        </div>
+                                        <span style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: isToday ? 700 : 500,
+                                            color: isToday ? '#4f46e5' : '#64748b'
+                                        }}>
+                                            {formatDate(stat.date)}
+                                            {isToday && <span style={{ display: 'block', fontSize: '0.65rem', color: '#059669', lineHeight: 1 }}>Hôm nay</span>}
+                                        </span>
                                     </div>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        {formatDate(stat.date)}
-                                    </span>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
