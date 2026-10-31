@@ -620,82 +620,114 @@ const mapRatioForNineRouter = (aspectRatio?: string): string => {
 };
 
 /**
+ * Mandatory physical realism & scale grounding appended to all shots
+ */
+const MANDATORY_GROUNDING_DIRECTIVE = `
+*** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
+- FEET FIRMLY ON SOLID GROUND: Subjects MUST have their feet firmly planted on solid physical terrain (cobblestone pathway, dirt trail, stone terrace steps, or marketplace floor) with realistic gravitational contact shadows.
+- STRICTLY FORBIDDEN: NEVER render subjects floating in the sky, levitating above valleys, hovering on clouds, or scaled up like 50-meter giant titans towering over miniature landscapes.
+- 1:1 HUMAN PROPORTIONS: Subjects must be in authentic 1:1 human proportions relative to all surrounding objects, buildings, market stalls, tents, and trees.`;
+
+/**
  * Mapping camera angle / shot types to exact photographic technical directives
  */
 export const getShotTypeDirective = (shotType?: string): string => {
-    if (!shotType) return '';
+    if (!shotType) return MANDATORY_GROUNDING_DIRECTIVE;
     const lower = shotType.toLowerCase();
 
+    let specificDirective = '';
+
     if (lower.includes('chân dung') || lower.includes('portrait')) {
-        return `*** MANDATORY CAMERA FRAMING: TIGHT PORTRAIT / BUST SHOT ***
+        specificDirective = `*** MANDATORY CAMERA FRAMING: TIGHT PORTRAIT / BUST SHOT ***
 - LENS & OPTICS: 85mm f/1.8 telephoto portrait prime lens, creamy shallow depth of field.
-- COMPOSITION: Tight vertical head-and-shoulders to chest bust portrait. 
+- COMPOSITION: Tight vertical head-and-shoulders to chest bust portrait at eye-level. 
 - FOCUS POINT: Razor-sharp focus on subject's facial features, eyes, and intricate traditional neckwear / silver collar ornaments.
 - MANDATORY FRAMING RULE: DO NOT PULL CAMERA BACK into a full-body wide shot. The lower body and legs MUST NOT be visible.`;
-    }
-
-    if (lower.includes('cận cảnh') || lower.includes('macro')) {
-        return `*** MANDATORY CAMERA FRAMING: EXTREME CLOSE-UP (MACRO) ***
+    } else if (lower.includes('cận cảnh') || lower.includes('macro')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: EXTREME CLOSE-UP (MACRO) ***
 - LENS & OPTICS: 105mm f/2.8 Macro lens, extreme micro-focus.
 - COMPOSITION: Extreme tight focus highlighting intricate hand-embroidery stitches, jewelry silver carvings, or intense eyes.
 - MANDATORY FRAMING RULE: Zero wide perspective, pure intimate close-up detail.`;
-    }
-
-    if (lower.includes('toàn cảnh') || lower.includes('landscape')) {
-        return `*** MANDATORY CAMERA FRAMING: FULL-BODY ENVIRONMENTAL LANDSCAPE ***
+    } else if (lower.includes('toàn cảnh') || lower.includes('landscape')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: FULL-BODY ENVIRONMENTAL LANDSCAPE (1:1 SCALE) ***
 - LENS & OPTICS: 35mm wide angle, f/8 deep aperture.
-- COMPOSITION: Full human figure from head to toe standing within grand panoramic mountain landscapes.`;
-    }
-
-    if (lower.includes('chụp lén') || lower.includes('candid')) {
-        return `*** MANDATORY CAMERA FRAMING: AUTHENTIC CANDID PHOTOGRAPHY ***
-- LENS & OPTICS: 50mm f/2.0 standard lens.
-- COMPOSITION: Unposed, natural snapshot capturing spontaneous emotion, candid movement, and genuine village interaction.`;
-    }
-
-    if (lower.includes('flycam') || lower.includes('drone')) {
-        return `*** MANDATORY CAMERA FRAMING: HIGH-ALTITUDE AERIAL DRONE SHOT ***
-- LENS & OPTICS: Ultra-wide drone camera looking down from high elevation.
-- COMPOSITION: Dramatic top-down bird's-eye perspective capturing subject amidst vast terraced mountains.`;
-    }
-
-    if (lower.includes('góc thấp') || lower.includes('low angle')) {
-        return `*** MANDATORY CAMERA FRAMING: LOW-ANGLE HERO PERSPECTIVE ***
-- LENS & OPTICS: 28mm wide lens placed low to ground looking upward.
-- COMPOSITION: Imposing, proud, and heroic stature against the open sky.`;
-    }
-
-    if (lower.includes('góc rộng') || lower.includes('wide angle')) {
-        return `*** MANDATORY CAMERA FRAMING: WIDE ANGLE VIEW (24mm) ***
-- LENS & OPTICS: 24mm wide angle lens.
-- COMPOSITION: Broad panoramic perspective showing both the character and extensive natural environment.`;
-    }
-
-    if (lower.includes('studio')) {
-        return `*** MANDATORY CAMERA FRAMING: HIGH-END COMMERCIAL STUDIO SHOT ***
+- COMPOSITION: Full human figure from head to toe standing firmly on the foreground mountain trail or stone terrace ledge with majestic panoramic landscape in the background.
+- GROUND ANCHOR: Subjects must be realistically anchored on solid ground at 1:1 scale relative to the mountains. Never floating or oversized.`;
+    } else if (lower.includes('chụp lén') || lower.includes('candid')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: AUTHENTIC CANDID PHOTOGRAPHY ***
+- LENS & OPTICS: 50mm f/2.0 standard lens at eye level.
+- COMPOSITION: Unposed, natural snapshot capturing spontaneous emotion, candid movement, and genuine village interaction, walking on authentic village paths.`;
+    } else if (lower.includes('flycam') || lower.includes('drone')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: ELEVATED DRONE PERSPECTIVE (SEMI-HIGH ANGLE) ***
+- LENS & OPTICS: Drone camera positioned at a moderate elevated height (3 to 5 meters above ground), angled 30-45 degrees downward facing the subjects.
+- COMPOSITION: Subjects are FIRMLY STANDING or walking on a solid mountain path, stone terrace edge, or viewpoint rock overlooking the terraced valley.
+- REALISTIC PHYSICS: Clear ground contact with natural cast shadows under feet. Absolutely NO high-altitude 500m views where subjects float in the sky or look like 100m giants standing on miniature villages.`;
+    } else if (lower.includes('từ trên cao') || lower.includes("bird's eye") || lower.includes('birds eye')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: HIGH-ANGLE ELEVATED OVERVIEW ***
+- LENS & OPTICS: 35mm lens looking downward at a 45-degree angle from an elevated hillside or upper terrace.
+- COMPOSITION: High-angle view looking down at the subjects who are visibly standing or walking on solid cobblestone, dirt trail, or market ground.
+- GROUND CONTACT: The ground surface under their feet must be clearly visible and grounded. Never hovering in mid-air.`;
+    } else if (lower.includes('từ dưới đất') || lower.includes("worm's eye") || lower.includes('worms eye')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: WORM'S EYE GROUND-LEVEL PERSPECTIVE ***
+- LENS & OPTICS: Ultra-low angle lens positioned right at ground level (dirt/grass/pebble level) looking upward.
+- COMPOSITION: Subjects' traditional footwear and feet making direct, tangible contact with the solid ground in the immediate foreground, rising gracefully against the mountain sky.`;
+    } else if (lower.includes('góc thấp') || lower.includes('low angle')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: LOW-ANGLE HEROIC PERSPECTIVE ***
+- LENS & OPTICS: 28mm-35mm wide lens placed at knee-height looking slightly upward.
+- COMPOSITION: Imposing and heroic stance, feet firmly anchored on the trail/stones in the foreground, balanced against the dramatic mountain sky.`;
+    } else if (lower.includes('góc rộng') || lower.includes('wide angle')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: ENVIRONMENTAL WIDE ANGLE (24mm) ***
+- LENS & OPTICS: 24mm wide angle lens at chest/eye level.
+- COMPOSITION: Broad panoramic perspective showing grounded subjects in 1:1 human scale within the vast natural environment.`;
+    } else if (lower.includes('góc nhìn thứ nhất') || lower.includes('pov')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: FIRST-PERSON POINT-OF-VIEW (POV) ***
+- LENS & OPTICS: 35mm natural human field of view at eye level.
+- COMPOSITION: Immersive first-person perspective as if the viewer is standing directly in front of the subjects (1.5 - 2 meters away) on the mountain path or market stall.`;
+    } else if (lower.includes('góc qua vai') || lower.includes('over-the-shoulder')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: OVER-THE-SHOULDER (OTS) COMPOSITION ***
+- LENS & OPTICS: 50mm/85mm portrait lens.
+- COMPOSITION: Framing over the soft-focus foreground shoulder/back of one person, focusing sharply on the face and outfit of the partner standing opposite them on solid ground.`;
+    } else if (lower.includes('góc nghiêng') || lower.includes('dutch angle')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: DYNAMIC DUTCH ANGLE (10-15° TILT) ***
+- LENS & OPTICS: 35mm lens subtly tilted 10-15 degrees off horizontal axis.
+- COMPOSITION: Dynamic fashion editorial energy while maintaining natural human gravity and solid footing on the terrain.`;
+    } else if (lower.includes('mắt cá') || lower.includes('fish-eye') || lower.includes('fisheye')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: CURVED FISHEYE LENS (180° FOV) ***
+- LENS & OPTICS: Fisheye lens with barrel distortion around the perimeter.
+- COMPOSITION: Subjects centered in the frame, standing firmly on the earth with dramatic curved horizon around them.`;
+    } else if (lower.includes('studio')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: HIGH-END COMMERCIAL STUDIO SHOT ***
 - LENS & OPTICS: 85mm f/5.6 commercial portrait lens.
-- COMPOSITION: 3-point key and rim studio lighting, clean background, fashion magazine aesthetic.`;
-    }
-
-    if (lower.includes('điện ảnh') || lower.includes('cinematic')) {
-        return `*** MANDATORY CAMERA FRAMING: ANAMORPHIC CINEMATIC MASTERPIECE ***
-- LENS & OPTICS: Anamorphic cinema prime lens, 2.39:1 letterbox cinematic feel, subtle horizontal lens flare.
-- COMPOSITION: Moody chiaroscuro lighting and cinematic film color grading.`;
-    }
-
-    if (lower.includes('ngược sáng') || lower.includes('silhouette')) {
-        return `*** MANDATORY CAMERA FRAMING: DRAMATIC BACKLIT SILHOUETTE ***
-- LENS & OPTICS: Golden hour backlighting, high contrast silhouette with rim lighting around garments and hair.`;
-    }
-
-    if (lower.includes('bokeh')) {
-        return `*** MANDATORY CAMERA FRAMING: SHALLOW DEPTH OF FIELD (f/1.2 BOKEH) ***
+- COMPOSITION: 3-point key and rim studio lighting, clean background, subjects standing or seated on solid studio floor with natural floor shadows.`;
+    } else if (lower.includes('điện ảnh') || lower.includes('cinematic')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: ANAMORPHIC CINEMATIC MASTERPIECE ***
+- LENS & OPTICS: Anamorphic cinema prime lens, 2.39:1 widescreen cinematic feel, subtle horizontal lens flare.
+- COMPOSITION: Moody chiaroscuro lighting, grounded 1:1 scale human subjects, cinematic film color grading.`;
+    } else if (lower.includes('ngược sáng') || lower.includes('silhouette')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: DRAMATIC BACKLIT SILHOUETTE ***
+- LENS & OPTICS: Golden hour backlighting, high contrast silhouette with rim lighting around garments and hair, standing firmly on a mountain crest.`;
+    } else if (lower.includes('bokeh')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: SHALLOW DEPTH OF FIELD (f/1.2 BOKEH) ***
 - LENS & OPTICS: 85mm f/1.2 ultra-fast lens.
-- COMPOSITION: Dreamy spherical bokeh light orbs in background, tack-sharp subject.`;
+- COMPOSITION: Dreamy spherical bokeh light orbs in background, tack-sharp grounded subject in foreground.`;
+    } else if (lower.includes('nhòe chuyển động') || lower.includes('motion blur')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: ARTISTIC MOTION BLUR (SLOW SHUTTER) ***
+- LENS & OPTICS: 1/15s slow shutter capture.
+- COMPOSITION: Dynamic motion blur in the flowing fabric and traditional pleated skirt folds, while the grounded body remains stable.`;
+    } else if (lower.includes('phản chiếu') || lower.includes('reflection')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: WATER MIRROR REFLECTION ***
+- LENS & OPTICS: 35mm/50mm lens.
+- COMPOSITION: Subjects standing by the edge of a flooded terraced rice field or mountain stream, with their full reflection cast clearly on the water surface.`;
+    } else if (lower.includes('khung trong khung') || lower.includes('framed shot')) {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: NATURAL FRAME-WITHIN-A-FRAME ***
+- LENS & OPTICS: 50mm lens.
+- COMPOSITION: Subjects framed naturally through a traditional wooden doorway, window, or pine branches, standing naturally inside or outside the space.`;
+    } else {
+        specificDirective = `*** MANDATORY CAMERA FRAMING: ${shotType} ***
+- Strict adherence to the selected angle, lens perspective, and realistic 1:1 framing distance.`;
     }
 
-    return `*** MANDATORY CAMERA FRAMING: ${shotType} ***
-- Strict adherence to the selected angle, lens perspective, and framing distance.`;
+    return `${specificDirective}\n${MANDATORY_GROUNDING_DIRECTIVE}`;
 };
 
 /**
@@ -1173,8 +1205,11 @@ export const generateImageViaNineRouter = async (
     const framingDirective = getAspectFramingDirective(request.aspectRatio, request.shotType);
     const shotDirective = getShotTypeDirective(request.shotType);
 
-    // Strict directives enforcing Korean visual idol aesthetic, aspect ratio, and 100% outfit cloning
+    // Strict directives enforcing Korean visual idol aesthetic, aspect ratio, physical grounding, and 100% outfit cloning
     const strictFramingHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
+- PHYSICAL GROUNDING (CRITICAL): Subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky, hovering above mountains, or rendered as giant titans towering over miniature landscapes.
+- 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements (market stalls, houses, tents, fences, and trees).
 *** MANDATORY KOREAN IDOL VISUAL & 100% OUTFIT CLONING PROTOCOL ***
 - CHARACTER VISUAL (MANDATORY): Always depict stunning, ultra-attractive Korean K-Pop Idol / Ulzzang visuals (flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawline, tall and graceful build).
 - REFERENCE PHOTOS ROLE: Input reference images are strictly for CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
@@ -1213,11 +1248,11 @@ export const generateImageViaNineRouter = async (
                     type: 'text',
                     text: `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
 Inspect all ${referenceImages.length} attached input reference image(s).
-CRITICAL RULE: The attached images provide CLOTHING, TEXTILES, EMBROIDERY, AND ACCESSORIES ONLY.
-DO NOT use the face, skin tone, or identity from the reference image.
-The character MUST be an ultra-attractive Korean K-Pop Idol / Ulzzang (flawless luminous porcelain glass skin, double eyelids, captivating eyes, sharp jawline, high fashion charisma).
-Clone 100% of the traditional H'Mông embroidery, pleated skirts, brocade patterns, and silver torque collar necklaces onto this Korean idol model.
-The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`
+CRITICAL RULES:
+1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape. Human scale relative to surrounding stalls and buildings must be strictly 1:1.
+2. CHARACTER VISUAL: The character MUST be an ultra-attractive Korean K-Pop Idol / Ulzzang (flawless luminous porcelain glass skin, double eyelids, captivating eyes, sharp jawline, high fashion charisma).
+3. CLOTHING & ACCESSORIES ONLY: Attached images provide CLOTHING, TEXTILES, EMBROIDERY, AND ACCESSORIES ONLY. DO NOT use the face, skin tone, or identity from the reference image. Clone 100% of the traditional H'Mông embroidery, pleated skirts, brocade patterns, and silver torque collar necklaces onto this Korean idol model.
+4. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`
                 }];
 
                 referenceImages.forEach((img, idx) => {

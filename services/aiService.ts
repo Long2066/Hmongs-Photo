@@ -312,6 +312,11 @@ export const KOREAN_CHARACTER_DEFAULTS = `
 - The reference image(s) represent the CLOTHING AND ACCESSORIES ONLY (ignore any person, mannequin, or background in the reference photo).
 - You MUST clone 100% of the visible traditional H'Mông hand-embroidered patterns, vibrant fabric motifs, pleated batik indigo skirts, brocade borders, silver torque collar necklaces, and ornaments onto the handsome/beautiful Korean idol.
 - Never alter the traditional outfit colors, embroidery, or ornaments. The fusion is: Top-tier Korean Idol Visual wearing genuine, exquisite H'Mông traditional regalia.
+
+*** MANDATORY PHYSICAL GROUNDING & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
+- The character(s) MUST be physically grounded on solid terrain (mountain path, stone steps, market floor) with feet firmly planted and realistic contact shadows.
+- STRICTLY FORBIDDEN: Characters floating in the sky, hovering in mid-air, or appearing as 100-meter giant titans towering over miniature landscapes.
+- The character scale relative to buildings, market stalls, and landscape must be exact 1:1 realistic human proportions.
 `;
 
 // --- TYPES ---
@@ -953,24 +958,24 @@ export const validateGeminiKey = async (apiKey: string): Promise<{ isValid: bool
 // --- STYLE TRANSLATION HELPER ---
 const getStylePrompt = (style: string): string => {
     const mapping: Record<string, string> = {
-        'Truyền thống H’Mông cổ điển': 'Classic Traditional Hmong Style: Authentic vintage aesthetic, focus on highly detailed hand-embroidery (Paj Ntaub), heavy silver jewelry (Xauv), hemp fabrics, natural lighting, earthy tones, mountainous village background, respectful cultural representation.',
-        'H’Mông hiện đại – bản sắc kết hợp thời trang': 'Modern Hmong Fusion: High-fashion editorial look, contemporary streetwear silhouettes mixed with traditional Hmong batik patterns and neon accents, urban chic backdrop, bold makeup, sharp focus.',
-        'H’Mông cổ tích – Fantasy': 'Hmong Fantasy Folklore: Ethereal and magical atmosphere, glowing flora, mystical misty mountains, characters wearing elaborate fantasy versions of Hmong attire with exaggerated jewelry, dreamlike lighting, enchanting vibe.',
-        'H’Mông 3D Animation': '3D Animation Style (Pixar/Disney): Cute and expressive character design, soft subsurface scattering on skin, vibrant colors, exaggerated but appealing proportions, warm global illumination, storytelling composition.',
-        'H’Mông Cinematic – Điện ảnh 4K': 'Cinematic 4K Masterpiece: Dramatic lighting (Rembrandt/Chiaroscuro), shallow depth of field (Bokeh), highly detailed skin texture, emotional atmosphere, wide aspect ratio feeling, blockbuster color grading, epic scale.',
-        'H’Mông Documentaries – Phong cách phim tài liệu': 'National Geographic Documentary: Raw and gritty realism, natural lighting, candid moments, deep cultural depth, sharp focus on eyes and traditional craftsmanship, highly detailed environment, storytelling.',
-        'H’Mông Watercolor – Sơn thủy màu nước': 'Traditional Watercolor Painting: Soft wet-on-wet brush strokes, ink wash mountains, artistic and fluid, dripping paint effects, pastel color palette, serene and poetic atmosphere.',
-        'H’Mông Manga – Anime Nhật Bản': 'Japanese Anime/Manga Style: Cel shading, vibrant colors, expressive large eyes, dynamic action lines, 2D aesthetic, detailed background art similar to Makoto Shinkai films.',
-        'H’Mông Realistic Portrait – Siêu thực 8K': '8K Hyper-Realistic Portrait: Macro photography, visible pores, vellus hair, perfect studio lighting, extremely sharp eyes, intricate details on silver necklace and embroidery, lifelike.',
-        'H’Mông Cyberpunk – Tương lai kết hợp văn hóa': 'Hmong Cyberpunk: Futuristic setting, neon lights (blue/magenta), rain-slicked streets, traditional patterns mixed with cybernetic implants or high-tech accessories, glowing techwear, dystopian yet beautiful.',
-        'Giấc mơ': 'Surreal Dreamscape: Floating elements, illogical but beautiful composition, soft fog, pastel and ethereal colors, subconscious symbolism, soft focus.',
-        'Ảo ảnh': 'Optical Illusion / Glitch Art: Distorted reality, chromatic aberration, digital artifacts, mesmerizing patterns, psychological atmosphere, avant-garde.',
-        'Chân thực': 'Standard Photorealistic: Balanced lighting, true-to-life colors, natural skin tones, sharp focus, no filters.',
-        'Điện ảnh': 'Standard Cinematic: Dramatic shadows, moody lighting, film grain, cinematic color grading.',
-        'Studio chuyên nghiệp': 'Professional Studio Photography: Solid or gradient background, 3-point lighting setup, perfect rim light, sharp subject, fashion magazine quality.',
-        'Thời trang': 'High Fashion Editorial: Trendy poses, avant-garde makeup, focus on outfit silhouette, dramatic angles, vogue style.'
+        'Truyền thống H’Mông cổ điển': 'Classic Traditional Hmong Style: Authentic vintage aesthetic, documentary realism, focus on highly detailed hand-embroidery (Paj Ntaub), heavy silver jewelry (Xauv), hemp fabrics, natural mountain daylight, earthy tones, mountainous village background, realistic 1:1 human scale, respectful cultural representation.',
+        'H’Mông hiện đại – bản sắc kết hợp thời trang': 'Modern Hmong Fusion: High-fashion editorial look, contemporary streetwear silhouettes mixed with authentic traditional Hmong batik patterns and embroidery, stylish highland backdrop, grounded natural posture, sharp focus.',
+        'H’Mông cổ tích – Fantasy': 'Hmong Fantasy Folklore: Enchanting and mystical atmosphere, soft morning mist drifting through mountains, lush blooming flora, characters wearing elaborate traditional Hmong attire with glowing accents, naturally grounded on solid terrain at realistic human scale.',
+        'H’Mông 3D Animation': '3D Cinematic Animation (Pixar/Disney aesthetic): Expressive character design, soft subsurface scattering on skin, vibrant colors, warm global illumination, grounded storytelling composition in a charming highland village.',
+        'H’Mông Cinematic – Điện ảnh 4K': 'Cinematic 4K Masterpiece: Dramatic lighting (chiaroscuro / volumetric sunbeams), shallow depth of field, highly detailed skin texture, emotional atmosphere, 2.39:1 widescreen cinema framing, blockbuster color grading, grounded realism.',
+        'H’Mông Documentaries – Phong cách phim tài liệu': 'National Geographic Documentary: Raw authentic realism, natural sunlight, candid moments, deep cultural depth, sharp focus on eyes and traditional craftsmanship, realistic environmental scale, deep cultural respect.',
+        'H’Mông Watercolor – Sơn thủy màu nước': 'Traditional Watercolor Painting: Soft wet-on-wet brush strokes, ink wash mountains, artistic and fluid, dripping paint accents, pastel color palette, serene and poetic atmosphere.',
+        'H’Mông Manga – Anime Nhật Bản': 'Japanese Anime/Manga Style: Makoto Shinkai aesthetic, luminous skies, vibrant colors, expressive eyes, detailed painted mountain scenery, clean cel-shading.',
+        'H’Mông Realistic Portrait – Siêu thực 8K': '8K Hyper-Realistic Photography: Visible micro skin pores, vellus hair, perfect studio lighting, extremely sharp eyes, intricate details on silver torque collar and embroidery, lifelike 1:1 anatomy.',
+        'H’Mông Cyberpunk – Tương lai kết hợp văn hóa': 'Hmong Cyberpunk: Futuristic highland setting, neon accents (cyan/magenta) woven into traditional batik patterns, evening mist, futuristic lanterns, grounded cyberpunk aesthetic.',
+        'Giấc mơ': 'Ethereal Dreamscape: Soft morning mist drifting over mountain ridges, gentle golden hour glow, poetic and atmospheric lighting, pastel and ethereal tones, dreamy shallow depth of field, characters naturally grounded in a serene highland landscape at 1:1 human scale.',
+        'Ảo ảnh': 'Prismatic Optical Art: Subtle kaleidoscopic lens refractions, soft natural light streaks, high-fashion editorial aesthetics, artistic color spectrums, perfectly grounded subjects with true-to-life physical proportions.',
+        'Chân thực': 'Standard Photorealistic: Balanced natural lighting, true-to-life colors, authentic skin tones, sharp focus, unmanipulated real-world perspective and scale.',
+        'Điện ảnh': 'Standard Cinematic: Dramatic shadows, moody lighting, film grain, cinematic color grading, 1:1 human scale.',
+        'Studio chuyên nghiệp': 'Professional Studio Photography: Solid or gradient backdrop, 3-point softbox lighting setup, perfect rim light, sharp subject, fashion magazine quality.',
+        'Thời trang': 'High Fashion Editorial: High-fashion posture, avant-garde makeup, focus on outfit silhouette, dramatic yet realistic lighting, vogue style.'
     };
-    return mapping[style] || 'High quality, photorealistic, Hmong cultural elements.';
+    return mapping[style] || 'High quality, photorealistic, Hmong cultural elements, 1:1 realistic human scale.';
 };
 
 // --- CHARACTER AESTHETIC DIRECTIVE HELPER ---
@@ -1124,6 +1129,11 @@ export const generateBatchPromptsText = async (
     - ALWAYS describe the PERSON in the scene: their pose, expression, and action
     - MANDATORY: Include phrases like "a person wearing...", "model dressed in...", "character standing/walking/posing in..."
     
+    *** MANDATORY PHYSICAL GROUNDING & HUMAN SCALE RULES (STRICT NON-NEGOTIABLE) ***
+    1. REALISTIC 1:1 HUMAN SCALE: Characters MUST be rendered in true-to-life 1:1 human scale relative to all surrounding objects, market stalls, houses, tents, and trees. NEVER create prompts that allow characters to appear as giant titans towering over miniature landscapes.
+    2. SOLID PHYSICAL GROUND CONTACT: Characters MUST have their feet firmly planted on solid physical terrain (walking along a dirt trail, standing on stone terrace steps, browsing between market stalls on cobblestones). NEVER describe characters hovering in mid-air, floating in the sky, or standing on thin air.
+    3. GROUNDED PERSPECTIVE: Even if the camera shot is wide or elevated (flycam/drone/bird's-eye), the subjects MUST be standing firmly on an elevated foreground overlook, mountain ledge, or scenic trail with clear contact shadows, anchored within the landscape.
+    
     *** MANDATORY CHARACTER AESTHETICS ***
     ${characterAesthetics}
     
@@ -1141,8 +1151,8 @@ export const generateBatchPromptsText = async (
     6. ${modeInstruction}
     
     *** PROMPT STRUCTURE ***
-    Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose fitting camera shot] + [scene/background] + [lighting/mood]"
-    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT traditional H'Mong embroidered outfit and silver collar shown in reference (cloned 100% from input textures), shot with authentic photographic composition, cinematic lighting"
+    Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"
+    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT traditional H'Mong embroidered outfit and silver collar shown in reference (cloned 100% from input textures), standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"
 
     Output format: Just the prompts, separated by double newlines. No numbering, no introduction.
     `;
@@ -1349,7 +1359,7 @@ export const generateImagesFromPromptsList = async (
                 ? "- MANDATORY FRAMING: TIGHT VERTICAL PORTRAIT (Head and chest bust shot). The person MUST be wearing the upper garment and neck jewelry/accessories. DO NOT PULL BACK to full body; legs/feet must NOT be shown."
                 : isMacro
                 ? "- MANDATORY FRAMING: EXTREME CLOSE-UP (MACRO). Tight focus on the intricate embroidery craft, silver accessories, or facial details."
-                : "- MANDATORY FRAMING: FULL BODY OR THREE-QUARTER SHOT. The person MUST be wearing the complete outfit in natural environment.";
+                : "- MANDATORY FRAMING & PHYSICAL GROUNDING: FULL BODY OR THREE-QUARTER SHOT. The person MUST have their feet firmly planted on solid physical terrain (dirt path, stone terrace steps, market floor) with realistic contact shadows and exact 1:1 human scale to the environment. ABSOLUTELY NO floating in the air, NO giant titans towering over miniature landscapes.";
 
             const masterConstraint = `
             🚨🚨🚨 ASPECT RATIO: ${aspectRatio} - THIS IS MANDATORY AND NON-NEGOTIABLE 🚨🚨🚨
@@ -1365,6 +1375,10 @@ export const generateImagesFromPromptsList = async (
             ${personFramingRule}
             - The person(s) should be in a NATURAL POSE in the scene, interacting with the environment
             - REJECT any output that shows only the garment/fabric without a human wearing it
+            
+            *** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE ***
+            - FEET FIRMLY ON SOLID GROUND: Subjects must stand, walk, or sit directly on visible solid ground with natural contact shadows.
+            - ZERO HOVERING / NO GIANTS: Never place subjects floating in the sky or scaled up like titans over miniature scenery. Exact 1:1 realistic human scale is non-negotiable.
             
             ${characterAesthetics}
 
