@@ -46,6 +46,12 @@ export const getCachedBalance = (): number => {
     const user = getLoggedInUser();
     if (!user) return 0;
 
+    const rawBal = localStorage.getItem('user_balance_raw_' + user.id);
+    if (rawBal !== null) {
+        const parsed = parseInt(rawBal, 10);
+        if (!isNaN(parsed)) return parsed;
+    }
+
     const cached = localStorage.getItem(BALANCE_CACHE_PREFIX + user.id);
     if (cached) {
         try {
@@ -66,6 +72,7 @@ export const setCachedBalance = (balance: UserBalance): void => {
     if (!user) return;
 
     localStorage.setItem(BALANCE_CACHE_PREFIX + user.id, JSON.stringify(balance));
+    localStorage.setItem('user_balance_raw_' + user.id, balance.balanceVND.toString());
 
     // Also update the old credits cache for backward compatibility with isProUser()
     localStorage.setItem('user_credits_' + user.id, Math.floor(balance.balanceVND / 100).toString());

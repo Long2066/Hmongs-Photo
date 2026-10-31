@@ -213,21 +213,25 @@ export const verifyBillWithAI = async (
                 .trim();
         };
 
-        // A. Validate Recipient Account (Critical)
+        // A. Validate Recipient Account (Critical - Supports MBBank PayOS & VietinBank)
         const extractedAcc = normalize(extracted.recipientAccount);
         const targetAcc = normalize(BANK_INFO.accountNumber);
+        const extractedName = normalize(extracted.recipientName);
+        const targetName = normalize(BANK_INFO.accountHolder);
 
-        if (!extractedAcc.includes(targetAcc)) {
-            const extractedName = normalize(extracted.recipientName);
-            const targetName = normalize(BANK_INFO.accountHolder);
+        const isAccountMatch = extractedAcc.includes(targetAcc) ||
+            extractedAcc.includes('vqrqanfm') ||
+            extractedAcc.includes('5542') ||
+            extractedAcc.includes('2832') ||
+            extractedAcc.includes('103882289985');
+        const isNameMatch = extractedName.includes(targetName) || extractedName.includes('mavanlong');
 
-            if (!extractedName.includes(targetName)) {
-                console.error('[BILL] Wrong recipient:', extracted.recipientName, extracted.recipientAccount);
-                return {
-                    success: false,
-                    errorMessage: SUPPORT_MESSAGE
-                };
-            }
+        if (!isAccountMatch && !isNameMatch) {
+            console.error('[BILL] Wrong recipient:', extracted.recipientName, extracted.recipientAccount);
+            return {
+                success: false,
+                errorMessage: SUPPORT_MESSAGE
+            };
         }
 
         // B. Validate Amount (Số tiền)
@@ -240,14 +244,19 @@ export const verifyBillWithAI = async (
             };
         }
 
-        // C. Validate Content/Message (Lời nhắn)
+        // C. Validate Content/Message (Lời nhắn - Supports PayOS "Nang cap Imagetool Plus/Pro" or user name)
         const content = normalizeContent(extracted.content);
         const targetUserName = normalizeContent(expectedUserName);
         const contentNoAccent = removeAccents(content);
         const userNoAccent = removeAccents(targetUserName);
         const userWords = userNoAccent.split(' ').filter(w => w.length > 1);
         const matchCount = userWords.filter(w => contentNoAccent.includes(w)).length;
-        const isContentValid = matchCount >= Math.min(2, userWords.length);
+        const isPayOSContent = contentNoAccent.includes('imagetool') ||
+            contentNoAccent.includes('nang cap') ||
+            contentNoAccent.includes('plus') ||
+            contentNoAccent.includes('pro') ||
+            contentNoAccent.includes('vqrq');
+        const isContentValid = isPayOSContent || matchCount >= Math.min(2, userWords.length);
 
         if (!isContentValid) {
             console.error('[BILL] Invalid content:', extracted.content, 'expected user:', expectedUserName);
@@ -331,12 +340,15 @@ export const processAndAddCredits = async (
     userEmail: string,
     billImageBase64: string,
     amount: number,
-    balanceVND: number // VND amount to add
+    balanceVND: number, // VND amount to add
+    targetPlan?: 'plus' | 'pro'
 ): Promise<{ success: boolean; message: string; newBalance?: number }> => {
 
     console.log("Starting processAndAddCredits for user:", userId);
     const verificationResult = await verifyBillWithAI(billImageBase64, userName, amount, balanceVND);
     console.log("Verification Result:", verificationResult);
+
+    const inferredPlan = targetPlan || (balanceVND >= 100000 ? 'pro' : 'plus');
 
     // Create bill data for saving
     const billData: BillData = {
@@ -351,7 +363,8 @@ export const processAndAddCredits = async (
         billHash: verificationResult.billHash || `${amount}-${Date.now()}`, // Use hash from verification for duplicate detection
         timestamp: Date.now(),
         verificationStatus: verificationResult.success ? 'approved' : 'failed',
-        failureReason: (verificationResult.errorMessage || null) as any
+        failureReason: (verificationResult.errorMessage || null) as any,
+        plan: inferredPlan
     };
 
     if (verificationResult.success) {
@@ -361,13 +374,13 @@ export const processAndAddCredits = async (
             await saveApprovedBill(billData);
             console.log("Bill saved to Firestore");
 
-            // Then update balance (VND)
-            const newBalance = await updateUserCredits(userId, balanceVND, 'add');
+            // Then update balance (VND) & unlock plan
+            const newBalance = await updateUserCredits(userId, balanceVND, 'add', inferredPlan);
             console.log("Balance updated, new balance:", formatVND(newBalance));
 
             return {
                 success: true,
-                message: `Xác minh thành công! Đã nạp ${formatVND(balanceVND)} vào tài khoản.`,
+                message: `Xác minh thành công! Đã kích hoạt gói ${inferredPlan === 'pro' ? 'Pro' : 'Plus'} và cộng ${formatVND(balanceVND)} vào tài khoản.`,
                 newBalance
             };
         } catch (firebaseError: any) {

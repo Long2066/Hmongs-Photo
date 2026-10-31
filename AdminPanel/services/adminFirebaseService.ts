@@ -31,6 +31,7 @@ export interface UserData {
     email?: string;
     displayName: string;
     credits: number; // Now represents VND balance
+    plan?: 'free' | 'plus' | 'pro';
     isLocked: boolean;
     lockedAt?: number;
     lockedReason?: string;
@@ -96,13 +97,20 @@ export const getAllUsers = async (): Promise<UserData[]> => {
         }
 
         // 2. Safely fetch user credits data (if permissions allow)
-        const creditsMap = new Map<string, { credits: number; isLocked: boolean; lockedAt?: number; lockedReason?: string; lastUpdated?: number }>();
+        const creditsMap = new Map<string, { credits: number; plan?: 'free' | 'plus' | 'pro'; isLocked: boolean; lockedAt?: number; lockedReason?: string; lastUpdated?: number }>();
         try {
             const creditsSnapshot = await getDocs(collection(db, USER_CREDITS_COLLECTION));
             creditsSnapshot.forEach(doc => {
                 const data = doc.data();
+                const c = data.credits || 0;
+                const p: 'free' | 'plus' | 'pro' = c < 500
+                    ? 'free'
+                    : (data.plan === 'pro' || data.plan === 'plus')
+                        ? data.plan
+                        : (c >= 100000 ? 'pro' : 'plus');
                 creditsMap.set(doc.id, {
-                    credits: data.credits || 0,
+                    credits: c,
+                    plan: p,
                     isLocked: data.isLocked || false,
                     lockedAt: data.lockedAt,
                     lockedReason: data.lockedReason,
@@ -140,6 +148,7 @@ export const getAllUsers = async (): Promise<UserData[]> => {
                     email: data.email || emailMap.get(userId) || '',
                     displayName: data.displayName || data.name || (data.email ? data.email.split('@')[0] : 'User ' + userId.substring(0, 6)),
                     credits: creditsData?.credits || 0,
+                    plan: creditsData?.plan || 'free',
                     isLocked: creditsData?.isLocked || false,
                     lockedAt: creditsData?.lockedAt,
                     lockedReason: creditsData?.lockedReason,
@@ -157,6 +166,7 @@ export const getAllUsers = async (): Promise<UserData[]> => {
                     email: emailMap.get(odUserId) || '',
                     displayName: 'User ' + odUserId.substring(0, 6),
                     credits: data.credits,
+                    plan: data.plan || 'free',
                     isLocked: data.isLocked,
                     lockedAt: data.lockedAt,
                     lockedReason: data.lockedReason,
@@ -216,16 +226,18 @@ export const getUserById = async (userId: string): Promise<UserData | null> => {
     }
 };
 
-// Update user credits
+// Update user credits & plan
 export const updateUserCredits = async (
     userId: string,
     amount: number,
-    operation: 'add' | 'subtract' | 'set'
+    operation: 'add' | 'subtract' | 'set',
+    planOverride?: 'free' | 'plus' | 'pro'
 ): Promise<number> => {
     try {
         const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
         const docSnap = await getDoc(docRef);
-        const currentCredits = docSnap.exists() ? (docSnap.data().credits || 0) : 0;
+        const existingData = docSnap.exists() ? docSnap.data() : {};
+        const currentCredits = existingData.credits || 0;
 
         let newCredits: number;
         switch (operation) {
@@ -240,9 +252,18 @@ export const updateUserCredits = async (
                 break;
         }
 
+        const nextPlan: 'free' | 'plus' | 'pro' = planOverride
+            ? planOverride
+            : newCredits < 500
+                ? 'free'
+                : (existingData.plan === 'pro' || existingData.plan === 'plus')
+                    ? existingData.plan
+                    : (newCredits >= 100000 ? 'pro' : 'plus');
+
         await setDoc(docRef, {
             userId,
             credits: newCredits,
+            plan: nextPlan,
             lastUpdated: Date.now()
         }, { merge: true });
 

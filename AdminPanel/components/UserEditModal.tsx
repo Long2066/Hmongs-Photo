@@ -31,7 +31,8 @@ interface BillData {
 
 const UserEditModal: React.FC<UserEditModalProps> = ({ user, onClose, onUpdated }) => {
     const [credits, setCredits] = useState(user.credits);
-    const [creditsAmount, setCreditsAmount] = useState(100);
+    const [selectedPlan, setSelectedPlan] = useState<'free' | 'plus' | 'pro'>(user.plan || 'free');
+    const [creditsAmount, setCreditsAmount] = useState(50000);
     const [lockReason, setLockReason] = useState('');
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState<'credits' | 'lock' | 'history'>('credits');
@@ -60,11 +61,12 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user, onClose, onUpdated 
         if (creditsAmount <= 0) return;
         setLoading(true);
         try {
-            const newCredits = await updateUserCredits(user.id, creditsAmount, 'add');
+            const newCredits = await updateUserCredits(user.id, creditsAmount, 'add', selectedPlan);
             setCredits(newCredits);
-            alert(`Đã thêm ${creditsAmount} credits thành công!`);
+            alert(`Đã cộng ${creditsAmount.toLocaleString('vi-VN')}đ và cập nhật gói ${selectedPlan.toUpperCase()} thành công!`);
+            onUpdated();
         } catch (error) {
-            alert('Lỗi khi thêm credits');
+            alert('Lỗi khi thêm số dư');
         } finally {
             setLoading(false);
         }
@@ -74,11 +76,12 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user, onClose, onUpdated 
         if (creditsAmount <= 0) return;
         setLoading(true);
         try {
-            const newCredits = await updateUserCredits(user.id, creditsAmount, 'subtract');
+            const newCredits = await updateUserCredits(user.id, creditsAmount, 'subtract', selectedPlan);
             setCredits(newCredits);
-            alert(`Đã trừ ${creditsAmount} credits thành công!`);
+            alert(`Đã trừ ${creditsAmount.toLocaleString('vi-VN')}đ thành công!`);
+            onUpdated();
         } catch (error) {
-            alert('Lỗi khi trừ credits');
+            alert('Lỗi khi trừ số dư');
         } finally {
             setLoading(false);
         }
@@ -87,11 +90,12 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user, onClose, onUpdated 
     const handleSetCredits = async () => {
         setLoading(true);
         try {
-            const newCredits = await updateUserCredits(user.id, creditsAmount, 'set');
+            const newCredits = await updateUserCredits(user.id, creditsAmount, 'set', selectedPlan);
             setCredits(newCredits);
-            alert(`Đã đặt credits = ${creditsAmount} thành công!`);
+            alert(`Đã đặt số dư = ${creditsAmount.toLocaleString('vi-VN')}đ (${selectedPlan.toUpperCase()}) thành công!`);
+            onUpdated();
         } catch (error) {
-            alert('Lỗi khi set credits');
+            alert('Lỗi khi đặt số dư');
         } finally {
             setLoading(false);
         }
@@ -193,18 +197,41 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user, onClose, onUpdated 
                     {activeTab === 'credits' && (
                         <div className="credits-editor">
                             <div className="credits-current">
-                                <h3>{credits.toLocaleString('vi-VN')}</h3>
-                                <p>Credits hiện tại</p>
+                                <h3>{credits.toLocaleString('vi-VN')}đ</h3>
+                                <p>Số dư hiện tại (≈ {Math.floor(credits / 500)} ảnh • 500đ/ảnh)</p>
+                            </div>
+
+                            <div className="form-group" style={{ marginBottom: '12px' }}>
+                                <label>Gói dịch vụ (Subscription Plan)</label>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                                    {(['free', 'plus', 'pro'] as const).map((p) => (
+                                        <button
+                                            key={p}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedPlan(p);
+                                                if (p === 'plus') setCreditsAmount(50000);
+                                                if (p === 'pro') setCreditsAmount(100000);
+                                                if (p === 'free') setCreditsAmount(0);
+                                            }}
+                                            className={`btn btn-sm ${selectedPlan === p ? 'btn-primary' : 'btn-secondary'}`}
+                                            style={{ flex: 1, textTransform: 'uppercase', fontWeight: 700 }}
+                                        >
+                                            {p === 'free' ? 'Gói Free' : p === 'plus' ? '⚡ Plus (50k)' : '👑 Pro (100k)'}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <div className="form-group">
-                                <label>Số lượng credits</label>
+                                <label>Số tiền VNĐ (500đ = 1 ảnh)</label>
                                 <input
                                     type="number"
                                     value={creditsAmount}
                                     onChange={(e) => setCreditsAmount(Math.max(0, parseInt(e.target.value) || 0))}
                                     min={0}
-                                    placeholder="Nhập số credits"
+                                    step={5000}
+                                    placeholder="Nhập số tiền VNĐ (vd: 50000)"
                                 />
                             </div>
 

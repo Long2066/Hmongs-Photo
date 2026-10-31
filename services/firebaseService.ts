@@ -729,28 +729,165 @@ export const clearUserHistoryInFirestore = async (userId: string): Promise<void>
     }
 };
 
-// --- Credits Management Services ---
+// --- Credits & Subscription Plan Management Services ---
 
 const USER_CREDITS_COLLECTION = "userCredits";
 const APPROVED_BILLS_COLLECTION = "approvedBills";
 const FAILED_BILLS_COLLECTION = "failedBills";
 
+export type SubscriptionPlan = 'free' | 'plus' | 'pro';
+
+export const IMAGE_COST_VND = 500;
+export const FREE_DAILY_IMAGE_LIMIT = 20;
+export const FREE_ALLOWED_MODEL = 'gpt-image-1.5';
+
+export interface PlanInfo {
+    id: SubscriptionPlan;
+    name: string;
+    badge: string;
+    originalPrice: number;
+    price: number;
+    costPerImage: number;
+    maxResolution: 'FHD' | '4K';
+    dailyFreeLimit?: number;
+    paymentId?: string;
+    checkoutUrl?: string;
+    description: string;
+    features: string[];
+}
+
+export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
+    free: {
+        id: 'free',
+        name: 'Gói Free',
+        badge: 'Miễn phí',
+        originalPrice: 0,
+        price: 0,
+        costPerImage: 0,
+        maxResolution: 'FHD',
+        dailyFreeLimit: FREE_DAILY_IMAGE_LIMIT,
+        description: 'Trải nghiệm tạo ảnh AI cơ bản mỗi ngày hoàn toàn miễn phí.',
+        features: [
+            'Tạo tối đa 20 ảnh / ngày',
+            'Sử dụng model GPT Image 1.5',
+            'Độ phân giải tiêu chuẩn (HD / FHD)',
+            'Lưu trữ lịch sử tạo ảnh 72 giờ'
+        ]
+    },
+    plus: {
+        id: 'plus',
+        name: 'Gói Plus',
+        badge: 'Tiết kiệm 58%',
+        originalPrice: 120000,
+        price: 50000,
+        costPerImage: IMAGE_COST_VND,
+        maxResolution: 'FHD',
+        paymentId: '852aa89112564079b9d1658f9c517135',
+        checkoutUrl: 'https://pay.payos.vn/web/852aa89112564079b9d1658f9c517135',
+        description: 'Mở khóa toàn bộ tính năng sáng tạo với mức chi phí siêu tiết kiệm.',
+        features: [
+            'Cộng ngay 50.000đ vào số dư (tương đương 100 ảnh)',
+            'Sử dụng full tất cả các tính năng trên công cụ',
+            'Mở khóa toàn bộ Model AI (Gemini 3.1, GPT 2.5...)',
+            'Tạo ảnh độ phân giải tối đa mức FHD (Full HD)',
+            'Chi phí tạo ảnh chỉ 500đ / ảnh'
+        ]
+    },
+    pro: {
+        id: 'pro',
+        name: 'Gói Pro',
+        badge: 'Giảm 50% • Cao cấp nhất',
+        originalPrice: 200000,
+        price: 100000,
+        costPerImage: IMAGE_COST_VND,
+        maxResolution: '4K',
+        paymentId: 'f950f2ae3bde4c6a80345252f6c00bad',
+        checkoutUrl: 'https://pay.payos.vn/web/f950f2ae3bde4c6a80345252f6c00bad',
+        description: 'Sức mạnh tối đa không giới hạn cho Studio & Designer chuyên nghiệp.',
+        features: [
+            'Cộng ngay 100.000đ vào số dư (tương đương 200 ảnh)',
+            'Sử dụng full toàn bộ tính năng có trên Tool',
+            'Mở khóa toàn bộ Model AI cao cấp nhất',
+            'Mở khóa mọi mức độ phân giải: HD, FHD, 2K, 4K Ultra',
+            'Chi phí tạo ảnh chỉ 500đ / ảnh • Ưu tiên tốc độ'
+        ]
+    }
+};
+
 // Credits per amount (VND)
 export const CREDITS_PRICING = {
     10000: 100,   // 5 images
     20000: 200,   // 10 images
-    50000: 500,   // 25 images
-    100000: 1000, // 50 images
+    50000: 500,   // 100 images (500đ/ảnh)
+    100000: 1000, // 200 images (500đ/ảnh)
 };
 
 export const CREDITS_PER_IMAGE = 20;
 
-// Bill verification info
+// Bill verification info (Supports both MBBank PayOS & VietinBank)
 export const BANK_INFO = {
-    bankName: 'VietinBank',
+    bankName: 'MBBank',
     accountHolder: 'MA VAN LONG',
-    accountNumber: '103882289985',
+    accountNumber: 'VQRQANFM',
     supportPhone: '0342.733.640'
+};
+
+export interface UserSubscriptionState {
+    credits: number;
+    plan: SubscriptionPlan;
+    dailyFreeUsed: number;
+    dailyFreeDate: string;
+}
+
+export const getTodayDateString = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+export const resolveEffectivePlan = (rawPlan?: string, credits: number = 0): SubscriptionPlan => {
+    if (credits < IMAGE_COST_VND) {
+        return 'free';
+    }
+    if (rawPlan === 'pro') return 'pro';
+    if (rawPlan === 'plus') return 'plus';
+    // Fallback inference for existing users with balance before plan field was introduced
+    return credits >= 100000 ? 'pro' : 'plus';
+};
+
+export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
+    try {
+        const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
+        if (!uid) return 'free';
+        const rawPlan = localStorage.getItem('user_plan_' + uid) || undefined;
+        const rawBal = localStorage.getItem('user_balance_raw_' + uid);
+        const credits = rawBal ? parseInt(rawBal, 10) || 0 : 0;
+        return resolveEffectivePlan(rawPlan, credits);
+    } catch {
+        return 'free';
+    }
+};
+
+export const getCachedDailyFreeUsed = (userId?: string): number => {
+    try {
+        const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
+        if (!uid) return 0;
+        const today = getTodayDateString();
+        const storedDate = localStorage.getItem('user_free_date_' + uid);
+        if (storedDate !== today) {
+            return 0;
+        }
+        return parseInt(localStorage.getItem('user_free_used_' + uid) || '0', 10) || 0;
+    } catch {
+        return 0;
+    }
+};
+
+export const getDailyFreeRemaining = (userId?: string): number => {
+    const used = getCachedDailyFreeUsed(userId);
+    return Math.max(0, FREE_DAILY_IMAGE_LIMIT - used);
 };
 
 export interface BillData {
@@ -767,6 +904,7 @@ export interface BillData {
     timestamp: number;
     verificationStatus: 'approved' | 'failed';
     failureReason?: string | null;
+    plan?: SubscriptionPlan;
 }
 
 // Get user's current credits balance
@@ -786,30 +924,157 @@ export const getUserCredits = async (userId: string): Promise<number> => {
 };
 
 // Update user's credits (add or subtract) with timeout protection
-export const updateUserCredits = async (userId: string, amount: number, operation: 'add' | 'subtract'): Promise<number> => {
+export const updateUserCredits = async (
+    userId: string,
+    amount: number,
+    operation: 'add' | 'subtract',
+    planOverride?: SubscriptionPlan
+): Promise<number> => {
     try {
-        const currentCredits = await getUserCredits(userId);
+        const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
+        const docSnap = await getDoc(docRef);
+        const existingData = docSnap.exists() ? docSnap.data() : {};
+        const currentCredits = existingData.credits || 0;
         const newCredits = operation === 'add'
             ? currentCredits + amount
             : Math.max(0, currentCredits - amount);
 
+        const nextPlan: SubscriptionPlan = planOverride
+            ? planOverride
+            : newCredits < IMAGE_COST_VND
+                ? 'free'
+                : (existingData.plan === 'pro' || existingData.plan === 'plus')
+                    ? existingData.plan
+                    : (newCredits >= 100000 ? 'pro' : 'plus');
+
+        const updatePayload: Record<string, any> = {
+            userId,
+            credits: newCredits,
+            plan: nextPlan,
+            lastUpdated: Date.now()
+        };
+
         // Add timeout to prevent hanging
         await Promise.race([
-            setDoc(doc(db, USER_CREDITS_COLLECTION, userId), {
-                userId,
-                credits: newCredits,
-                lastUpdated: Date.now()
-            }, { merge: true }),
+            setDoc(docRef, updatePayload, { merge: true }),
             new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error('Firestore update timeout (15s)')), 15000)
             )
         ]);
+
+        // Update local cache immediately
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('user_balance_raw_' + userId, newCredits.toString());
+            localStorage.setItem('user_plan_' + userId, nextPlan);
+            localStorage.setItem('user_credits_' + userId, Math.floor(newCredits / 100).toString());
+            window.dispatchEvent(new CustomEvent('user-balance-changed', {
+                detail: { balance: newCredits, plan: nextPlan }
+            }));
+        }
 
         return newCredits;
     } catch (error) {
         console.error("Error updating user credits:", error);
         throw error;
     }
+};
+
+// Activate Plus or Pro subscription package after PayOS checkout success
+export const activateSubscriptionPlan = async (
+    userId: string,
+    userName: string,
+    userEmail: string,
+    plan: 'plus' | 'pro',
+    paymentRef?: string
+): Promise<{ newBalance: number; plan: SubscriptionPlan }> => {
+    const planConfig = SUBSCRIPTION_PLANS[plan];
+    const amountToAdd = planConfig.price; // 50,000 for Plus, 100,000 for Pro
+    const billHash = paymentRef || `PAYOS_${plan.toUpperCase()}_${userId}_${Date.now()}`;
+
+    // Check duplicate if paymentRef is deterministic
+    if (paymentRef) {
+        const isDup = await checkDuplicateBill(paymentRef);
+        if (isDup) {
+            const currentBal = await getUserCredits(userId);
+            return { newBalance: currentBal, plan };
+        }
+    }
+
+    // Check current user plan so we don't downgrade a Pro user who buys Plus top-up unless they had 0 balance
+    const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
+    const docSnap = await getDoc(docRef);
+    const existingData = docSnap.exists() ? docSnap.data() : {};
+    const existingCredits = existingData.credits || 0;
+    const finalPlan: SubscriptionPlan =
+        (existingCredits >= IMAGE_COST_VND && existingData.plan === 'pro' && plan === 'plus')
+            ? 'pro'
+            : plan;
+
+    const newBalance = await updateUserCredits(userId, amountToAdd, 'add', finalPlan);
+
+    // Record approved bill in Firestore for Admin Panel & History
+    try {
+        await saveApprovedBill({
+            userId,
+            userName: userName || 'User',
+            userEmail: userEmail || '',
+            amount: amountToAdd,
+            credits: amountToAdd,
+            transferTime: new Date().toISOString(),
+            content: `Nang cap Imagetool ${plan === 'pro' ? 'Pro' : 'Plus'}`,
+            senderName: userName || 'PayOS Checkout',
+            billHash,
+            timestamp: Date.now(),
+            verificationStatus: 'approved',
+            plan: finalPlan
+        });
+    } catch (e) {
+        console.warn('Could not save approved bill log:', e);
+    }
+
+    return { newBalance, plan: finalPlan };
+};
+
+// Increment daily free image counter for Free tier users
+export const incrementDailyFreeUsage = async (userId: string, imageCount: number = 1): Promise<number> => {
+    const today = getTodayDateString();
+    let newUsed = imageCount;
+
+    try {
+        const currentLocalUsed = getCachedDailyFreeUsed(userId);
+        newUsed = currentLocalUsed + imageCount;
+
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('user_free_date_' + userId, today);
+            localStorage.setItem('user_free_used_' + userId, newUsed.toString());
+            window.dispatchEvent(new CustomEvent('user-balance-changed', {
+                detail: { dailyFreeUsed: newUsed }
+            }));
+        }
+
+        const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            const dbUsed = data.dailyFreeDate === today ? (data.dailyFreeUsed || 0) : 0;
+            newUsed = Math.max(newUsed, dbUsed + imageCount);
+        }
+
+        await setDoc(docRef, {
+            userId,
+            dailyFreeDate: today,
+            dailyFreeUsed: newUsed,
+            lastUpdated: Date.now()
+        }, { merge: true });
+
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('user_free_used_' + userId, newUsed.toString());
+        }
+    } catch (e) {
+        console.warn('Failed to sync daily free usage to Firestore:', e);
+    }
+
+    return newUsed;
 };
 
 // Save approved bill record with timeout protection
@@ -894,15 +1159,50 @@ export const getFailedBills = async (limitCount: number = 50): Promise<BillData[
     }
 };
 
-// Subscribe to user credits updates (realtime)
-export const subscribeToUserCredits = (userId: string, callback: (credits: number) => void) => {
+// Subscribe to user credits and subscription plan updates (realtime)
+export const subscribeToUserCredits = (
+    userId: string,
+    callback: (credits: number, state?: UserSubscriptionState) => void
+) => {
     const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
 
     return onSnapshot(docRef, (docSnap) => {
+        const today = getTodayDateString();
         if (docSnap.exists()) {
-            callback(docSnap.data().credits || 0);
+            const data = docSnap.data();
+            const credits = data.credits || 0;
+            const plan = resolveEffectivePlan(data.plan, credits);
+            const dailyFreeUsed = data.dailyFreeDate === today ? (data.dailyFreeUsed || 0) : 0;
+
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('user_balance_raw_' + userId, credits.toString());
+                localStorage.setItem('user_plan_' + userId, plan);
+                localStorage.setItem('user_credits_' + userId, Math.floor(credits / 100).toString());
+                localStorage.setItem('user_free_date_' + userId, today);
+                localStorage.setItem('user_free_used_' + userId, dailyFreeUsed.toString());
+                window.dispatchEvent(new CustomEvent('user-balance-changed', {
+                    detail: { balance: credits, plan, dailyFreeUsed }
+                }));
+            }
+
+            callback(credits, {
+                credits,
+                plan,
+                dailyFreeUsed,
+                dailyFreeDate: today
+            });
         } else {
-            callback(0);
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('user_balance_raw_' + userId, '0');
+                localStorage.setItem('user_plan_' + userId, 'free');
+                localStorage.setItem('user_credits_' + userId, '0');
+            }
+            callback(0, {
+                credits: 0,
+                plan: 'free',
+                dailyFreeUsed: getCachedDailyFreeUsed(userId),
+                dailyFreeDate: today
+            });
         }
     });
 };

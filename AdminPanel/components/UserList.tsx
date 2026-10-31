@@ -190,8 +190,16 @@ const UserList: React.FC = () => {
                                 {user.email || '-'}
                             </span>
 
-                            <span className="credits-display">
-                                {formatVND(user.credits || 0)}
+                            <span className="credits-display" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span>{formatVND(user.credits || 0)}</span>
+                                <span style={{
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    color: user.plan === 'pro' ? '#4f46e5' : user.plan === 'plus' ? '#059669' : '#64748b'
+                                }}>
+                                    {user.plan === 'pro' ? '👑 Gói Pro' : user.plan === 'plus' ? '⚡ Gói Plus' : 'Gói Free'}
+                                </span>
                             </span>
 
                             <span className={`status-badge ${user.isLocked ? 'locked' : 'active'}`}>

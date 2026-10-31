@@ -269,7 +269,7 @@ const App: React.FC = () => {
         };
     }, [checkApiKey]);
 
-    // Subscribe to user balance (VND)
+    // Subscribe to user balance (VND) & Subscription Plan
     useEffect(() => {
         if (!currentUser) {
             setUserBalance(0);
@@ -395,42 +395,83 @@ const App: React.FC = () => {
         setPendingGeneration(null);
     };
 
-    // Deduct balance for VIP generation (called after successful image generation)
-    // SMART: Only deduct if system key was actually used (tracked by aiService)
-    const deductBalanceForVIP = async (imagesCount: number = 1, generationType: string = 'image_generation') => {
-        const isVipMode = storage.isProUser() && storage.getUseProApi();
-        const systemKeyWasUsed = getUsedSystemKey();
+    // Validate subscription plan quota & model before generation
+    const validateSubscriptionBeforeGenerate = useCallback((requestedImages: number): boolean => {
+        if (!currentUser) return false;
+        if (storage.isAdmin()) return true;
 
-        // SMART LOGIC:
-        // - Only deduct if VIP mode is enabled AND system key was actually used
-        // - If user has valid key and it was used, NO balance deduction
-        // - If user key failed/quota and fallback to system key, DEDUCT balance
-        if (isVipMode && systemKeyWasUsed && currentUser) {
-            const modelId = getSelectedImageModel();
-            const model = getModelConfig(modelId);
-            const pricePerImage = model?.pricePerImage || 120;
-            const totalCost = imagesCount * pricePerImage;
+        const effectivePlan = firebaseService.resolveEffectivePlan(
+            firebaseService.getCachedUserPlan(currentUser.id),
+            userBalance
+        );
 
-            console.log('[BALANCE] System key was used, deducting', formatVND(totalCost), 'for', imagesCount, 'images');
-
-            // Deduct from local balance and add usage record
-            deductBalance(totalCost, {
-                modelId,
-                modelName: model?.name || 'Unknown',
-                imageCount: imagesCount,
-                pricePerImage,
-                resolution: 'FHD',
-                type: generationType as any
-            });
-
-            // Also update Firestore
-            try {
-                await updateUserCredits(currentUser.id, totalCost, 'subtract');
-            } catch (err) {
-                console.error('[BALANCE] Failed to sync with Firestore:', err);
+        if (effectivePlan === 'free') {
+            // Force GPT 1.5 model for Free tier
+            const activeModel = nineRouterService.getNineRouterImageModel();
+            if (activeModel !== firebaseService.FREE_ALLOWED_MODEL) {
+                nineRouterService.setNineRouterImageModel(firebaseService.FREE_ALLOWED_MODEL);
             }
-        } else if (isVipMode && !systemKeyWasUsed) {
-            console.log('[BALANCE] User key was used successfully, no balance deducted');
+
+            const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
+            if (remainingFree <= 0) {
+                setError(`Bạn đã sử dụng hết ${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí trong ngày của Gói Free. Vui lòng vào Trang cá nhân nâng cấp Gói Plus (50.000đ) hoặc Gói Pro (100.000đ) để tiếp tục tạo ảnh không giới hạn!`);
+                return false;
+            }
+            if (requestedImages > remainingFree) {
+                setError(`Gói Free của bạn chỉ còn ${remainingFree}/${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí hôm nay (bạn đang chọn tạo ${requestedImages} ảnh). Vui lòng giảm số lượng ảnh hoặc nâng cấp Gói Plus / Pro tại Trang cá nhân.`);
+                return false;
+            }
+            return true;
+        }
+
+        // Plus or Pro tier: costs 500 VND / image
+        const requiredVND = requestedImages * firebaseService.IMAGE_COST_VND;
+        if (userBalance < requiredVND) {
+            setError(`Số dư hiện tại (${formatVND(userBalance)}) không đủ để tạo ${requestedImages} ảnh (cần ${formatVND(requiredVND)} — 500đ/ảnh). Vui lòng vào Trang cá nhân mua thêm Gói Plus hoặc Gói Pro.`);
+            return false;
+        }
+
+        return true;
+    }, [currentUser, userBalance]);
+
+    // Deduct balance (500đ/image for Plus & Pro) or increment daily Free counter after successful generation
+    const deductBalanceForVIP = async (imagesCount: number = 1, generationType: string = 'image_generation') => {
+        if (!currentUser || imagesCount <= 0) return;
+        if (storage.isAdmin() && userBalance <= 0) return;
+
+        const effectivePlan = firebaseService.resolveEffectivePlan(
+            firebaseService.getCachedUserPlan(currentUser.id),
+            userBalance
+        );
+
+        if (effectivePlan === 'free') {
+            await firebaseService.incrementDailyFreeUsage(currentUser.id, imagesCount);
+            console.log(`[FREE PLAN] Used ${imagesCount} free image(s) today.`);
+            return;
+        }
+
+        const pricePerImage = firebaseService.IMAGE_COST_VND; // 500 VND / image
+        const totalCost = imagesCount * pricePerImage;
+        const modelId = nineRouterService.getNineRouterImageModel();
+
+        console.log(`[SUBSCRIPTION ${effectivePlan.toUpperCase()}] Deducting ${formatVND(totalCost)} (${pricePerImage}đ x ${imagesCount} ảnh)`);
+
+        // Deduct from local balance and add usage record
+        deductBalance(totalCost, {
+            modelId,
+            modelName: modelId,
+            imageCount: imagesCount,
+            pricePerImage,
+            resolution: effectivePlan === 'plus' ? 'FHD' : '4K',
+            type: generationType as any
+        });
+
+        // Also update Firestore
+        try {
+            const nextBal = await updateUserCredits(currentUser.id, totalCost, 'subtract');
+            setUserBalance(nextBal);
+        } catch (err) {
+            console.error('[BALANCE] Failed to sync with Firestore:', err);
         }
     };
 
@@ -459,6 +500,8 @@ const App: React.FC = () => {
         const currentInputs = modeStates['id_photo'].inputs;
         if (currentInputs.length === 0) { setError("Vui lòng chọn 1 ảnh chân dung."); return; }
 
+        if (!validateSubscriptionBeforeGenerate(4)) return;
+
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(4).fill(null), prompts: [] }));
 
@@ -486,13 +529,13 @@ const App: React.FC = () => {
             const successCount = localResults.filter(img => img !== null).length;
             const validImages = localResults.filter((img): img is string => img !== null);
             if (successCount > 0) {
-                await deductBalanceForVIP(successCount);
+                await deductBalanceForVIP(successCount, 'id_photo');
                 // Save to history
                 saveHistory('ID Photo', `Ảnh thẻ - ${clothing} - Nền ${bgColor}`, validImages, 'ID Photo');
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
         finally { setIsLoading(false); setLoadingStatus(''); }
-    }, [modeStates, currentUser, autoDownload]);
+    }, [modeStates, currentUser, autoDownload, validateSubscriptionBeforeGenerate]);
 
 
     // 2. Creative Mode
@@ -508,12 +551,15 @@ const App: React.FC = () => {
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
 
-        // Check if selected model is paid and user has 0 balance
-        const activeImgModel = nineRouterService.getNineRouterImageModel();
-        if (nineRouterService.isModelPaid(activeImgModel) && userBalance <= 0 && !storage.isProUser()) {
-            setError(`Model "${activeImgModel}" là model Trả phí. Số dư của bạn hiện là 0đ. Vui lòng nạp thêm để tiếp tục hoặc chọn model Miễn phí.`);
-            return;
-        }
+        if (!validateSubscriptionBeforeGenerate(prompts.length)) return;
+
+        // Clamp resolution to FHD if user is not on Pro plan
+        const effectivePlan = storage.isAdmin()
+            ? 'pro'
+            : firebaseService.resolveEffectivePlan(firebaseService.getCachedUserPlan(currentUser?.id), userBalance);
+        const safeResolution = effectivePlan !== 'pro' && (resolution === '2K' || resolution === '4K')
+            ? 'FHD'
+            : resolution;
 
         // Read specific creative inputs
         const cInputs = modeStates['creative'].creativeInputs!;
@@ -533,7 +579,7 @@ const App: React.FC = () => {
             setLoadingStatus('Đang khởi động Model...');
 
             await generateImagesFromPromptsList(
-                apiKey, prompts, refImages, aspectRatio, resolution,
+                apiKey, prompts, refImages, aspectRatio, safeResolution,
                 (status) => setLoadingStatus(status),
                 (index, base64) => {
                     updateModeState((prev) => {
@@ -550,13 +596,13 @@ const App: React.FC = () => {
 
             // Deduct credits for VIP users based on successful images
             if (validImages.length > 0) {
-                await deductBalanceForVIP(validImages.length);
+                await deductBalanceForVIP(validImages.length, 'image_generation');
                 saveHistory('Creative Batch', prompts[0], validImages, outputMode);
             }
 
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
         finally { setIsLoading(false); setLoadingStatus(''); }
-    }, [modeStates, currentUser, autoDownload]);
+    }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate]);
 
     // 3. Edit Image (Batch Support)
     const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', outputCount: number, extraData?: any) => {
@@ -570,6 +616,9 @@ const App: React.FC = () => {
 
         if (type !== 'mix' && inputs.length === 0) { setError("Vui lòng tải lên ảnh."); return; }
         if (type === 'mix' && inputs.length < 2) { setError("Vui lòng tải lên 2 ảnh để phối đồ."); return; }
+
+        const actualCount = type === 'general' ? outputCount : 1;
+        if (!validateSubscriptionBeforeGenerate(actualCount)) return;
 
         console.log('[DEBUG] Starting edit generation...');
         setIsLoading(true); setError(null); setIsMenuOpen(false);
@@ -627,18 +676,20 @@ const App: React.FC = () => {
             const validImages = localResults.filter((img): img is string => img !== null);
             // Deduct credits for VIP users
             if (validImages.length > 0) {
-                await deductBalanceForVIP(validImages.length);
+                await deductBalanceForVIP(validImages.length, 'edit');
                 saveHistory('Edit Tool', historyPrompt, validImages, type);
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi xử lý.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
-    }, [modeStates, autoDownload, currentUser]);
+    }, [modeStates, autoDownload, currentUser, validateSubscriptionBeforeGenerate]);
 
     // 4. Upscale Image (Batch Support)
     const handleUpscale = useCallback(async (resolution: '2K' | '4K', outputCount: number) => {
         const apiKey = getApiKeyOrAlert();
         const inputs = modeStates['upscale'].inputs;
         if (!apiKey || inputs.length === 0) return;
+
+        if (!validateSubscriptionBeforeGenerate(outputCount)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
@@ -667,18 +718,20 @@ const App: React.FC = () => {
             const validImages = localResults.filter((img): img is string => img !== null);
             // Deduct credits for VIP users
             if (validImages.length > 0) {
-                await deductBalanceForVIP(validImages.length);
+                await deductBalanceForVIP(validImages.length, 'upscale');
                 saveHistory('Upscale', `Upscaled to ${resolution}`, validImages, 'High Quality');
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi nâng cấp.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
-    }, [modeStates, autoDownload, currentUser]);
+    }, [modeStates, autoDownload, currentUser, validateSubscriptionBeforeGenerate]);
 
     // 5. Profile Pro (Batch Support)
     const handleProfilePro = useCallback(async (style: string, platform: string, resolution: '2K' | '4K', outputCount: number) => {
         const apiKey = getApiKeyOrAlert();
         const inputs = modeStates['profile_pro'].inputs;
         if (!apiKey || inputs.length === 0) return;
+
+        if (!validateSubscriptionBeforeGenerate(outputCount)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
@@ -709,12 +762,12 @@ const App: React.FC = () => {
             const validImages = localResults.filter((img): img is string => img !== null);
             // Deduct credits for VIP users
             if (validImages.length > 0) {
-                await deductBalanceForVIP(validImages.length);
+                await deductBalanceForVIP(validImages.length, 'profile_pro');
                 saveHistory('Profile Pro', `Profile: ${style} for ${platform}`, validImages, style);
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi tạo profile.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
-    }, [modeStates, autoDownload, currentUser]);
+    }, [modeStates, autoDownload, currentUser, validateSubscriptionBeforeGenerate]);
 
     // 7. Restore Old Photo
     const handleRestorePhoto = useCallback(async (options: RestoreOptions) => {
@@ -728,6 +781,8 @@ const App: React.FC = () => {
             setError("Vui lòng tải lên ảnh cũ cần phục hồi.");
             return;
         }
+
+        if (!validateSubscriptionBeforeGenerate(1)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: [null] }));
@@ -758,7 +813,7 @@ const App: React.FC = () => {
                 setComparisonActive(true);
 
                 // Deduct credits for VIP users
-                await deductBalanceForVIP(1);
+                await deductBalanceForVIP(1, 'restore');
                 saveHistory('Phục Hồi Ảnh', 'Phục hồi ảnh cũ', [result], 'Restoration');
             }
         } catch (e) {
@@ -767,7 +822,7 @@ const App: React.FC = () => {
             updateModeState(() => ({ outputs: [] }));
         }
         finally { setIsLoading(false); setLoadingStatus(''); }
-    }, [modeStates, currentUser]);
+    }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
     const handleLogout = async () => {
         await firebaseService.logoutUser();
