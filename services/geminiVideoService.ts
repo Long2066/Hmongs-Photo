@@ -108,6 +108,47 @@ export const setFlowProjectId = async (projectId: string): Promise<any> => {
 };
 
 /**
+ * Đồng bộ Cookie từ Cookie-Editor (JSON) hoặc chuỗi Cookie sang Google Flow Server
+ */
+export const syncFlowCookiesRaw = async (rawCookieText: string): Promise<any> => {
+    const baseUrl = getVideoServerUrl();
+    let cookies: any[] = [];
+    const trimmed = rawCookieText.trim();
+
+    if (trimmed.startsWith('[')) {
+        cookies = JSON.parse(trimmed);
+    } else if (trimmed.startsWith('{')) {
+        cookies = [JSON.parse(trimmed)];
+    } else {
+        // Parse header format: name=val; name2=val2 or multi-line
+        const parts = trimmed.split(/[;\n]+/).map(s => s.trim()).filter(Boolean);
+        for (const p of parts) {
+            if (p.includes('=')) {
+                const [k, ...rest] = p.split('=');
+                cookies.push({
+                    name: k.trim(),
+                    value: rest.join('=').trim(),
+                    domain: '.google.com',
+                    path: '/',
+                    secure: true,
+                });
+            }
+        }
+    }
+
+    const resp = await fetch(`${baseUrl}/v1/auth/cookies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookies }),
+    });
+    if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(err || 'Không thể đồng bộ Cookie');
+    }
+    return await resp.json();
+};
+
+/**
  * Khởi tạo tác vụ tạo video (Text->Video hoặc Image->Video) qua flow-py và thăm dò kết quả
  */
 export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; bytes?: number }> => {

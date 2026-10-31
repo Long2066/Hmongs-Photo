@@ -3,6 +3,7 @@ import { VideoCameraIcon, SparklesIcon, ImageIcon } from './Icons';
 import {
     checkVideoServerHealth,
     triggerFlowBrowserLogin,
+    syncFlowCookiesRaw,
     VideoServerHealth,
 } from '../services/geminiVideoService';
 
@@ -45,6 +46,9 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [serverHealth, setServerHealth] = useState<VideoServerHealth>({ online: false });
     const [isCheckingServer, setIsCheckingServer] = useState(true);
     const [isTriggeringLogin, setIsTriggeringLogin] = useState(false);
+    const [showCookieBox, setShowCookieBox] = useState(false);
+    const [cookieInput, setCookieInput] = useState('');
+    const [isSyncingCookies, setIsSyncingCookies] = useState(false);
 
     useEffect(() => {
         let mounted = true;
@@ -65,8 +69,8 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     const handleLoginClick = async () => {
         setIsTriggeringLogin(true);
-        // Mở trực tiếp tab Google Flow ngay trên trình duyệt Chrome của người dùng
-        window.open('https://labs.google/fx/tools/flow', '_blank', 'noopener,noreferrer');
+        window.open('https://flow.google.com/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444', '_blank', 'noopener,noreferrer');
+        setShowCookieBox(true);
         try {
             await triggerFlowBrowserLogin();
             const health = await checkVideoServerHealth(true);
@@ -74,7 +78,25 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         } catch (err) {
             console.error('[Flow Login Error]:', err);
         } finally {
-            setTimeout(() => setIsTriggeringLogin(false), 1200);
+            setTimeout(() => setIsTriggeringLogin(false), 1000);
+        }
+    };
+
+    const handleSyncCookies = async () => {
+        if (!cookieInput.trim()) return;
+        setIsSyncingCookies(true);
+        try {
+            await syncFlowCookiesRaw(cookieInput);
+            const health = await checkVideoServerHealth(true);
+            setServerHealth(health);
+            if (health.authenticated) {
+                setShowCookieBox(false);
+                setCookieInput('');
+            }
+        } catch (err) {
+            console.error('[Cookie Sync Error]:', err);
+        } finally {
+            setIsSyncingCookies(false);
         }
     };
 
@@ -136,7 +158,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                     : !serverHealth.online
                                     ? 'Offline'
                                     : serverHealth.authenticated
-                                    ? serverHealth.email?.split('@')[0] || 'Đã kết nối'
+                                    ? 'Đã kết nối'
                                     : 'Chưa đăng nhập'}
                             </span>
                         </button>
@@ -144,15 +166,47 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 </div>
 
                 {serverHealth.online && !serverHealth.authenticated && (
-                    <button
-                        type="button"
-                        onClick={handleLoginClick}
-                        disabled={isTriggeringLogin}
-                        className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-                    >
-                        <span>🌐</span>
-                        <span>{isTriggeringLogin ? 'Đang mở Chrome...' : 'Đăng nhập Google Flow'}</span>
-                    </button>
+                    <div className="flex flex-col gap-2">
+                        <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                                type="button"
+                                onClick={handleLoginClick}
+                                disabled={isTriggeringLogin}
+                                className="min-h-[40px] px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                            >
+                                <span>🌐</span>
+                                <span>Mở Google Flow</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowCookieBox(!showCookieBox)}
+                                className="min-h-[40px] px-2.5 py-2 rounded-xl bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-800 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                                <span>🍪</span>
+                                <span>Dán Cookie</span>
+                            </button>
+                        </div>
+
+                        {showCookieBox && (
+                            <div className="flex flex-col gap-1.5 pt-1">
+                                <textarea
+                                    value={cookieInput}
+                                    onChange={(e) => setCookieInput(e.target.value)}
+                                    placeholder="Bấm Cookie-Editor trên tab Google Flow ➔ Export (JSON) rồi dán vào đây..."
+                                    rows={2}
+                                    className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-rose-500/30"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleSyncCookies}
+                                    disabled={isSyncingCookies || !cookieInput.trim()}
+                                    className="w-full min-h-[38px] rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                                >
+                                    {isSyncingCookies ? 'Đang kết nối...' : 'Xác nhận kết nối'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 )}
             </div>
 

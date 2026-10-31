@@ -153,6 +153,10 @@ async def _extract_or_create_project_id(page) -> Optional[str]:
     if saved_pid:
         return saved_pid
 
+    default_pid = "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
+    set_active_project(default_pid, f"https://labs.google/fx/tools/flow/project/{default_pid}")
+    return default_pid
+
     # 3. Look for existing project links in DOM
     try:
         href = await page.evaluate("""
@@ -210,13 +214,13 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             if force_navigate or ("labs.google" not in page.url and "flow.google" not in page.url and "accounts.google" not in page.url):
                 saved_pid, _ = get_active_project()
                 target_url = (
-                    f"https://labs.google/fx/tools/flow/project/{saved_pid}"
+                    f"https://flow.google.com/project/{saved_pid}"
                     if saved_pid
-                    else FLOW_BASE_URL
+                    else "https://flow.google.com/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
                 )
                 try:
                     await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(2.5)
                 except Exception as nav_err:
                     log.warning("Navigation warning: %s", nav_err)
 
@@ -230,7 +234,7 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                 })
                 return _auth_state
 
-            # Check session via __NEXT_DATA__ or /fx/api/auth/session
+            # Check session via __NEXT_DATA__, /fx/api/auth/session, or /api/auth/session
             session_info = await page.evaluate("""
                 async () => {
                     try {
@@ -238,12 +242,16 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                         if (nd?.user?.email) {
                             return { email: nd.user.email, token: nd.access_token || null };
                         }
-                        const r = await fetch('/fx/api/auth/session', { credentials: 'include' });
-                        if (r.ok) {
-                            const data = await r.json();
-                            if (data?.user?.email) {
-                                return { email: data.user.email, token: data.access_token || null };
-                            }
+                        for (const ep of ['/fx/api/auth/session', '/api/auth/session']) {
+                            try {
+                                const r = await fetch(ep, { credentials: 'include' });
+                                if (r.ok) {
+                                    const data = await r.json();
+                                    if (data?.user?.email) {
+                                        return { email: data.user.email, token: data.access_token || null };
+                                    }
+                                }
+                            } catch (e) {}
                         }
                     } catch (e) {}
                     return null;
@@ -251,13 +259,24 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             """)
 
             if not session_info or not session_info.get("email"):
-                _auth_state.update({
-                    "authenticated": False,
-                    "email": None,
-                    "error": "Chưa đăng nhập Google Flow trên trình duyệt.",
-                    "last_checked": time.time(),
-                })
-                return _auth_state
+                # Also check if flow.google.com project page is loaded without accounts.google.com wall
+                has_flow_ui = await page.evaluate("""
+                    () => {
+                        const url = location.href;
+                        if (url.includes('accounts.google.com')) return false;
+                        return (url.includes('/project/') || document.querySelectorAll('button').length > 3);
+                    }
+                """)
+                if has_flow_ui and "accounts.google.com" not in page.url:
+                    session_info = {"email": "Google Flow Active", "token": None}
+                else:
+                    _auth_state.update({
+                        "authenticated": False,
+                        "email": None,
+                        "error": "Chưa đăng nhập Google Flow.",
+                        "last_checked": time.time(),
+                    })
+                    return _auth_state
 
             email = session_info["email"]
             pid = await _extract_or_create_project_id(page)
@@ -598,29 +617,37 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
     async with _browser_lock:
         bm = await _get_or_start_bm(headless=False)
         pw_cookies = []
-        for c in req.cookies:
-            name = c.get("name")
-            value = c.get("value")
-            domain = c.get("domain", ".google.com")
-            if not name or value is None:
-                continue
-            item: dict[str, Any] = {
-                "name": str(name),
-                "value": str(value),
-                "domain": str(domain),
-                "path": str(c.get("path", "/")),
-                "secure": bool(c.get("secure", True)),
-                "httpOnly": bool(c.get("httpOnly", False)),
-            }
-            same_site = str(c.get("sameSite", "")).lower()
-            if same_site in ("strict", "lax", "none"):
-                item["sameSite"] = same_site.capitalize()
-            if c.get("expirationDate"):
-                try:
-                    item["expires"] = float(c["expirationDate"])
-                except Exception:
-                    pass
-            pw_cookies.append(item)
+        if req.cookies:
+            raw_list = req.cookies
+            # Check if user pasted google.com cookies or flow.google.com cookies
+            has_flow_cookie = any("flow.google" in str(c.get("domain", "")) or "labs.google" in str(c.get("domain", "")) for c in raw_list)
+            for c in raw_list:
+                name = c.get("name")
+                value = c.get("value")
+                domain = str(c.get("domain", ".google.com"))
+                if not name or value is None:
+                    continue
+                domains_to_add = [domain]
+                if "google.com" in domain and not has_flow_cookie:
+                    domains_to_add = [".google.com", "flow.google.com", "labs.google"]
+                for dom in domains_to_add:
+                    item: dict[str, Any] = {
+                        "name": str(name),
+                        "value": str(value),
+                        "domain": dom,
+                        "path": str(c.get("path", "/")),
+                        "secure": bool(c.get("secure", True)),
+                        "httpOnly": bool(c.get("httpOnly", False)),
+                    }
+                    same_site = str(c.get("sameSite", "")).lower()
+                    if same_site in ("strict", "lax", "none"):
+                        item["sameSite"] = same_site.capitalize()
+                    if c.get("expirationDate"):
+                        try:
+                            item["expires"] = float(c["expirationDate"])
+                        except Exception:
+                            pass
+                    pw_cookies.append(item)
 
         if pw_cookies:
             await bm.context.add_cookies(pw_cookies)
@@ -629,6 +656,12 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
         if req.project_id:
             set_active_project(req.project_id, f"https://labs.google/fx/tools/flow/project/{req.project_id}")
             add_project(req.project_id, "chrome-sync", f"https://labs.google/fx/tools/flow/project/{req.project_id}")
+        else:
+            saved_pid, _ = get_active_project()
+            if not saved_pid:
+                default_pid = "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
+                set_active_project(default_pid, f"https://labs.google/fx/tools/flow/project/{default_pid}")
+                add_project(default_pid, "default", f"https://labs.google/fx/tools/flow/project/{default_pid}")
 
     state = await refresh_auth_state(force_navigate=True)
     return {

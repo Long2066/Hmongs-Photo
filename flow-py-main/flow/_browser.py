@@ -21,7 +21,7 @@ from ._exceptions import AuthError, UIError
 log = logging.getLogger(__name__)
 
 FLOW_BASE_URL   = "https://labs.google/fx/tools/flow"
-FLOW_PROJECT_RE = r"https://labs\.google/fx/tools/flow/project/[^/?#]+"
+FLOW_PROJECT_RE = r"https://(?:labs\.google/fx/tools/flow|flow\.google\.com)/project/[^/?#]+"
 
 # Chrome user-agent to avoid bot detection
 _USER_AGENT = (
@@ -209,7 +209,7 @@ class BrowserManager:
         if self.cdp_url and pages:
             # In CDP mode, prefer an existing Flow page (reCAPTCHA already loaded)
             for p in pages:
-                if "labs.google" in p.url:
+                if "labs.google" in p.url or "flow.google.com" in p.url:
                     self._page = p
                     log.debug("CDP page: using existing Flow tab %s", p.url[:60])
                     return self._page

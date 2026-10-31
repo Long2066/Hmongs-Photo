@@ -374,7 +374,7 @@ class FlowAPI:
         self._poll_interval   = poll_interval_s
         self._timeout_s       = default_timeout_s
         self._project_page_url = (
-            f"{FLOW_BASE}/tools/flow/project/{project_id}" if project_id else ""
+            f"https://flow.google.com/project/{project_id}" if project_id else ""
         )
         # Bearer token cache (CDP mode only)
         self._bearer_token:    str   = ""
@@ -401,13 +401,13 @@ class FlowAPI:
         """
         page = await self._bm.page()
 
-        # In CDP mode, only navigate if we're not already on a labs.google page
-        is_on_flow = "labs.google" in page.url
+        # In CDP mode, only navigate if we're not already on a labs.google / flow.google.com page
+        is_on_flow = "labs.google" in page.url or "flow.google.com" in page.url
         if not is_on_flow:
             await self._ensure_project_page()
             page = await self._bm.page()
-        elif self.project_id and self._project_page_url not in page.url:
-            # On labs.google but wrong project — navigate only in non-CDP mode
+        elif self.project_id and self.project_id not in page.url:
+            # On Flow but wrong project — navigate only in non-CDP mode
             if not self._bm.cdp_url:
                 await self._ensure_project_page()
                 page = await self._bm.page()
@@ -490,9 +490,9 @@ class FlowAPI:
 
         page = await self._bm.page()
 
-        # ── Ensure we're on a labs.google page (needed for NEXT_DATA + auth session) ──
-        proj_url = f"{FLOW_BASE}/tools/flow/project/{self.project_id}"
-        if "labs.google" not in page.url:
+        # ── Ensure we're on a Flow page (needed for NEXT_DATA + auth session) ──
+        proj_url = f"https://flow.google.com/project/{self.project_id}" if self.project_id else "https://flow.google.com/"
+        if "labs.google" not in page.url and "flow.google.com" not in page.url:
             log.info("Navigating to Flow project page for Bearer token extraction")
             await page.goto(proj_url, wait_until="domcontentloaded", timeout=20000)
             await asyncio.sleep(2)
@@ -520,11 +520,16 @@ class FlowAPI:
         try:
             session_token = await page.evaluate("""
                 async () => {
-                    try {
-                        const resp = await fetch('/fx/api/auth/session', {credentials: 'include'});
-                        const data = await resp.json();
-                        return data.access_token || null;
-                    } catch(e) { return null; }
+                    for (const p of ['/fx/api/auth/session', '/api/auth/session']) {
+                        try {
+                            const resp = await fetch(p, {credentials: 'include'});
+                            if (resp.ok) {
+                                const data = await resp.json();
+                                if (data?.access_token) return data.access_token;
+                            }
+                        } catch(e) {}
+                    }
+                    return null;
                 }
             """)
             if session_token and session_token.startswith("ya29."):
@@ -629,10 +634,16 @@ class FlowAPI:
 
     async def _trpc_get(self, proc: str, inp: dict) -> dict:
         from urllib.parse import quote
-        url  = f"{FLOW_BASE}/api/trpc/{proc}?input={quote(json.dumps({'json': inp}))}"
-        resp = await self._bm.context.request.get(url)
-        raw  = await resp.json()
-        return raw.get("result", {}).get("data", {}).get("json", raw)
+        for base in ("https://flow.google.com/fx", FLOW_BASE, "https://flow.google.com"):
+            try:
+                url  = f"{base}/api/trpc/{proc}?input={quote(json.dumps({'json': inp}))}"
+                resp = await self._bm.context.request.get(url)
+                if resp.status == 200:
+                    raw = await resp.json()
+                    return raw.get("result", {}).get("data", {}).get("json", raw)
+            except Exception:
+                continue
+        return {}
 
     # ── Credits ───────────────────────────────────────────────────────────────
 
