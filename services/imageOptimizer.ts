@@ -20,8 +20,8 @@ export interface OptimizedImageResult {
     previewUrl?: string; // Instant blob URL for UI preview
 }
 
-const DEFAULT_MAX_DIMENSION = 1024;
-const DEFAULT_QUALITY = 0.82;
+const DEFAULT_MAX_DIMENSION = 1280;
+const DEFAULT_QUALITY = 0.92;
 
 /**
  * Converts a small Blob into a base64 string without freezing the UI.
@@ -201,8 +201,8 @@ export const optimizeBase64Image = async (
     const originalSizeBytes = Math.round((cleanBase64.length * 3) / 4);
     const originalSizeKB = Math.round(originalSizeBytes / 1024);
 
-    // If already lightweight and small, skip re-encoding
-    if (originalSizeKB <= 180) {
+    // If already optimized and lightweight, skip re-encoding to prevent multi-pass quality loss
+    if (originalSizeKB <= 500) {
         return { data: cleanBase64, mimeType };
     }
 

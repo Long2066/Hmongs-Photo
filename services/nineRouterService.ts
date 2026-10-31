@@ -1420,9 +1420,9 @@ CRITICAL RULES:
         : Array.from(new Set([
             activeModel || 'gpt-image-2.5',
             'gpt-image-2.5',
+            'gemini-3.1-flash-image',
             'gpt-image-2',
-            'gpt-image-1.5',
-            'gemini-3.1-flash-image'
+            'gpt-image-1.5'
         ])).filter(Boolean);
 
     let lastError: any = null;

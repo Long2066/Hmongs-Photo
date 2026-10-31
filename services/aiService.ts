@@ -309,9 +309,10 @@ export const KOREAN_CHARACTER_DEFAULTS = `
   * Tuyệt sắc mỹ nữ Hàn Quốc, thần thái dịu dàng, quý phái, thanh tao và hiện đại.
 
 *** STRICT INPUT CLOTHING & ACCESSORY CLONING PROTOCOL (100% NON-NEGOTIABLE) ***
-- The reference image(s) represent the CLOTHING AND ACCESSORIES ONLY (ignore any person, mannequin, or background in the reference photo).
-- You MUST clone 100% of the visible traditional H'Mông hand-embroidered patterns, vibrant fabric motifs, pleated batik indigo skirts, brocade borders, silver torque collar necklaces, and ornaments onto the handsome/beautiful Korean idol.
-- Never alter the traditional outfit colors, embroidery, or ornaments. The fusion is: Top-tier Korean Idol Visual wearing genuine, exquisite H'Mông traditional regalia.
+- The reference image(s) represent the CLOTHING, TEXTILES, AND ACCESSORIES ONLY (ignore any person, model, face, skin tone, mannequin, or background in the reference photo).
+- FAITHFUL OUTFIT REPLICATION: You MUST clone 100% of the authentic garment, fabrics, colors, textures, cuts, hand-embroidery patterns, tassels, and accessories DIRECTLY from the input reference photo(s) onto the handsome/beautiful Korean idol.
+- COLOR FIDELITY: Strictly preserve the original outfit colors (whether red, blue, green, white, yellow, black, indigo, or multicolor). NEVER change the color palette or replace the outfit style with an unrelated traditional costume.
+- ACCESSORY FIDELITY: Only include jewelry, headwear, or collars if they are visibly present in the input reference photos. Do NOT hallucinate unrequested silver torque collars or extra jewelry.
 
 *** MANDATORY PHYSICAL GROUNDING & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
 - The character(s) MUST be physically grounded on solid terrain (mountain path, stone steps, market floor) with feet firmly planted and realistic contact shadows.
@@ -966,7 +967,7 @@ const getStylePrompt = (style: string): string => {
         'H’Mông Documentaries – Phong cách phim tài liệu': 'National Geographic Documentary: Raw authentic realism, natural sunlight, candid moments, deep cultural depth, sharp focus on eyes and traditional craftsmanship, realistic environmental scale, deep cultural respect.',
         'H’Mông Watercolor – Sơn thủy màu nước': 'Traditional Watercolor Painting: Soft wet-on-wet brush strokes, ink wash mountains, artistic and fluid, dripping paint accents, pastel color palette, serene and poetic atmosphere.',
         'H’Mông Manga – Anime Nhật Bản': 'Japanese Anime/Manga Style: Makoto Shinkai aesthetic, luminous skies, vibrant colors, expressive eyes, detailed painted mountain scenery, clean cel-shading.',
-        'H’Mông Realistic Portrait – Siêu thực 8K': '8K Hyper-Realistic Photography: Visible micro skin pores, vellus hair, perfect studio lighting, extremely sharp eyes, intricate details on silver torque collar and embroidery, lifelike 1:1 anatomy.',
+        'H’Mông Realistic Portrait – Siêu thực 8K': '8K Hyper-Realistic Photography: Visible micro skin pores, vellus hair, perfect studio lighting, extremely sharp eyes, intricate authentic textile embroidery details directly cloned from the input reference, lifelike 1:1 anatomy.',
         'H’Mông Cyberpunk – Tương lai kết hợp văn hóa': 'Hmong Cyberpunk: Futuristic highland setting, neon accents (cyan/magenta) woven into traditional batik patterns, evening mist, futuristic lanterns, grounded cyberpunk aesthetic.',
         'Giấc mơ': 'Ethereal Dreamscape: Soft morning mist drifting over mountain ridges, gentle golden hour glow, poetic and atmospheric lighting, pastel and ethereal tones, dreamy shallow depth of field, characters naturally grounded in a serene highland landscape at 1:1 human scale.',
         'Ảo ảnh': 'Prismatic Optical Art: Subtle kaleidoscopic lens refractions, soft natural light streaks, high-fashion editorial aesthetics, artistic color spectrums, perfectly grounded subjects with true-to-life physical proportions.',
@@ -1139,8 +1140,9 @@ export const generateBatchPromptsText = async (
     
     *** ABSOLUTE RULES FOR INPUT ACCURACY (NON-NEGOTIABLE) ***
     1. REFERENCE OUTFIT CLONING: The outfit reference images are NOT inspiration - they are TEXTURES to be mapped EXACTLY.
-       - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing.
-       - Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input, replicated 100%"
+       - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing directly from the input photo.
+       - CRITICAL: DO NOT invent specific colors or clothing items (e.g. NEVER write "indigo skirt", "silver collar", etc.).
+       - Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures"
     2. REFERENCE ACCESSORY CLONING: If accessory images are provided:
        - Male Accessory: The male MUST hold/use the EXACT item shown in the reference image
        - Female Accessory: The female MUST hold/use the EXACT item shown in the reference image
@@ -1152,7 +1154,7 @@ export const generateBatchPromptsText = async (
     
     *** PROMPT STRUCTURE ***
     Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"
-    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT traditional H'Mong embroidered outfit and silver collar shown in reference (cloned 100% from input textures), standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"
+    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"
 
     Output format: Just the prompts, separated by double newlines. No numbering, no introduction.
     `;
