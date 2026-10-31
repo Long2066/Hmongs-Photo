@@ -49,10 +49,10 @@ const PROMPT_PRESETS = {
         'Cận cảnh chú mèo con đáng yêu đang tò mò mở mắt, ánh sáng mềm mại',
     ],
     image_to_video: [
-        'Giữ nguyên cả 2 nhân vật trong khung hình, mỉm cười tự nhiên, gió thổi nhẹ làm tóc và tà áo lay động',
-        'Camera giữ trọn khung hình toàn cảnh các nhân vật, ánh nắng nhẹ chiếu qua, chuyển động tự nhiên',
-        'Mặt nước và mây phía sau chuyển động êm đềm, giữ nguyên bố cục và tất cả nhân vật trong ảnh gốc',
-        'Chuyển động cinematic slow-motion 60fps, giữ trọn vẹn mọi nhân vật trong khung hình gốc',
+        'Quay toàn cảnh góc rộng thấy rõ và giữ trọn vẹn cả 2 nhân vật chàng trai và cô gái bên nhau trong suốt video, không cắt góc. Gió thổi nhẹ làm tóc và tà áo lay động tự nhiên, nụ cười rạng rỡ',
+        'Toàn cảnh điện ảnh cinematic góc rộng bao quát cả hai nhân vật và cảnh đẹp núi đồi phía sau, camera chuyển động chậm rãi êm dịu',
+        'Ánh sáng hoàng hôn ấm áp chiếu qua, cả hai nhân vật mỉm cười tự nhiên, tà áo khẽ bay trong gió nhẹ',
+        'Chuyển động cinematic slow-motion 60fps mượt mà, giữ trọn vẹn mọi nhân vật trong ảnh gốc, màu sắc rực rỡ sắc nét',
     ]
 };
 
@@ -67,6 +67,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 }) => {
     const [prompt, setPrompt] = useState('');
     const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+    const [isLandscapeImage, setIsLandscapeImage] = useState<boolean>(false);
     const [selectedModel, setSelectedModel] = useState<string>('Omni 1.1 Flash');
     const [outputCount, setOutputCount] = useState<number>(1);
     const [serverHealth, setServerHealth] = useState<VideoServerHealth>({ online: false });
@@ -106,13 +107,18 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     // Automatically match aspectRatio to the uploaded image's orientation (16:9 vs 9:16) so 2-person horizontal photos aren't cropped!
     useEffect(() => {
-        if (!inputImagePreview) return;
+        if (!inputImagePreview) {
+            setIsLandscapeImage(false);
+            return;
+        }
         const src = inputImagePreview.startsWith('data:')
             ? inputImagePreview
             : `data:image/png;base64,${inputImagePreview}`;
         const img = new Image();
         img.onload = () => {
-            if (img.naturalWidth > img.naturalHeight) {
+            const isLandscape = img.naturalWidth > img.naturalHeight;
+            setIsLandscapeImage(isLandscape);
+            if (isLandscape) {
                 setAspectRatio('16:9');
             } else if (img.naturalHeight > img.naturalWidth) {
                 setAspectRatio('9:16');
@@ -325,43 +331,81 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 {/* Expandable Multi-Account Pool & Cookie Config Panel */}
                 {showConfigPanel && (
                     <div className="pt-2.5 border-t border-slate-200/70 flex flex-col gap-2.5 animate-fade-in">
+                        {/* 1-Click Launch Chrome for Google Login */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handleLoginClick}
+                                disabled={isTriggeringLogin}
+                                className="flex-1 min-h-[40px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 shadow-xs"
+                            >
+                                <span>🌐</span>
+                                <span>{isTriggeringLogin ? 'Đang mở Chrome...' : 'Mở cửa sổ Chrome đăng nhập Google'}</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSnapshotBrowserToPool}
+                                disabled={isSyncingCookies}
+                                className="min-h-[40px] px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 shadow-xs"
+                            >
+                                <span>➕</span>
+                                <span>Lưu nick Chrome hiện tại</span>
+                            </button>
+                        </div>
+
+                        {/* Guide note */}
+                        <div className="p-2 rounded-xl bg-slate-50 ring-1 ring-slate-900/5 text-[11px] text-slate-600 leading-relaxed">
+                            <span className="font-semibold text-slate-800">💡 Hướng dẫn nuôi nhiều nick Veo 3.1:</span>
+                            <span className="block mt-0.5 text-slate-500">
+                                1. Bấm <b>"Mở cửa sổ Chrome"</b> và đăng nhập Google.<br />
+                                2. Bấm <b>"Lưu nick Chrome hiện tại"</b> để lưu vào hồ sơ.<br />
+                                3. Tiếp tục đăng nhập nick khác trên Chrome rồi lưu để hệ thống tự xoay vòng khi hết lượt!
+                            </span>
+                        </div>
+
                         {/* Saved Account Pool List */}
-                        <div className="bg-white rounded-lg p-2 ring-1 ring-slate-900/5 flex flex-col gap-1.5">
+                        <div className="bg-white rounded-xl p-2.5 ring-1 ring-slate-900/5 flex flex-col gap-1.5">
                             <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
                                     Hồ sơ xoay vòng ({poolAccounts.length} tài khoản)
                                 </span>
-                                <button
-                                    type="button"
-                                    onClick={handleSnapshotBrowserToPool}
-                                    disabled={isSyncingCookies}
-                                    className="px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-semibold transition-all cursor-pointer"
-                                >
-                                    + Lưu nick Chrome hiện tại
-                                </button>
+                                {poolAccounts.length > 0 && (
+                                    <span className="text-[10px] text-emerald-600 font-medium">
+                                        Tự động đổi nick khi tạo
+                                    </span>
+                                )}
                             </div>
 
                             {poolAccounts.length === 0 ? (
                                 <p className="text-[11px] text-slate-400 py-1">
-                                    Chưa có nick nào trong hồ sơ xoay vòng. Đăng nhập Chrome rồi bấm "+ Lưu nick Chrome hiện tại" hoặc dán Cookie bên dưới để thêm nhiều nick dùng thay phiên.
+                                    Chưa có nick nào trong hồ sơ xoay vòng. Bấm nút <b>"Mở cửa sổ Chrome"</b> đăng nhập rồi bấm <b>"Lưu nick Chrome hiện tại"</b> ở trên.
                                 </p>
                             ) : (
-                                <div className="flex flex-col gap-1 max-h-28 overflow-y-auto">
+                                <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
                                     {poolAccounts.map((acc, idx) => (
                                         <div
                                             key={acc.id}
-                                            className="flex items-center justify-between px-2 py-1 rounded-md bg-slate-50 text-[11px]"
+                                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] ring-1 transition-all ${
+                                                acc.error || acc.enabled === false
+                                                    ? 'bg-rose-50/70 ring-rose-200 text-rose-900'
+                                                    : 'bg-slate-50 ring-slate-900/5 text-slate-800'
+                                            }`}
                                         >
                                             <div className="flex items-center gap-1.5 truncate">
-                                                <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 font-mono text-[10px] font-semibold flex items-center justify-center shrink-0">
-                                                    {idx + 1}
-                                                </span>
-                                                <span className="font-semibold text-slate-800 truncate">{acc.label}</span>
+                                                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                                    acc.error || acc.enabled === false ? 'bg-rose-500 ring-2 ring-rose-200' : 'bg-emerald-500'
+                                                }`} />
+                                                <span className="font-semibold truncate">{acc.label}</span>
+                                                {acc.error && (
+                                                    <span className="text-[9.5px] px-1 py-0.2 rounded bg-rose-200 text-rose-800 font-medium shrink-0">
+                                                        Hết hạn
+                                                    </span>
+                                                )}
                                             </div>
                                             <button
                                                 type="button"
                                                 onClick={() => handleRemovePoolAccount(acc.id)}
-                                                className="text-rose-500 hover:text-rose-700 text-[10px] font-semibold px-1.5 cursor-pointer"
+                                                className="text-rose-500 hover:text-rose-700 text-[10px] font-semibold px-1.5 py-0.5 rounded hover:bg-rose-100 transition-all cursor-pointer"
                                             >
                                                 Xoá
                                             </button>
@@ -556,58 +600,83 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             </div>
 
             {/* Aspect Ratio & Output Count Row */}
-            <div className="grid grid-cols-2 gap-3">
-                <div>
-                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                        Tỷ lệ khung
-                    </label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                        <button
-                            type="button"
-                            onClick={() => setAspectRatio('16:9')}
-                            className={`min-h-[42px] flex items-center justify-center px-2 py-2 rounded-xl text-xs font-semibold font-mono tabular-nums transition-all cursor-pointer ${
-                                aspectRatio === '16:9'
-                                    ? 'bg-rose-50/70 text-rose-700 ring-2 ring-rose-500/40 shadow-xs'
-                                    : 'bg-slate-50 text-slate-600 ring-1 ring-slate-900/5 hover:bg-slate-100'
-                            }`}
-                        >
-                            16:9
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setAspectRatio('9:16')}
-                            className={`min-h-[42px] flex items-center justify-center px-2 py-2 rounded-xl text-xs font-semibold font-mono tabular-nums transition-all cursor-pointer ${
-                                aspectRatio === '9:16'
-                                    ? 'bg-rose-50/70 text-rose-700 ring-2 ring-rose-500/40 shadow-xs'
-                                    : 'bg-slate-50 text-slate-600 ring-1 ring-slate-900/5 hover:bg-slate-100'
-                            }`}
-                        >
-                            9:16
-                        </button>
-                    </div>
-                </div>
-
-                <div>
-                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                        Số lượng video
-                    </label>
-                    <div className="grid grid-cols-4 gap-1">
-                        {[1, 2, 3, 4].map((cnt) => (
+            <div className="flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                            Tỷ lệ khung
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5">
                             <button
-                                key={cnt}
                                 type="button"
-                                onClick={() => setOutputCount(cnt)}
-                                className={`min-h-[42px] flex items-center justify-center rounded-xl text-xs font-semibold font-mono tabular-nums transition-all cursor-pointer ${
-                                    outputCount === cnt
+                                onClick={() => setAspectRatio('16:9')}
+                                className={`min-h-[42px] flex items-center justify-center px-2 py-2 rounded-xl text-xs font-semibold font-mono tabular-nums transition-all cursor-pointer ${
+                                    aspectRatio === '16:9'
                                         ? 'bg-rose-50/70 text-rose-700 ring-2 ring-rose-500/40 shadow-xs'
                                         : 'bg-slate-50 text-slate-600 ring-1 ring-slate-900/5 hover:bg-slate-100'
                                 }`}
                             >
-                                x{cnt}
+                                16:9 Ngang
                             </button>
-                        ))}
+                            <button
+                                type="button"
+                                onClick={() => setAspectRatio('9:16')}
+                                className={`min-h-[42px] flex items-center justify-center px-2 py-2 rounded-xl text-xs font-semibold font-mono tabular-nums transition-all cursor-pointer ${
+                                    aspectRatio === '9:16'
+                                        ? 'bg-rose-50/70 text-rose-700 ring-2 ring-rose-500/40 shadow-xs'
+                                        : 'bg-slate-50 text-slate-600 ring-1 ring-slate-900/5 hover:bg-slate-100'
+                                }`}
+                            >
+                                9:16 Dọc
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                            Số lượng video
+                        </label>
+                        <div className="grid grid-cols-4 gap-1">
+                            {[1, 2, 3, 4].map((cnt) => (
+                                <button
+                                    key={cnt}
+                                    type="button"
+                                    onClick={() => setOutputCount(cnt)}
+                                    className={`min-h-[42px] flex items-center justify-center rounded-xl text-xs font-semibold font-mono tabular-nums transition-all cursor-pointer ${
+                                        outputCount === cnt
+                                            ? 'bg-rose-50/70 text-rose-700 ring-2 ring-rose-500/40 shadow-xs'
+                                            : 'bg-slate-50 text-slate-600 ring-1 ring-slate-900/5 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    x{cnt}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
+
+                {/* 2-Character Aspect Ratio Guidance for Horizontal Photos */}
+                {isImageMode && isLandscapeImage && aspectRatio === '16:9' && (
+                    <div className="p-2.5 rounded-xl bg-emerald-50/80 ring-1 ring-emerald-500/20 text-[11px] text-emerald-900 flex items-center gap-2">
+                        <span className="text-base shrink-0">👫</span>
+                        <div>
+                            <span className="font-semibold text-emerald-950">Ảnh ngang / có 2 nhân vật:</span> Đã tự động chọn <b>16:9 Ngang</b> để giữ trọn vẹn cả 2 người, không bị AI cắt góc!
+                        </div>
+                    </div>
+                )}
+                {isImageMode && isLandscapeImage && aspectRatio === '9:16' && (
+                    <button
+                        type="button"
+                        onClick={() => setAspectRatio('16:9')}
+                        className="w-full p-2.5 rounded-xl bg-amber-50 ring-1 ring-amber-500/30 hover:bg-amber-100/90 text-[11px] text-amber-950 flex items-center justify-between transition-all cursor-pointer active:scale-[0.99] text-left"
+                    >
+                        <span className="flex items-center gap-2">
+                            <span className="text-base shrink-0">⚠️</span>
+                            <span><b>Cảnh báo:</b> 9:16 Dọc sẽ cắt hẹp và có thể làm mất 1 nhân vật bên cạnh!</span>
+                        </span>
+                        <span className="font-bold underline shrink-0 ml-2 text-rose-700">Đổi về 16:9 Ngang</span>
+                    </button>
+                )}
             </div>
 
             {/* Submit Action Button */}

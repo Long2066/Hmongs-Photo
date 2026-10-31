@@ -16,6 +16,7 @@ release
 gemini-web-api-main/
 flow-py-main/flow_outputs/
 flow-py-main/flow_inputs/
+flow-py-main/accounts_pool.json
 flow-py-main/**/__pycache__/
 /*.py
 *.cjs

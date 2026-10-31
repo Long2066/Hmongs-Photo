@@ -112,9 +112,25 @@ def _save_accounts_pool(pool: list[dict[str, Any]]) -> None:
         log.warning("Could not save accounts_pool.json: %s", e)
 
 
+def _flag_pool_account_error(acc_id: str, error_msg: str) -> None:
+    """Mark an account in the pool as errored / disabled so jobs won't keep failing on it."""
+    try:
+        pool = _load_accounts_pool()
+        changed = False
+        for a in pool:
+            if a.get("id") == acc_id:
+                a["enabled"] = False
+                a["error"] = error_msg
+                changed = True
+        if changed:
+            _save_accounts_pool(pool)
+    except Exception as e:
+        log.warning("Could not flag pool account error: %s", e)
+
+
 def _get_next_pool_account() -> Optional[dict[str, Any]]:
     global _pool_rotation_idx
-    pool = [a for a in _load_accounts_pool() if a.get("enabled", True)]
+    pool = [a for a in _load_accounts_pool() if a.get("enabled", True) and not a.get("error")]
     if not pool:
         return None
     acc = pool[_pool_rotation_idx % len(pool)]
@@ -161,18 +177,32 @@ async def _ensure_cdp_chrome_running() -> bool:
     except Exception:
         pass
 
-    # Launch interactive Chrome on WinSta0\Default via scheduled task
     bat_path = Path(__file__).parent / "start_cdp_chrome.bat"
-    if not bat_path.exists():
-        bat_path.write_text(
-            '@echo off\n'
-            'start "" "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
-            '--remote-debugging-port=9222 '
-            '--user-data-dir="C:\\Users\\Admin\\.flow-py\\cdp-profile" '
-            '--no-first-run --no-default-browser-check '
-            '"https://labs.google/fx/tools/flow/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"\n',
-            encoding="utf-8",
-        )
+    bat_path.write_text(
+        '@echo off\n'
+        'start "" "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
+        '--remote-debugging-port=9222 '
+        '--user-data-dir="C:\\Users\\Admin\\.flow-py\\cdp-profile" '
+        '--window-position=100,100 --window-size=1280,900 '
+        '--no-first-run --no-default-browser-check '
+        '"https://flow.google.com"\n',
+        encoding="utf-8",
+    )
+    # Attempt 1: Direct subprocess Popen
+    try:
+        subprocess.Popen([str(bat_path)], shell=True)
+        for _ in range(10):
+            await asyncio.sleep(0.5)
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:
+                    if resp.status == 200:
+                        return True
+            except Exception:
+                pass
+    except Exception as direct_err:
+        log.debug("Direct launch note: %s", direct_err)
+
+    # Attempt 2: Scheduled task fallback
     try:
         ps_cmd = (
             f'$action = New-ScheduledTaskAction -Execute "{bat_path}"; '
@@ -196,6 +226,23 @@ async def _ensure_cdp_chrome_running() -> bool:
     except Exception as e:
         log.warning("Could not start CDP Chrome via schtasks: %s", e)
     return False
+
+
+async def _bring_chrome_to_front(bm: BrowserManager) -> None:
+    """Use Chrome DevTools Protocol to bring Chrome window to front on the desktop."""
+    try:
+        p = await bm.page()
+        cdp = await bm.context.new_cdp_session(p)
+        win_info = await cdp.send("Browser.getWindowForTarget")
+        wid = win_info.get("windowId")
+        if wid:
+            await cdp.send("Browser.setWindowBounds", {
+                "windowId": wid,
+                "bounds": {"left": 100, "top": 100, "width": 1280, "height": 900, "windowState": "normal"}
+            })
+            log.info("Brought CDP Chrome window to front (windowId=%s)", wid)
+    except Exception as e:
+        log.debug("Bring chrome to front notice: %s", e)
 
 
 async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
@@ -442,12 +489,17 @@ async def _run_video_generation_job(
         # 1. Determine cookies to use: explicit user_cookies > rotated account from pool > current session
         active_cookies = user_cookies
         active_pid = user_project_id
+        current_pool_acc_id: Optional[str] = None
+        current_pool_acc_label: Optional[str] = None
+
         if not active_cookies:
             pool_acc = _get_next_pool_account()
             if pool_acc and pool_acc.get("cookies"):
                 active_cookies = pool_acc["cookies"]
                 active_pid = active_pid or pool_acc.get("project_id")
-                log.info("[%s] Rotating to pool account: %s", job_id, pool_acc.get("label"))
+                current_pool_acc_id = pool_acc.get("id")
+                current_pool_acc_label = pool_acc.get("label")
+                log.info("[%s] Rotating to pool account: %s", job_id, current_pool_acc_label)
 
         if active_cookies:
             try:
@@ -459,10 +511,13 @@ async def _run_video_generation_job(
 
         state = await refresh_auth_state(force_navigate=False)
         if not state.get("authenticated"):
+            if current_pool_acc_id:
+                _flag_pool_account_error(current_pool_acc_id, "Phiên đăng nhập hết hạn")
             job_entry["status"] = "failed"
+            acc_name_str = f" ({current_pool_acc_label})" if current_pool_acc_label else ""
             job_entry["error"] = (
-                "Chưa đăng nhập tài khoản Google trên Google Flow. "
-                "Vui lòng bấm vào trạng thái kết nối để đăng nhập hoặc dán Cookie."
+                f"Chưa đăng nhập tài khoản Google Flow{acc_name_str} hoặc Cookie đã hết hạn. "
+                "Vui lòng bấm 'Mở Google Flow' trên web để đăng nhập trực tiếp trên Chrome hoặc cập nhật Cookie mới."
             )
             return
 
@@ -476,6 +531,19 @@ async def _run_video_generation_job(
                 proj_url = f"https://flow.google.com/project/{pid}"
                 await page.goto(proj_url, wait_until="domcontentloaded", timeout=25000)
                 await asyncio.sleep(2.5)
+
+            # CRITICAL SESSION CHECK: Did Google redirect to signin/accounts page?
+            if "accounts.google.com" in page.url or "/about" in page.url or "signin" in page.url:
+                log.error("[%s] Browser is at '%s' - not authenticated to Google Flow!", job_id, page.url)
+                if current_pool_acc_id:
+                    _flag_pool_account_error(current_pool_acc_id, "Phiên đăng nhập hết hạn hoặc Google từ chối Cookie.")
+                job_entry["status"] = "failed"
+                acc_label_str = f" ({current_pool_acc_label})" if current_pool_acc_label else ""
+                job_entry["error"] = (
+                    f"Tài khoản Google Flow{acc_label_str} chưa được đăng nhập hoặc Cookie đã hết hạn. "
+                    "Vui lòng bấm 'Mở Google Flow' trên web để hoàn tất đăng nhập trên cửa sổ Chrome, sau đó thử lại."
+                )
+                return
 
             # Record existing GENERATED VIDEO thumbnails before submitting
             before_srcs: list[str] = await page.evaluate("""
@@ -507,8 +575,14 @@ async def _run_video_generation_job(
                 job_entry["progress_text"] = "Đang tải ảnh gốc lên khung Bắt đầu của Google Flow..."
                 up_ok = await ui.upload_image(page, str(start_image_path))
                 if not up_ok:
+                    if "accounts.google.com" in page.url or "signin" in page.url:
+                        if current_pool_acc_id:
+                            _flag_pool_account_error(current_pool_acc_id, "Phiên đăng nhập hết hạn")
+                        job_entry["status"] = "failed"
+                        job_entry["error"] = "Google Flow yêu cầu đăng nhập lại tài khoản trên Chrome."
+                        return
                     job_entry["status"] = "failed"
-                    job_entry["error"] = "Không thể tải ảnh đầu vào lên Google Flow."
+                    job_entry["error"] = "Không thể tải ảnh đầu vào lên Google Flow. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại."
                     return
                 # Refresh before_srcs after uploading start-frame image so uploaded image is never mistaken for a finished video
                 before_srcs = await page.evaluate("""
@@ -519,12 +593,21 @@ async def _run_video_generation_job(
                         ))
                         .map(i => i.src)
                 """)
-                # Enhance prompt to preserve all characters & subjects from the input frame without cropping/dropping anyone
-                if "giữ nguyên" not in final_prompt.lower() and "keep all" not in final_prompt.lower():
-                    final_prompt = (
-                        f"{prompt}. Giữ nguyên đầy đủ tất cả các nhân vật trong ảnh gốc, "
+                # Enhanced prompt to preserve all characters & subjects from the input frame without cropping/dropping anyone
+                two_kw = ["2 người", "hai người", "cặp đôi", "chàng trai", "cô gái", "nam nữ", "vợ chồng", "cả hai", "couple", "two people", "both"]
+                is_two_chars = any(k in prompt.lower() for k in two_kw)
+                if is_two_chars:
+                    enhancement = (
+                        " Quay toàn cảnh góc rộng thấy rõ và giữ trọn vẹn cả 2 nhân vật chàng trai và cô gái đứng bên nhau trong suốt video, "
+                        "tuyệt đối không cắt bỏ, không zoom lệch làm mất bất kỳ nhân vật nào, giữ cả hai người luôn cùng xuất hiện tự nhiên trong khung hình."
+                    )
+                else:
+                    enhancement = (
+                        " Giữ nguyên đầy đủ tất cả các nhân vật và chủ thể trong ảnh gốc, "
                         "không cắt bỏ hay làm mất bất kỳ người nào khỏi khung hình."
                     )
+                if "giữ nguyên" not in final_prompt.lower() and "giữ trọn" not in final_prompt.lower() and "keep all" not in final_prompt.lower():
+                    final_prompt = f"{prompt.rstrip('. ')};{enhancement}"
 
             await ui.fill_prompt(page, final_prompt)
 
@@ -911,6 +994,14 @@ async def trigger_flow_login():
         _login_in_progress = True
         try:
             await _ensure_cdp_chrome_running()
+            bm = await _get_or_start_bm(headless=False)
+            await _bring_chrome_to_front(bm)
+            page = await bm.page()
+            if "flow.google.com" not in page.url and "labs.google" not in page.url:
+                try:
+                    await page.goto("https://flow.google.com", wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
             # Poll every 3s for up to 3 minutes while user logs in on the visible Chrome window
             for _ in range(60):
                 state = await refresh_auth_state(force_navigate=False)
@@ -1071,6 +1162,7 @@ async def get_accounts_pool():
                 "project_id": a.get("project_id"),
                 "cookie_count": len(a.get("cookies") or []),
                 "enabled": a.get("enabled", True),
+                "error": a.get("error"),
                 "added_at": a.get("added_at"),
             }
             for a in pool
@@ -1108,6 +1200,12 @@ async def snapshot_current_browser_to_pool(label: Optional[str] = None):
     """Save the currently logged-in Chrome browser session into the rotation pool."""
     state = await refresh_auth_state(force_navigate=False)
     bm = await _get_or_start_bm(headless=False)
+    page = await bm.page()
+    if not state.get("authenticated") or "accounts.google.com" in page.url or "/about" in page.url:
+        raise HTTPException(
+            status_code=400,
+            detail="Trình duyệt Chrome chưa đăng nhập Google Flow! Vui lòng đăng nhập trên cửa sổ Chrome trước khi lưu nick."
+        )
     cookies = await bm.context.cookies()
     if not cookies:
         raise HTTPException(status_code=400, detail="Không lấy được Cookie từ trình duyệt hiện tại.")
