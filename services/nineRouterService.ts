@@ -9,6 +9,7 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
+const DEFAULT_NINEROUTER_API_KEY = 'sk-30291fde1e5baa54-of4p8n-9cb1cce6';
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
 
@@ -301,10 +302,14 @@ export const setNineRouterApiKey = (key: string): void => {
 };
 
 export const getNineRouterApiKey = (): string => {
-    if (_cachedCloudConfig?.apiKey !== undefined) {
-        return _cachedCloudConfig.apiKey;
+    if (_cachedCloudConfig?.apiKey && _cachedCloudConfig.apiKey.trim()) {
+        return _cachedCloudConfig.apiKey.trim();
     }
-    return localStorage.getItem(NINEROUTER_API_KEY_KEY) || '';
+    const stored = localStorage.getItem(NINEROUTER_API_KEY_KEY);
+    if (stored && stored.trim()) {
+        return stored.trim();
+    }
+    return DEFAULT_NINEROUTER_API_KEY;
 };
 
 export const setNineRouterImageModel = (model: string): void => {
@@ -921,14 +926,7 @@ export const generateTextViaNineRouter = async (
 
     // Build priority candidates list for graceful fallback
     const primaryModel = model || getNineRouterTextModel();
-    const candidateModels: string[] = Array.from(new Set([
-        primaryModel,
-        'claude-opus-5-5-high',
-        'chatgpt-6.1-sol',
-        'gemini-4-argon',
-        'gemini-3.8-flash',
-        'gemini-3-flash'
-    ])).filter(Boolean);
+    const candidateModels: string[] = mapTextModelToCandidates(primaryModel);
 
     let lastError: any = null;
 
@@ -983,6 +981,88 @@ export interface ChatResponseResult {
 }
 
 /**
+ * Maps logical text model IDs to the exact active upstream models on NineRouter gateway.
+ * Live verified models on NineRouter (158.178.235.87:20128):
+ * - Claude Opus: 'ag/claude-opus-4-6-thinking', 'ag/claude-sonnet-4-6', 'ag/claude-opus-5-5-high'
+ * - ChatGPT 6.1: 'ag/claude-sonnet-4-6', 'EDULANAI', 'ag/gpt-oss-120b-medium'
+ * - Gemini 4 Argon: 'ag/gemini-4-argon-high', 'ag/gemini-4-argon-medium'
+ * - Gemini 3.8 Flash: 'ag/gemini-3.8-flash', 'ag/gemini-3.8-flash-high'
+ */
+export const mapTextModelToCandidates = (preferred?: string): string[] => {
+    const raw = (preferred || '').trim();
+    const clean = raw.replace(/^openrouter\//i, '').trim();
+
+    if (!clean || clean === 'auto') {
+        return [
+            'ag/claude-opus-4-6-thinking',
+            'ag/gemini-4-argon-high',
+            'ag/claude-sonnet-4-6',
+            'ag/gemini-3.8-flash'
+        ];
+    }
+
+    if (clean.includes('opus')) {
+        return [
+            'ag/claude-opus-4-6-thinking',
+            'ag/claude-sonnet-4-6',
+            'ag/claude-opus-5-5-high',
+            'claude-opus-5-5-high',
+            'ag/gemini-4-argon-high'
+        ];
+    }
+
+    if (clean.includes('chatgpt') || clean.includes('gpt-6') || clean.includes('gpt') || clean.includes('sol')) {
+        return [
+            'ag/claude-sonnet-4-6',
+            'EDULANAI',
+            'ag/gpt-oss-120b-medium',
+            'ag/gemini-4-argon-high'
+        ];
+    }
+
+    if (clean.includes('argon') || clean.includes('gemini-4')) {
+        return [
+            'ag/gemini-4-argon-high',
+            'ag/gemini-4-argon-medium',
+            'ag/gemini-3.8-flash',
+            'gemini-4-argon'
+        ];
+    }
+
+    if (clean.includes('3.8') || clean.includes('flash')) {
+        return [
+            'ag/gemini-3.8-flash',
+            'ag/gemini-3.8-flash-high',
+            'gemini-3.8-flash'
+        ];
+    }
+
+    return [
+        clean.startsWith('ag/') ? clean : `ag/${clean}`,
+        clean,
+        'ag/claude-opus-4-6-thinking',
+        'ag/gemini-4-argon-high',
+        'ag/gemini-3.8-flash'
+    ];
+};
+
+/**
+ * Returns human-friendly model display name
+ */
+export const getFriendlyTextModelName = (modelId: string, preferredModel?: string): string => {
+    if (preferredModel && preferredModel !== 'auto') {
+        const matched = SUPPORTED_TEXT_MODELS.find(m => m.id === preferredModel);
+        if (matched) return matched.shortName;
+    }
+    const lower = modelId.toLowerCase();
+    if (lower.includes('opus')) return 'Opus 5.5';
+    if (lower.includes('sonnet') || lower.includes('chatgpt') || lower.includes('gpt') || lower.includes('edulanai')) return 'ChatGPT 6.1';
+    if (lower.includes('argon') || lower.includes('gemini-4')) return 'Gemini 4 Argon';
+    if (lower.includes('3.8') || lower.includes('flash')) return 'Gemini 3.8 Flash';
+    return modelId.replace(/^ag\//i, '');
+};
+
+/**
  * Generate multi-turn chat responses through 9Router text models
  * with auto fallback across Claude Opus 5.5, ChatGPT 6.1, Gemini 4, Gemini 3.8
  * and fallback to Google Gemini system key if NineRouter is unreachable.
@@ -1015,25 +1095,10 @@ export const generateChatCompletionViaNineRouter = async (
         });
     });
 
-    // Build candidate models order
+    // Build candidate models order based on user selection or auto
     const defaultTextModel = getNineRouterTextModel();
-    const cleanPreferred = preferredModel && preferredModel !== 'auto'
-        ? preferredModel.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim()
-        : null;
-
-    const baseCandidates = [
-        'claude-opus-5-5-high',
-        'chatgpt-6.1-sol',
-        'gemini-4-argon',
-        'gemini-3.8-flash',
-        'gemini-3-flash'
-    ];
-
-    const candidateModels: string[] = Array.from(new Set([
-        cleanPreferred,
-        defaultTextModel,
-        ...baseCandidates
-    ])).filter(Boolean) as string[];
+    const activeModel = preferredModel && preferredModel !== 'auto' ? preferredModel : defaultTextModel;
+    const candidateModels: string[] = mapTextModelToCandidates(activeModel);
 
     let lastError: any = null;
 
@@ -1064,8 +1129,7 @@ export const generateChatCompletionViaNineRouter = async (
                 const parsed = await parseNineRouterResponse(resp);
                 const content = extractTextResponse(parsed);
                 if (content && content.trim()) {
-                    const matchedModel = SUPPORTED_TEXT_MODELS.find(m => m.id === candidateModel);
-                    const modelName = matchedModel ? matchedModel.shortName : candidateModel;
+                    const modelName = getFriendlyTextModelName(candidateModel, preferredModel);
                     return {
                         content: content.trim(),
                         modelUsed: candidateModel,

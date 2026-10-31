@@ -644,7 +644,7 @@ const AI_PROXY_CONFIG_DOC = "aiProxyConfig";
 export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
     enabled: true,
     url: 'http://158.178.235.87:20128/v1',
-    apiKey: '',
+    apiKey: 'sk-30291fde1e5baa54-of4p8n-9cb1cce6',
     defaultTextModel: 'claude-opus-5-5-high',
     defaultImageModel: 'gpt-image-2.5',
     modelPricing: {
