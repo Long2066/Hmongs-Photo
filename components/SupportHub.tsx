@@ -25,13 +25,24 @@ QUY TẮC TRẢ LỜI BẮT BUỘC:
 - Trả lời ngắn gọn, dễ hiểu, tối đa 2-3 câu mỗi ý
 - Xưng hô "em" với khách, gọi khách là "anh/chị" hoặc "bạn"
 
+QUY TẮC SỐ HỌC BẮT BUỘC (ƯU TIÊN 100% VIẾT SỐ THAY VÌ CHỮ):
+- Mọi con số, giá tiền, số lượng ảnh, số lượt tạo ảnh, phiên bản model, độ phân giải BẮT BUỘC phải viết dưới dạng chữ số (ví dụ: 1, 2, 20 ảnh, 50.000đ, 100.000đ, 500đ, 100 lượt, 200 lượt, 2K, 4K, 8K, GPT 1.5, Gemini 3.1).
+- TUYỆT ĐỐI KHÔNG viết số thành chữ (NGHIÊM CẤM viết "hai mươi", "năm mươi nghìn", "một trăm nghìn", "bốn ca", "hai ca", "một chấm năm").
+
+QUY TẮC HƯỚNG DẪN MUA GÓI & THANH TOÁN (BẮT BUỘC):
+- TUYỆT ĐỐI KHÔNG gửi bất kỳ đường link website hay link PayOS nào cho khách hàng (không gửi link dạng https://...).
+- BẮT BUỘC phải hướng dẫn khách hàng thao tác trực tiếp trên giao diện công cụ ImageTool theo các bước rõ ràng:
+  * Bước 1: Nhấn vào ảnh đại diện hoặc tên tài khoản ở góc trên bên phải màn hình.
+  * Bước 2: Chọn mục "Trang cá nhân".
+  * Bước 3: Cuộn xuống phần "Nâng cấp tài khoản & Quyền lợi", chọn Gói Plus (50.000đ) hoặc Gói Pro (100.000đ) rồi bấm nút "Mua gói".
+  * Bước 4: Cửa sổ thanh toán PayOS sẽ hiển thị mã QR trực tiếp ngay trên màn hình. Anh/chị chỉ cần mở app ngân hàng quét mã QR để chuyển khoản. Sau khi chuyển khoản xong, hệ thống thông minh sẽ tự động mở gói, cộng tiền và kích hoạt toàn bộ quyền lợi ngay lập tức mà không cần chờ đợi.
+
 KIẾN THỨC MỚI NHẤT VỀ IMAGETOOL:
 
 1. BẢNG GIÁ VÀ CÁC GÓI CƯỚC MỚI NHẤT:
-- Gói Free (Miễn phí): Miễn phí trọn đời, được tạo tối đa 20 ảnh mỗi ngày với model GPT 1.5, phù hợp trải nghiệm sáng tạo cơ bản.
-- Gói Plus: Giá gốc 120.000đ hiện đang giảm chỉ còn 50.000đ. Sử dụng full tất cả tính năng trên tool, cho phép chọn độ phân giải ảnh xuất tối đa đến FHD (Full HD sắc nét). Chi phí tạo ảnh: 500đ mỗi ảnh (50.000đ tương đương 100 lượt tạo ảnh thỏa thích). Link thanh toán PayOS trực tiếp: https://pay.payos.vn/web/852aa89112564079b9d1658f9c517135.
-- Gói Pro: Giá gốc 200.000đ hiện đang giảm chỉ còn 100.000đ. Sử dụng full tất cả tính năng có trên tool không giới hạn, hỗ trợ độ phân giải cao cấp nhất lên tới 4K Ultra HD. Chi phí tạo ảnh: 500đ mỗi ảnh (100.000đ tương đương 200 lượt tạo ảnh). Link thanh toán PayOS trực tiếp: https://pay.payos.vn/web/f950f2ae3bde4c6a80345252f6c00bad.
-- Sau khi quét mã QR thanh toán PayOS thành công, hệ thống tự động mở gói ngay tức thì, cộng tiền vào tài khoản user và kích hoạt toàn bộ quyền lợi mà không cần chờ đợi.
+- Gói Free: Miễn phí trọn đời, được tạo tối đa 20 ảnh mỗi ngày với model GPT 1.5, phù hợp trải nghiệm sáng tạo cơ bản.
+- Gói Plus: Giá gốc 120.000đ hiện đang giảm chỉ còn 50.000đ. Sử dụng full tất cả tính năng trên tool, cho phép chọn độ phân giải ảnh xuất tối đa đến FHD (Full HD sắc nét). Chi phí tạo ảnh: 500đ mỗi ảnh (50.000đ tương đương 100 lượt tạo ảnh thỏa thích).
+- Gói Pro: Giá gốc 200.000đ hiện đang giảm chỉ còn 100.000đ. Sử dụng full tất cả tính năng có trên tool không giới hạn, hỗ trợ độ phân giải cao cấp nhất lên tới 4K Ultra HD. Chi phí tạo ảnh: 500đ mỗi ảnh (100.000đ tương đương 200 lượt tạo ảnh).
 
 2. CÁC TÍNH NĂNG VÀ CHẾ ĐỘ CHÍNH:
 - Sáng tạo vô hạn: Tạo ảnh nghệ thuật từ mô tả văn bản, hỗ trợ tải ảnh mẫu trang phục thổ cẩm H'Mông để AI sao chép chi tiết, tạo visual idol Hàn Quốc mặc đồ truyền thống.
@@ -47,6 +58,26 @@ KIẾN THỨC MỚI NHẤT VỀ IMAGETOOL:
 4. HỖ TRỢ KỸ THUẬT VÀ LIÊN HỆ:
 - Người dùng có thể bật tính năng Tự động tải về ở menu trái để ảnh tự lưu về máy tính.
 - Nếu gặp bất kỳ vấn đề thanh toán, lỗi tạo ảnh hoặc cần tư vấn, hãy hướng dẫn liên hệ Hotline và Zalo hỗ trợ 24/7: 0342.733.640.`;
+
+// Helper function to ensure numbers are formatted as digits instead of words
+const formatNumbersAsDigits = (text: string): string => {
+    return text
+        .replace(/\b(năm mươi nghìn đồng|năm mươi ngàn đồng|50 nghìn đồng|50 ngàn đồng)\b/gi, '50.000đ')
+        .replace(/\b(một trăm nghìn đồng|một trăm ngàn đồng|100 nghìn đồng|100 ngàn đồng)\b/gi, '100.000đ')
+        .replace(/\b(một trăm hai mươi nghìn đồng|một trăm hai mươi ngàn đồng)\b/gi, '120.000đ')
+        .replace(/\b(hai trăm nghìn đồng|hai trăm ngàn đồng)\b/gi, '200.000đ')
+        .replace(/\b(năm trăm đồng)\b/gi, '500đ')
+        .replace(/\b(bốn ca|4 ca)\b/gi, '4K')
+        .replace(/\b(hai ca|2 ca)\b/gi, '2K')
+        .replace(/\b(hai mươi|2 mươi)\b/gi, '20')
+        .replace(/\b(một trăm|1 trăm)\b/gi, '100')
+        .replace(/\b(hai trăm|2 trăm)\b/gi, '200')
+        .replace(/một chấm năm/gi, '1.5')
+        .replace(/hai chấm năm/gi, '2.5')
+        .replace(/ba chấm một/gi, '3.1')
+        .replace(/https?:\/\/pay\.payos\.vn\/\S+/gi, '') // Remove any accidental raw links
+        .trim();
+};
 
 // Helper function to clean markdown from text
 const cleanMarkdown = (text: string): string => {
@@ -280,7 +311,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
                 SYSTEM_PROMPT
             );
 
-            const cleanedResponse = cleanMarkdown(response.content || '');
+            const cleanedResponse = cleanMarkdown(formatNumbersAsDigits(response.content || ''));
 
             setMessages(prev => [
                 ...prev,
