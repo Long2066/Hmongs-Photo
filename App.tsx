@@ -476,6 +476,22 @@ const App: React.FC = () => {
         }
     };
 
+    // Update single output image after custom cropping
+    const handleUpdateOutputImage = (newBase64: string, index: number) => {
+        setModeStates(prev => {
+            const currentOutputs = [...prev[mode].outputs];
+            currentOutputs[index] = newBase64;
+            return {
+                ...prev,
+                [mode]: {
+                    ...prev[mode],
+                    outputs: currentOutputs
+                }
+            };
+        });
+        setSelectedImage({ url: newBase64, index });
+    };
+
     const saveHistory = async (type: string, prompt: string, images: string[], style: string = 'General') => {
         if (!currentUser) return;
         const historyItem: HistoryItem = {
@@ -1097,7 +1113,12 @@ const App: React.FC = () => {
                 />
             )}
             {selectedImage && (
-                <ImagePreviewModal base64={selectedImage.url} index={selectedImage.index} onClose={() => setSelectedImage(null)} />
+                <ImagePreviewModal
+                    base64={selectedImage.url}
+                    index={selectedImage.index}
+                    onClose={() => setSelectedImage(null)}
+                    onUpdateImage={handleUpdateOutputImage}
+                />
             )}
             {isDownloadHelpOpen && <DownloadHelpModal onClose={() => setDownloadHelpOpen(false)} />}
             {isA4PrintPreviewOpen && (
