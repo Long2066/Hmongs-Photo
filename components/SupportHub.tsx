@@ -753,53 +753,110 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
 
                     {/* Chat Messages Area */}
                     <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar bg-slate-50/60">
-                        {messages.map((msg) => (
-                            <div
-                                key={msg.id}
-                                className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
-                            >
+                        {messages.map((msg) => {
+                            const isWelcome = msg.id === 'welcome' || msg.id.startsWith('welcome-');
+
+                            if (isWelcome) {
+                                return (
+                                    <div
+                                        key={msg.id}
+                                        className="flex flex-col items-start gap-1 w-full animate-fade-in group"
+                                    >
+                                        <div className="flex items-start gap-2.5 w-full">
+                                            {/* Animated Robot Mascot */}
+                                            <div className="flex-shrink-0">
+                                                <AnimatedRobot />
+                                            </div>
+
+                                            {/* Welcome Message Bubble */}
+                                            <div className="flex-1 max-w-[85%] bg-white text-slate-800 rounded-2xl rounded-tl-xs p-3.5 border border-slate-200/80 shadow-xs">
+                                                <div className="flex items-center gap-1.5 mb-1.5">
+                                                    <span className="font-bold text-[11px] text-indigo-600">Trợ lý AI</span>
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                </div>
+                                                <div className="text-xs leading-relaxed text-slate-800 whitespace-pre-wrap font-medium">
+                                                    {msg.content}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Assistant Message Footer */}
+                                        <div className="flex items-center gap-2 mt-0.5 px-1 pl-[54px]">
+                                            {msg.modelName && (
+                                                <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                                    {msg.modelName}
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={() => handleCopyText(msg.id, msg.content)}
+                                                className="text-[10px] text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-0.5"
+                                                title="Sao chép câu trả lời"
+                                            >
+                                                {copiedMessageId === msg.id ? (
+                                                    <span className="text-emerald-600 font-medium">✓ Đã sao chép</span>
+                                                ) : (
+                                                    <>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                                        </svg>
+                                                        <span>Chép</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+
+                            return (
                                 <div
-                                    className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed transition-all ${msg.role === 'user'
-                                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-xs shadow-md shadow-indigo-500/10'
-                                        : 'bg-white text-slate-800 rounded-bl-xs border border-slate-200/80 shadow-sm'
-                                        }`}
+                                    key={msg.id}
+                                    className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                                 >
-                                    {msg.role === 'assistant' && !msg.isTypingComplete ? (
-                                        <TypingText text={msg.content} onComplete={() => handleTypingComplete(msg.id)} />
-                                    ) : (
-                                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                                    <div
+                                        className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed transition-all ${msg.role === 'user'
+                                            ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-xs shadow-md shadow-indigo-500/10'
+                                            : 'bg-white text-slate-800 rounded-bl-xs border border-slate-200/80 shadow-sm'
+                                            }`}
+                                    >
+                                        {msg.role === 'assistant' && !msg.isTypingComplete ? (
+                                            <TypingText text={msg.content} onComplete={() => handleTypingComplete(msg.id)} />
+                                        ) : (
+                                            <div className="whitespace-pre-wrap">{msg.content}</div>
+                                        )}
+                                    </div>
+
+                                    {/* Assistant Message Footer (Model Badge & Copy Button) */}
+                                    {msg.role === 'assistant' && msg.isTypingComplete && (
+                                        <div className="flex items-center gap-2 mt-1 px-1">
+                                            {msg.modelName && (
+                                                <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                                    {msg.modelName}
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={() => handleCopyText(msg.id, msg.content)}
+                                                className="text-[10px] text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-0.5"
+                                                title="Sao chép câu trả lời"
+                                            >
+                                                {copiedMessageId === msg.id ? (
+                                                    <span className="text-emerald-600 font-medium">✓ Đã sao chép</span>
+                                                ) : (
+                                                    <>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                                        </svg>
+                                                        <span>Chép</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
-
-                                {/* Assistant Message Footer (Model Badge & Copy Button) */}
-                                {msg.role === 'assistant' && msg.isTypingComplete && (
-                                    <div className="flex items-center gap-2 mt-1 px-1">
-                                        {msg.modelName && (
-                                            <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                                                {msg.modelName}
-                                            </span>
-                                        )}
-                                        <button
-                                            onClick={() => handleCopyText(msg.id, msg.content)}
-                                            className="text-[10px] text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-0.5"
-                                            title="Sao chép câu trả lời"
-                                        >
-                                            {copiedMessageId === msg.id ? (
-                                                <span className="text-emerald-600 font-medium">✓ Đã sao chép</span>
-                                            ) : (
-                                                <>
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                                                    </svg>
-                                                    <span>Chép</span>
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                            );
+                        })}
 
                         {/* Typing indicator */}
                         {isTyping && (
