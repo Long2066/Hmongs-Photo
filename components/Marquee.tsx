@@ -33,11 +33,24 @@ const STATIC_MESSAGES = [
 
 export const Marquee: React.FC = () => {
   const [recentRegistrations, setRecentRegistrations] = useState<Registration[]>([]);
-  const [cloudStats, setCloudStats] = useState<CloudStats>({
-    totalVisits: 0,
-    todayVisits: 0,
-    onlineCount: 1,
-    activeToday: 0
+  const [cloudStats, setCloudStats] = useState<CloudStats>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('cloud_stats_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed.totalVisits === 'number' && parsed.totalVisits > 0) {
+            return parsed;
+          }
+        }
+      } catch (e) {}
+    }
+    return {
+      totalVisits: 75,
+      todayVisits: 12,
+      onlineCount: 1,
+      activeToday: 1
+    };
   });
   const [messageIndex, setMessageIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
@@ -169,7 +182,7 @@ export const Marquee: React.FC = () => {
           </svg>
           <div className="flex items-center gap-1 leading-none">
             <span className="text-[11px] font-bold text-indigo-200 tabular-nums font-mono">
-              {cloudStats.todayVisits > 0 ? cloudStats.todayVisits.toLocaleString('vi-VN') : cloudStats.totalVisits.toLocaleString('vi-VN')}
+              {(cloudStats.totalVisits || 75).toLocaleString('vi-VN')}
             </span>
             <span className="text-[9px] text-indigo-400 font-semibold uppercase tracking-wider hidden sm:inline">
               Truy cập

@@ -65,26 +65,17 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         shortName: 'Gemini 3.1 Flash',
         tag: 'Khuyên dùng - Chuẩn ảnh mẫu',
         tagColor: 'emerald',
-        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, giữ 100% khuôn mặt & ghép trang phục H’Mông',
+        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, tạo visual Idol Hàn Quốc khoác 100% trang phục thổ cẩm H’Mông',
         speed: 'fast',
         isDefault: true
-    },
-    {
-        id: 'gemini-3-pro-image',
-        name: 'Gemini 3 Pro Image (Studio)',
-        shortName: 'Gemini 3 Pro',
-        tag: 'Chi tiết cao',
-        tagColor: 'indigo',
-        description: 'Chất lượng ảnh studio độ nét cao, tái hiện hoa văn trang phục tinh xảo',
-        speed: 'medium'
     },
     {
         id: 'gpt-image-2.5',
         name: 'GPT Image 2.5 (OpenAI)',
         shortName: 'GPT Image 2.5',
-        tag: 'OpenAI - Đa năng',
+        tag: 'OpenAI - Cao cấp',
         tagColor: 'blue',
-        description: 'Model GPT mới nhất, tối ưu tạo ảnh nghệ thuật từ mô tả văn bản và ảnh tham chiếu',
+        description: 'Model GPT mới nhất, tạo visual Idol Hàn Quốc & sao chép trang phục H\'Mông sắc nét 8K',
         speed: 'fast'
     },
     {
@@ -239,6 +230,9 @@ export const getNineRouterImageModel = (): string => {
         return DEFAULT_IMAGE_MODEL;
     }
     const cleanStored = stored.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
+    if (cleanStored === 'gemini-3-pro-image') {
+        return 'gemini-3.1-flash-image';
+    }
     if (SUPPORTED_IMAGE_MODELS.some(m => m.id === cleanStored)) {
         return cleanStored;
     }
@@ -900,8 +894,13 @@ export const generateImageViaNineRouter = async (
     const framingDirective = getAspectFramingDirective(request.aspectRatio, request.shotType);
     const shotDirective = getShotTypeDirective(request.shotType);
 
-    // Strict directives enforcing canvas aspect ratio and 100% input fidelity
-    const strictFramingHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***\n*** MANDATORY INPUT REPRODUCTION PROTOCOL (STRICT FIDELITY) ***\n- Preserve exact visible facial features, skin tone, hairstyle, and identity from reference photo(s).\n- Faithfully render traditional H'Mông embroidery, pleated skirt textures, silver necklace collar ornaments, and accessories.\n- Strict aspect ratio ${ratio}: Compose all subjects completely within canvas safe zone without cutting head, hair, or ornaments.`;
+    // Strict directives enforcing Korean visual idol aesthetic, aspect ratio, and 100% outfit cloning
+    const strictFramingHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** MANDATORY KOREAN IDOL VISUAL & 100% OUTFIT CLONING PROTOCOL ***
+- CHARACTER VISUAL (MANDATORY): Always depict stunning, ultra-attractive Korean K-Pop Idol / Ulzzang visuals (flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawline, tall and graceful build).
+- REFERENCE PHOTOS ROLE: Input reference images are strictly for CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
+- OUTFIT REPLICATION: Faithfully clone 100% of the authentic traditional H'Mông hand-embroidery, pleated batik indigo skirts, vivid brocade motifs, silver torque collar necklaces, and accessories onto the handsome/beautiful Korean idol.
+- CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose all subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
     const fullDirective = [strictFramingHeader, framingDirective, shotDirective].filter(Boolean).join('\n\n');
     const combinedPrompt = `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`;
 
@@ -909,9 +908,8 @@ export const generateImageViaNineRouter = async (
     const isGeminiSelected = activeModel.toLowerCase().includes('gemini');
     const candidateModels: string[] = isGeminiSelected
         ? Array.from(new Set([
-            activeModel,
+            activeModel === 'gemini-3-pro-image' ? 'gemini-3.1-flash-image' : activeModel,
             'gemini-3.1-flash-image',
-            'gemini-3-pro-image',
             'gpt-image-2.5',
             'gpt-image-2',
             'gpt-image-1.5'
@@ -935,9 +933,12 @@ export const generateImageViaNineRouter = async (
                 const userContent: any[] = [{
                     type: 'text',
                     text: `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
-Inspect all ${referenceImages.length} attached input reference image(s) with utmost fidelity.
-Preserve exact face, features, identity, traditional H'Mông embroidered outfits, silver collar ornaments, and jewelry.
-Never alter or blend features between characters. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`
+Inspect all ${referenceImages.length} attached input reference image(s).
+CRITICAL RULE: The attached images provide CLOTHING, TEXTILES, EMBROIDERY, AND ACCESSORIES ONLY.
+DO NOT use the face, skin tone, or identity from the reference image.
+The character MUST be an ultra-attractive Korean K-Pop Idol / Ulzzang (flawless luminous porcelain glass skin, double eyelids, captivating eyes, sharp jawline, high fashion charisma).
+Clone 100% of the traditional H'Mông embroidery, pleated skirts, brocade patterns, and silver torque collar necklaces onto this Korean idol model.
+The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`
                 }];
 
                 referenceImages.forEach((img, idx) => {

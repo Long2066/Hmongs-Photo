@@ -632,14 +632,14 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                 fontSize: '0.95rem',
                                 color: 'var(--text-primary)'
                             }}>
-                                gemini-3-flash
+                                claude-opus-5-5-high
                             </code>
                             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                Gemini 3 Flash (Antigravity Gateway)
+                                Claude Opus 5.5 High (Mặc định cao cấp)
                             </span>
                         </div>
                         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
-                            Mô hình xử lý ngôn ngữ siêu tốc độ, giữ nguyên 100% logic phân tích hình ảnh tham chiếu trang phục H'Mông và sinh prompt chi tiết.
+                            Mô hình ngôn ngữ đỉnh cao phân tích chuẩn xác phục trang thổ cẩm H'Mông và sáng tạo prompt thời trang K-Pop Idol / Ulzzang chuẩn điện ảnh.
                         </p>
                     </div>
 
