@@ -184,7 +184,7 @@ class FlowUI:
         return False
 
     # ------------------------------------------------------------------
-    # Count
+    # Count & Model family
     # ------------------------------------------------------------------
 
     async def set_count(self, page, count: int) -> bool:
@@ -197,6 +197,32 @@ class FlowUI:
             await asyncio.sleep(0.3)
             return True
         log.warning("Could not set count to %d", count)
+        return False
+
+    async def set_model_family(self, page, model_label: str) -> bool:
+        """Select the model family inside the generation settings popover."""
+        if not model_label or model_label == "auto":
+            return True
+        await self.open_settings_panel(page)
+        dropdown = page.locator(
+            'button[aria-label="Chọn nhóm mô hình"], '
+            'button[aria-label*="model" i], '
+            'button:has-text("arrow_drop_down")'
+        ).last
+        if await dropdown.count() > 0:
+            try:
+                cur_text = (await dropdown.text_content() or "").strip()
+                if model_label.lower() in cur_text.lower():
+                    return True
+                await dropdown.click(timeout=3000)
+                await asyncio.sleep(0.5)
+                opt = page.locator("button, [role='menuitem'], [role='option']").filter(has_text=model_label).last
+                if await opt.count() > 0:
+                    await opt.click(timeout=2500)
+                    await asyncio.sleep(0.4)
+                    return True
+            except Exception as e:
+                log.warning("Could not select model family '%s': %s", model_label, e)
         return False
 
     # ------------------------------------------------------------------

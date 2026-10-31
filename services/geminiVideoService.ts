@@ -5,8 +5,19 @@
 export interface VideoGenerationParams {
     prompt: string;
     aspectRatio: '16:9' | '9:16';
+    model?: string;
+    outputCount?: number;
     inputImageBase64?: string; // Tùy chọn: dùng cho chế độ Image -> Video
     onProgress?: (status: string, elapsedSeconds: number) => void;
+}
+
+export interface FlowPoolAccount {
+    id: string;
+    label: string;
+    project_id?: string | null;
+    cookie_count: number;
+    enabled: boolean;
+    added_at?: number;
 }
 
 export interface VideoServerHealth {
@@ -188,17 +199,91 @@ export const syncFlowCookiesRaw = async (rawCookieText: string, projectId?: stri
 };
 
 /**
+ * Lấy danh sách các tài khoản trong Hồ sơ xoay vòng (Account Pool) trên Server
+ */
+export const getFlowAccountsPool = async (): Promise<FlowPoolAccount[]> => {
+    const baseUrl = getVideoServerUrl();
+    try {
+        const resp = await fetch(`${baseUrl}/v1/auth/accounts-pool`);
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        return Array.isArray(data.accounts) ? data.accounts : [];
+    } catch {
+        return [];
+    }
+};
+
+/**
+ * Thêm 1 tài khoản (từ Cookie JSON/Header) vào Hồ sơ xoay vòng
+ */
+export const addAccountToFlowPool = async (label: string, rawCookieText: string, projectId?: string): Promise<any> => {
+    const baseUrl = getVideoServerUrl();
+    const cookies = parseRawCookies(rawCookieText);
+    if (!cookies.length) {
+        throw new Error('Cookie không hợp lệ hoặc trống.');
+    }
+    const resp = await fetch(`${baseUrl}/v1/auth/accounts-pool`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            label: label.trim() || `Acc Flow`,
+            cookies,
+            project_id: projectId?.trim() || undefined,
+        }),
+    });
+    if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(err || 'Không thể thêm tài khoản vào Pool');
+    }
+    return await resp.json();
+};
+
+/**
+ * Lưu nhanh phiên trình duyệt Chrome đang đăng nhập hiện tại vào Hồ sơ xoay vòng
+ */
+export const snapshotCurrentBrowserToFlowPool = async (label?: string): Promise<any> => {
+    const baseUrl = getVideoServerUrl();
+    const q = label?.trim() ? `?label=${encodeURIComponent(label.trim())}` : '';
+    const resp = await fetch(`${baseUrl}/v1/auth/accounts-pool/snapshot${q}`, {
+        method: 'POST',
+    });
+    if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(err || 'Không thể lưu phiên trình duyệt hiện tại vào Pool');
+    }
+    return await resp.json();
+};
+
+/**
+ * Xoá 1 tài khoản khỏi Hồ sơ xoay vòng
+ */
+export const removeAccountFromFlowPool = async (accId: string): Promise<any> => {
+    const baseUrl = getVideoServerUrl();
+    const resp = await fetch(`${baseUrl}/v1/auth/accounts-pool/${accId}`, {
+        method: 'DELETE',
+    });
+    if (!resp.ok) {
+        throw new Error('Không thể xoá tài khoản khỏi Pool');
+    }
+    return await resp.json();
+};
+
+/**
  * Khởi tạo tác vụ tạo video (Text->Video hoặc Image->Video) qua flow-py và thăm dò kết quả
  */
-export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; bytes?: number }> => {
+export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; urls: string[]; bytes?: number }> => {
     const baseUrl = getVideoServerUrl();
-    const { prompt, aspectRatio, inputImageBase64, onProgress } = params;
+    const { prompt, aspectRatio, model, outputCount, inputImageBase64, onProgress } = params;
 
     // 1. Tạo request payload
     const bodyPayload: Record<string, any> = {
         prompt: prompt.trim(),
         aspect_ratio: aspectRatio,
+        count: outputCount || 1,
     };
+    if (model && model !== 'auto') {
+        bodyPayload.model = model;
+    }
 
     // Nếu user có lưu Cookie / Project ID riêng trên trình duyệt thì đính kèm theo request
     const savedRawCookies = getSavedUserFlowCookies();
@@ -274,12 +359,14 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
 
             if (status === 'completed') {
                 const finalUrl = job.url || job.download_url;
-                if (!finalUrl) {
+                const finalUrls: string[] = Array.isArray(job.urls) && job.urls.length > 0 ? job.urls : (finalUrl ? [finalUrl] : []);
+                if (!finalUrl && finalUrls.length === 0) {
                     throw new Error('Video đã hoàn thành nhưng không tìm thấy URL tải về.');
                 }
                 onProgress?.('Hoàn tất! Đang tải video...', elapsed);
                 return {
-                    url: finalUrl,
+                    url: finalUrls[0] || finalUrl,
+                    urls: finalUrls,
                     bytes: job.bytes,
                 };
             }

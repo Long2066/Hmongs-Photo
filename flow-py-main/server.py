@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import re
@@ -85,8 +86,40 @@ async def add_private_network_access_headers(request, call_next):
 # Directories for storing temporary input images and downloaded output videos
 OUTPUT_DIR = Path(__file__).parent / "flow_outputs"
 TEMP_INPUT_DIR = Path(__file__).parent / "flow_inputs"
+ACCOUNTS_POOL_FILE = Path(__file__).parent / "accounts_pool.json"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+_pool_rotation_idx: int = 0
+
+
+def _load_accounts_pool() -> list[dict[str, Any]]:
+    if not ACCOUNTS_POOL_FILE.exists():
+        return []
+    try:
+        data = json.loads(ACCOUNTS_POOL_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception as e:
+        log.warning("Could not load accounts_pool.json: %s", e)
+    return []
+
+
+def _save_accounts_pool(pool: list[dict[str, Any]]) -> None:
+    try:
+        ACCOUNTS_POOL_FILE.write_text(json.dumps(pool, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning("Could not save accounts_pool.json: %s", e)
+
+
+def _get_next_pool_account() -> Optional[dict[str, Any]]:
+    global _pool_rotation_idx
+    pool = [a for a in _load_accounts_pool() if a.get("enabled", True)]
+    if not pool:
+        return None
+    acc = pool[_pool_rotation_idx % len(pool)]
+    _pool_rotation_idx = (_pool_rotation_idx + 1) % len(pool)
+    return acc
 
 # ── Shared Browser Session & Job State ────────────────────────────────────────
 
@@ -331,7 +364,14 @@ class VideoGenerationRequest(BaseModel):
     aspect_ratio: str = "16:9"
     images: Optional[list[str]] = None
     model: Optional[str] = None
+    count: int = 1
     cookies: Optional[list[dict[str, Any]]] = None
+    project_id: Optional[str] = None
+
+
+class AccountPoolAddRequest(BaseModel):
+    label: str
+    cookies: list[dict[str, Any]]
     project_id: Optional[str] = None
 
 
@@ -375,14 +415,16 @@ async def _run_video_generation_job(
     aspect_ratio: str,
     images: Optional[list[str]],
     model_override: Optional[str] = None,
+    output_count: int = 1,
     user_cookies: Optional[list[dict[str, Any]]] = None,
     user_project_id: Optional[str] = None,
 ):
-    """Execute Flow video generation directly on the live Google Flow Angular UI and download MP4."""
+    """Execute Flow video generation directly on the live Google Flow Angular UI and download MP4(s)."""
     global _shared_bearer_token, _shared_bearer_ts, _bm
     job_entry = _jobs[job_id]
     job_entry["status"] = "processing"
     job_entry["progress_text"] = "Đang chuẩn bị trình duyệt Google Flow..."
+    output_count = max(1, min(4, int(output_count or 1)))
 
     start_image_path: Optional[Path] = None
     if images and len(images) > 0:
@@ -397,13 +439,23 @@ async def _run_video_generation_job(
     aspect_mode = "portrait" if aspect_ratio == "9:16" else "landscape"
 
     try:
-        if user_cookies:
+        # 1. Determine cookies to use: explicit user_cookies > rotated account from pool > current session
+        active_cookies = user_cookies
+        active_pid = user_project_id
+        if not active_cookies:
+            pool_acc = _get_next_pool_account()
+            if pool_acc and pool_acc.get("cookies"):
+                active_cookies = pool_acc["cookies"]
+                active_pid = active_pid or pool_acc.get("project_id")
+                log.info("[%s] Rotating to pool account: %s", job_id, pool_acc.get("label"))
+
+        if active_cookies:
             try:
                 await sync_cookies_from_extension(
-                    CookieSyncRequest(cookies=user_cookies, project_id=user_project_id)
+                    CookieSyncRequest(cookies=active_cookies, project_id=active_pid)
                 )
             except Exception as ck_err:
-                log.warning("[%s] User cookie injection warning: %s", job_id, ck_err)
+                log.warning("[%s] Cookie injection warning: %s", job_id, ck_err)
 
         state = await refresh_auth_state(force_navigate=False)
         if not state.get("authenticated"):
@@ -417,7 +469,7 @@ async def _run_video_generation_job(
         async with _browser_lock:
             bm = await _get_or_start_bm(headless=False)
             page = await bm.page()
-            pid = user_project_id or state.get("project_id") or await _extract_or_create_project_id(page)
+            pid = active_pid or state.get("project_id") or await _extract_or_create_project_id(page)
 
             # Ensure we are on the project main view (not /edit/...)
             if "/edit/" in page.url or "/project/" not in page.url:
@@ -426,8 +478,6 @@ async def _run_video_generation_job(
                 await asyncio.sleep(2.5)
 
             # Record existing GENERATED VIDEO thumbnails before submitting
-            # Note: uploaded user images have alt="Ô hiển thị hình ảnh của người dùng" or "=s512-rw"
-            # whereas generated videos have alt="Hình thu nhỏ của video đã tạo" (or "Generated video thumbnail")
             before_srcs: list[str] = await page.evaluate("""
                 () => [...document.querySelectorAll('img')]
                     .filter(i => i.src && i.src.includes('/asb/') && (
@@ -448,8 +498,11 @@ async def _run_video_generation_job(
             await ui.switch_mode(page, mode)
             ratio = AspectRatio.PORTRAIT if aspect_mode == "portrait" else AspectRatio.LANDSCAPE
             await ui.set_aspect_ratio(page, ratio)
-            await ui.set_count(page, 1)
+            await ui.set_count(page, output_count)
+            if model_override:
+                await ui.set_model_family(page, model_override)
 
+            final_prompt = prompt
             if start_image_path:
                 job_entry["progress_text"] = "Đang tải ảnh gốc lên khung Bắt đầu của Google Flow..."
                 up_ok = await ui.upload_image(page, str(start_image_path))
@@ -466,22 +519,28 @@ async def _run_video_generation_job(
                         ))
                         .map(i => i.src)
                 """)
+                # Enhance prompt to preserve all characters & subjects from the input frame without cropping/dropping anyone
+                if "giữ nguyên" not in final_prompt.lower() and "keep all" not in final_prompt.lower():
+                    final_prompt = (
+                        f"{prompt}. Giữ nguyên đầy đủ tất cả các nhân vật trong ảnh gốc, "
+                        "không cắt bỏ hay làm mất bất kỳ người nào khỏi khung hình."
+                    )
 
-            await ui.fill_prompt(page, prompt)
+            await ui.fill_prompt(page, final_prompt)
 
-            job_entry["progress_text"] = "Đang gửi lệnh tạo video Veo 3.1..."
+            job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video Veo 3.1..."
             submitted = await ui.click_submit(page)
             if not submitted:
                 job_entry["status"] = "failed"
                 job_entry["error"] = "Không thể bấm nút Tạo video trên Google Flow."
                 return
 
-            log.info("[%s] Clicked submit on Google Flow (before_video_srcs=%d)", job_id, len(before_srcs))
+            log.info("[%s] Clicked submit on Google Flow (before_video_srcs=%d, count=%d)", job_id, len(before_srcs), output_count)
 
-            # Wait up to 300s for the new video thumbnail to finish rendering on the project page
+            # Wait up to 320s for the new video thumbnail(s) to finish rendering on the project page
             t0 = time.monotonic()
-            max_wait = 300
-            new_video_src: Optional[str] = None
+            max_wait = 320
+            new_video_srcs: list[str] = []
             while time.monotonic() - t0 < max_wait:
                 await asyncio.sleep(3)
                 elapsed = int(time.monotonic() - t0)
@@ -496,147 +555,155 @@ async def _run_video_generation_job(
                             ))
                             .map(i => i.src);
                         const newImgs = curImgs.filter(s => !beforeList.includes(s));
-                        return { pct, newCount: newImgs.length, newestSrc: newImgs[0] || null, totalCount: curImgs.length };
+                        return { pct, newCount: newImgs.length, newSrcs: newImgs, totalCount: curImgs.length };
                     }
                 """, before_srcs)
 
                 pct_str = dom_state.get("pct")
+                cur_new_count = dom_state.get("newCount", 0)
                 if pct_str:
-                    job_entry["progress_text"] = f"Veo 3.1 đang render ({pct_str} • {elapsed}s)..."
+                    job_entry["progress_text"] = f"Veo 3.1 đang render ({pct_str} • {cur_new_count}/{output_count} video • {elapsed}s)..."
                 else:
-                    job_entry["progress_text"] = f"Veo 3.1 đang xử lý ({elapsed}s)..."
+                    job_entry["progress_text"] = f"Veo 3.1 đang xử lý ({cur_new_count}/{output_count} video • {elapsed}s)..."
 
-                # Completed when a new generated video thumbnail is present and no percentage spinner remains
-                if dom_state.get("newCount", 0) > 0 and not pct_str and elapsed >= 8:
-                    new_video_src = dom_state.get("newestSrc")
+                # Completed when new generated video thumbnail(s) are present and no percentage spinner remains
+                if cur_new_count >= 1 and not pct_str and elapsed >= 8:
+                    new_video_srcs = dom_state.get("newSrcs") or []
                     break
 
-            if not new_video_src:
+            if not new_video_srcs:
                 job_entry["status"] = "failed"
                 job_entry["error"] = "Quá thời gian chờ hoặc Google Flow từ chối tạo video."
                 return
 
-            job_entry["progress_text"] = "Đang tải file video MP4 chất lượng gốc..."
-            out_file = OUTPUT_DIR / f"{job_id}.mp4"
-            captured_mp4_url: list[str] = []
+            targets_to_download = new_video_srcs[:output_count]
+            saved_urls: list[str] = []
+            total_bytes = 0
 
-            async def _on_resp(r):
-                ct = r.headers.get("content-type", "")
-                if "video/mp4" in ct or "flow-content.google/video/" in r.url:
-                    captured_mp4_url.append(r.url)
+            for idx, target_src in enumerate(targets_to_download):
+                job_entry["progress_text"] = f"Đang tải file video MP4 ({idx + 1}/{len(targets_to_download)})..."
+                suffix = "" if idx == 0 else f"_{idx + 1}"
+                out_file = OUTPUT_DIR / f"{job_id}{suffix}.mp4"
+                captured_mp4_url: list[str] = []
+
+                async def _on_resp(r, _out_file=out_file, _captured=captured_mp4_url):
+                    ct = r.headers.get("content-type", "")
+                    if "video/mp4" in ct or "flow-content.google/video/" in r.url:
+                        _captured.append(r.url)
+                        try:
+                            b = await r.body()
+                            if len(b) > 10000:
+                                _out_file.write_bytes(b)
+                                log.info("[%s] Saved MP4 directly from response body (%d bytes)", job_id, len(b))
+                        except Exception:
+                            pass
+                    elif "batchexecute" in r.url and "as29s" in r.url:
+                        try:
+                            txt = await r.text()
+                            clean_txt = (
+                                txt.replace("\\\\u003d", "=")
+                                .replace("\\u003d", "=")
+                                .replace("\\\\u0026", "&")
+                                .replace("\\u0026", "&")
+                                .replace('\\"', '"')
+                            )
+                            m = re.search(r"https://flow-content\.google/video/[a-zA-Z0-9_\-\?=&%]+", clean_txt)
+                            if m:
+                                _captured.append(m.group(0))
+                        except Exception:
+                            pass
+
+                def _sync_resp(r, _fn=_on_resp):
                     try:
-                        b = await r.body()
-                        if len(b) > 10000:
-                            out_file.write_bytes(b)
-                            log.info("[%s] Saved MP4 directly from response body (%d bytes)", job_id, len(b))
+                        asyncio.get_running_loop().create_task(_fn(r))
                     except Exception:
                         pass
-                elif "batchexecute" in r.url and "as29s" in r.url:
+
+                page.on("response", _sync_resp)
+                try:
                     try:
-                        txt = await r.text()
-                        # Unescape batchexecute JSON string escapes first
-                        clean_txt = (
-                            txt.replace("\\\\u003d", "=")
-                            .replace("\\u003d", "=")
-                            .replace("\\\\u0026", "&")
-                            .replace("\\u0026", "&")
-                            .replace('\\"', '"')
-                        )
-                        m = re.search(r"https://flow-content\.google/video/[a-zA-Z0-9_\-\?=&%]+", clean_txt)
-                        if m:
-                            captured_mp4_url.append(m.group(0))
+                        await page.evaluate("() => performance.clearResourceTimings()")
                     except Exception:
                         pass
 
-            def _sync_resp(r):
-                try:
-                    asyncio.get_running_loop().create_task(_on_resp(r))
-                except Exception:
-                    pass
-
-            page.on("response", _sync_resp)
-            try:
-                # Clear old performance entries so fallback never picks an older video URL
-                try:
-                    await page.evaluate("() => performance.clearResourceTimings()")
-                except Exception:
-                    pass
-
-                # Click the exact newly generated video thumbnail to open its edit view
-                await page.evaluate("""
-                    (targetSrc) => {
-                        const imgs = [...document.querySelectorAll('img')];
-                        const exact = imgs.find(i => i.src === targetSrc);
-                        if (exact) {
-                            exact.click();
-                            return;
+                    await page.evaluate("""
+                        (targetSrc) => {
+                            const imgs = [...document.querySelectorAll('img')];
+                            const exact = imgs.find(i => i.src === targetSrc);
+                            if (exact) {
+                                exact.click();
+                                return;
+                            }
+                            const vidImg = imgs.find(i => i.src && i.src.includes('/asb/') && i.alt && (i.alt.includes('video') || i.alt.includes('Video')));
+                            if (vidImg) vidImg.click();
                         }
-                        const vidImg = imgs.find(i => i.src && i.src.includes('/asb/') && i.alt && (i.alt.includes('video') || i.alt.includes('Video')));
-                        if (vidImg) vidImg.click();
-                    }
-                """, new_video_src)
-                # Wait up to 8s for edit page batchexecute (as29s) or video/mp4 response to arrive
-                for _ in range(16):
-                    if captured_mp4_url:
-                        break
-                    await asyncio.sleep(0.5)
+                    """, target_src)
 
-                # If not yet captured, click Play button to force video/mp4 load
-                if not captured_mp4_url:
-                    play_btn = page.locator("button").filter(has_text="play_arrow").first
-                    if await play_btn.count() > 0:
-                        await play_btn.click()
-                        for _ in range(10):
-                            if captured_mp4_url:
-                                break
-                            await asyncio.sleep(0.5)
+                    for _ in range(16):
+                        if captured_mp4_url:
+                            break
+                        await asyncio.sleep(0.5)
 
-                # Also check performance.getEntriesByType('resource') for flow-content.google/video/
-                if not captured_mp4_url:
-                    perf_urls = await page.evaluate("""
-                        () => performance.getEntriesByType('resource')
-                            .map(r => r.name)
-                            .filter(u => u.includes('flow-content.google/video/'))
-                    """)
-                    if perf_urls:
-                        captured_mp4_url.extend(perf_urls)
+                    if not captured_mp4_url:
+                        play_btn = page.locator("button").filter(has_text="play_arrow").first
+                        if await play_btn.count() > 0:
+                            await play_btn.click()
+                            for _ in range(10):
+                                if captured_mp4_url:
+                                    break
+                                await asyncio.sleep(0.5)
 
-                if (not out_file.exists() or out_file.stat().st_size == 0) and captured_mp4_url:
-                    mp4_url = captured_mp4_url[-1]
-                    log.info("[%s] Downloading MP4 from %s", job_id, mp4_url[:100])
-                    try:
-                        import urllib.request
-                        req = urllib.request.Request(mp4_url, headers={"User-Agent": "Mozilla/5.0"})
-                        with urllib.request.urlopen(req, timeout=25) as uresp:
-                            out_file.write_bytes(uresp.read())
-                    except Exception as uerr:
-                        log.warning("[%s] urllib failed (%s), trying context.request.get...", job_id, uerr)
-                        resp = await bm.context.request.get(mp4_url)
-                        if resp.status == 200:
-                            out_file.write_bytes(await resp.body())
-            finally:
-                page.remove_listener("response", _sync_resp)
+                    if not captured_mp4_url:
+                        perf_urls = await page.evaluate("""
+                            () => performance.getEntriesByType('resource')
+                                .map(r => r.name)
+                                .filter(u => u.includes('flow-content.google/video/'))
+                        """)
+                        if perf_urls:
+                            captured_mp4_url.extend(perf_urls)
 
-            # Navigate back to project page so next generation is ready immediately
-            try:
-                back_btn = page.locator("button").filter(has_text="arrow_back").first
-                if await back_btn.count() > 0:
-                    await back_btn.click()
-            except Exception:
-                pass
+                    if (not out_file.exists() or out_file.stat().st_size == 0) and captured_mp4_url:
+                        mp4_url = captured_mp4_url[-1]
+                        log.info("[%s] Downloading MP4 #%d from %s", job_id, idx + 1, mp4_url[:100])
+                        try:
+                            import urllib.request
+                            req = urllib.request.Request(mp4_url, headers={"User-Agent": "Mozilla/5.0"})
+                            with urllib.request.urlopen(req, timeout=25) as uresp:
+                                out_file.write_bytes(uresp.read())
+                        except Exception as uerr:
+                            log.warning("[%s] urllib failed (%s), trying context.request.get...", job_id, uerr)
+                            resp = await bm.context.request.get(mp4_url)
+                            if resp.status == 200:
+                                out_file.write_bytes(await resp.body())
+                finally:
+                    page.remove_listener("response", _sync_resp)
 
-            if not out_file.exists() or out_file.stat().st_size == 0:
+                # Navigate back to project page before downloading next video (or finishing)
+                try:
+                    back_btn = page.locator("button").filter(has_text="arrow_back").first
+                    if await back_btn.count() > 0:
+                        await back_btn.click()
+                        await asyncio.sleep(1.5)
+                except Exception:
+                    pass
+
+                if out_file.exists() and out_file.stat().st_size > 0:
+                    file_url = f"http://localhost:8100/files/{out_file.name}"
+                    saved_urls.append(file_url)
+                    total_bytes += out_file.stat().st_size
+
+            if not saved_urls:
                 job_entry["status"] = "failed"
                 job_entry["error"] = "Video đã tạo xong trên Google Flow nhưng chưa tự tải về được."
                 return
 
-            file_bytes = out_file.stat().st_size
             job_entry["status"] = "completed"
-            job_entry["url"] = f"http://localhost:8100/files/{job_id}.mp4"
-            job_entry["download_url"] = job_entry["url"]
-            job_entry["bytes"] = file_bytes
+            job_entry["url"] = saved_urls[0]
+            job_entry["urls"] = saved_urls
+            job_entry["download_url"] = saved_urls[0]
+            job_entry["bytes"] = total_bytes
             job_entry["progress_text"] = "Hoàn tất!"
-            log.info("[%s] Video completed & saved (%d bytes) -> %s", job_id, file_bytes, out_file)
+            log.info("[%s] Completed %d video(s) (%d bytes total)", job_id, len(saved_urls), total_bytes)
             return
 
     except Exception as exc:
@@ -990,6 +1057,91 @@ async def set_flow_project(req: SetProjectRequest):
     }
 
 
+@app.get("/v1/auth/accounts-pool")
+async def get_accounts_pool():
+    """Return all accounts in the rotation pool (without raw cookie values for compactness)."""
+    pool = _load_accounts_pool()
+    return {
+        "status": "ok",
+        "count": len(pool),
+        "accounts": [
+            {
+                "id": a.get("id"),
+                "label": a.get("label"),
+                "project_id": a.get("project_id"),
+                "cookie_count": len(a.get("cookies") or []),
+                "enabled": a.get("enabled", True),
+                "added_at": a.get("added_at"),
+            }
+            for a in pool
+        ],
+    }
+
+
+@app.post("/v1/auth/accounts-pool")
+async def add_account_to_pool(req: AccountPoolAddRequest):
+    """Add an account (from Cookie JSON) to the server rotation pool."""
+    if not req.cookies:
+        raise HTTPException(status_code=400, detail="Không tìm thấy Cookie hợp lệ.")
+    pool = _load_accounts_pool()
+    acc_id = f"acc_{uuid.uuid4().hex[:8]}"
+    label = req.label.strip() or f"Tài khoản #{len(pool) + 1}"
+    pool.append({
+        "id": acc_id,
+        "label": label,
+        "cookies": req.cookies,
+        "project_id": req.project_id,
+        "enabled": True,
+        "added_at": time.time(),
+    })
+    _save_accounts_pool(pool)
+    return {
+        "status": "ok",
+        "id": acc_id,
+        "label": label,
+        "count": len(pool),
+    }
+
+
+@app.post("/v1/auth/accounts-pool/snapshot")
+async def snapshot_current_browser_to_pool(label: Optional[str] = None):
+    """Save the currently logged-in Chrome browser session into the rotation pool."""
+    state = await refresh_auth_state(force_navigate=False)
+    bm = await _get_or_start_bm(headless=False)
+    cookies = await bm.context.cookies()
+    if not cookies:
+        raise HTTPException(status_code=400, detail="Không lấy được Cookie từ trình duyệt hiện tại.")
+    pool = _load_accounts_pool()
+    acc_id = f"acc_{uuid.uuid4().hex[:8]}"
+    acc_label = (label or state.get("email") or f"Tài khoản #{len(pool) + 1}").strip()
+    # Replace existing entry if same email/label already exists
+    pool = [a for a in pool if a.get("label") != acc_label]
+    pool.append({
+        "id": acc_id,
+        "label": acc_label,
+        "cookies": cookies,
+        "project_id": state.get("project_id"),
+        "enabled": True,
+        "added_at": time.time(),
+    })
+    _save_accounts_pool(pool)
+    return {
+        "status": "ok",
+        "id": acc_id,
+        "label": acc_label,
+        "count": len(pool),
+    }
+
+
+@app.delete("/v1/auth/accounts-pool/{acc_id}")
+async def delete_account_from_pool(acc_id: str):
+    """Remove an account from the rotation pool."""
+    pool = _load_accounts_pool()
+    pool = [a for a in pool if a.get("id") != acc_id]
+    _save_accounts_pool(pool)
+    return {"status": "ok", "count": len(pool)}
+
+
 @app.post("/v1/videos/generations", status_code=202)
 async def create_video_generation(req: VideoGenerationRequest):
     """Submit a Text-to-Video or Image-to-Video generation job via flow-py."""
@@ -1005,6 +1157,7 @@ async def create_video_generation(req: VideoGenerationRequest):
         "created_at": time.time(),
         "progress_text": "Đang xếp hàng xử lý trên Google Flow...",
         "url": None,
+        "urls": [],
         "error": None,
     }
 
@@ -1015,6 +1168,7 @@ async def create_video_generation(req: VideoGenerationRequest):
             aspect_ratio=req.aspect_ratio,
             images=req.images,
             model_override=req.model,
+            output_count=req.count,
             user_cookies=req.cookies,
             user_project_id=req.project_id,
         )

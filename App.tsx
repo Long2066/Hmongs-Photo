@@ -882,7 +882,9 @@ const App: React.FC = () => {
     const handleVideoGenerate = useCallback(async (
         prompt: string,
         aspectRatio: '16:9' | '9:16',
-        subMode: 'text_to_video' | 'image_to_video'
+        subMode: 'text_to_video' | 'image_to_video',
+        model?: string,
+        outputCount: number = 1
     ) => {
         const inputs = modeStates['video'].inputs;
         if (subMode === 'image_to_video' && inputs.length === 0) {
@@ -890,11 +892,15 @@ const App: React.FC = () => {
             return;
         }
 
+        const count = Math.max(1, Math.min(4, outputCount || 1));
         setIsLoading(true);
         setError(null);
         setIsMenuOpen(false);
-        setLoadingStatus('Đang gửi yêu cầu tới Veo Engine...');
-        updateModeState(() => ({ outputs: [null], prompts: [prompt] }));
+        setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới Veo Engine...`);
+        updateModeState(() => ({
+            outputs: Array(count).fill(null),
+            prompts: Array(count).fill(prompt),
+        }));
 
         try {
             const inputImageBase64 = subMode === 'image_to_video' && inputs.length > 0
@@ -904,16 +910,19 @@ const App: React.FC = () => {
             const result = await generateVideo({
                 prompt,
                 aspectRatio,
+                model,
+                outputCount: count,
                 inputImageBase64,
                 onProgress: (status) => setLoadingStatus(status),
             });
 
+            const finalUrls = result.urls && result.urls.length > 0 ? result.urls : [result.url];
             updateModeState(() => ({
-                outputs: [result.url],
-                prompts: [prompt],
+                outputs: finalUrls,
+                prompts: Array(finalUrls.length).fill(prompt),
             }));
 
-            saveHistory('Veo Video', prompt, [result.url], subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
+            saveHistory('Veo Video', prompt, finalUrls, subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
             setError(e instanceof Error ? e.message : 'Lỗi tạo video Veo.');
