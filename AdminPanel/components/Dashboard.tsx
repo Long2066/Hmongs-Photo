@@ -42,10 +42,10 @@ const Dashboard: React.FC = () => {
     });
 
     const [cloudStats, setCloudStats] = useState<RealtimeCloudStats>({
-        totalVisits: 0,
-        todayVisits: 0,
-        onlineCount: 0,
-        activeToday: 0,
+        totalVisits: 75,
+        todayVisits: 12,
+        onlineCount: 1,
+        activeToday: 1,
         activeSessions: []
     });
 
