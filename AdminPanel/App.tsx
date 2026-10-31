@@ -6,8 +6,9 @@ import Dashboard from './components/Dashboard';
 import UserList from './components/UserList';
 import NotificationSender from './components/NotificationSender';
 import ClothingManager from './components/ClothingManager';
+import AiConfigManager from './components/AiConfigManager';
 
-type Page = 'dashboard' | 'users' | 'notifications' | 'clothing';
+type Page = 'dashboard' | 'users' | 'notifications' | 'clothing' | 'ai-config';
 
 const App: React.FC = () => {
     const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -57,6 +58,8 @@ const App: React.FC = () => {
                 return <NotificationSender admin={admin} />;
             case 'clothing':
                 return <ClothingManager />;
+            case 'ai-config':
+                return <AiConfigManager admin={admin} />;
             default:
                 return <Dashboard />;
         }

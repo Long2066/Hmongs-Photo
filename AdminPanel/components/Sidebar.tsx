@@ -28,6 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
         { id: 'users', label: 'Quản lý Users', icon: Users },
         { id: 'notifications', label: 'Gửi thông báo', icon: Bell },
         { id: 'clothing', label: 'Thư viện Trang phục', icon: Shirt },
+        { id: 'ai-config', label: 'Cấu hình AI Tool', icon: Cpu },
     ];
 
     return (
