@@ -71,6 +71,11 @@ export const Register: React.FC = () => {
             <div className="flex-1 flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md border border-slate-200">
                     <div className="text-center mb-8">
+                        <img 
+                            src="/icon.png" 
+                            alt="ImageTool Logo" 
+                            className="w-16 h-16 rounded-2xl mx-auto shadow-md mb-3 object-contain hover:scale-105 transition-transform ring-2 ring-slate-100" 
+                        />
                         <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 mb-2">Tạo Tài Khoản</h1>
                         <p className="text-slate-500 font-medium">Tham gia ImageTool</p>
                     </div>

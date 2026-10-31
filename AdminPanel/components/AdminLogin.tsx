@@ -31,7 +31,11 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
         <div className="login-container">
             <div className="login-card">
                 <div className="login-logo">
-                    <Shield size={48} style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
+                    <img 
+                        src="/icon.png" 
+                        alt="ImageTool Logo" 
+                        style={{ width: 56, height: 56, borderRadius: '16px', marginBottom: '12px', objectFit: 'contain', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} 
+                    />
                     <h1>Admin Panel</h1>
                     <p>ImageTool - Quản lý hệ thống</p>
                 </div>

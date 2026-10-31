@@ -232,11 +232,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
 
                 {/* Header - Compact on mobile */}
                 <div className="p-6 sm:p-10 pb-4 sm:pb-6 text-center">
-                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 rounded-xl sm:rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-4 sm:mb-6 ring-2 sm:ring-4 ring-white/50">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 sm:w-8 sm:h-8 text-white">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                        </svg>
-                    </div>
+                    <img 
+                        src="/icon.png" 
+                        alt="ImageTool Logo" 
+                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl mx-auto shadow-lg shadow-indigo-500/20 mb-4 sm:mb-6 ring-2 sm:ring-4 ring-white/60 object-contain hover:scale-105 transition-transform" 
+                    />
                     <h2 className="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-800 to-purple-800 tracking-tight">ImageTool</h2>
                     <p className="text-slate-500 font-medium text-xs mt-1">Professional AI Studio</p>
                     <p className="text-indigo-600 font-mono text-xs mt-2 min-h-[1.5em] font-semibold hidden sm:block">{welcomeText}</p>

@@ -5,7 +5,6 @@ import {
     Inbox,
     Bell,
     LogOut,
-    Shield,
     Shirt,
     Cpu
 } from 'lucide-react';
@@ -47,7 +46,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
         <aside className="sidebar">
             <div className="sidebar-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Shield size={24} style={{ color: 'var(--accent-primary)' }} />
+                    <img 
+                        src="/icon.png" 
+                        alt="ImageTool Logo" 
+                        style={{ width: 32, height: 32, borderRadius: '8px', objectFit: 'contain' }} 
+                    />
                     <div>
                         <h2>Admin Panel</h2>
                         <p>ImageTool</p>
