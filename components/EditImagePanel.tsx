@@ -31,8 +31,9 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
 
     const handleOptimize = async () => {
         if (!prompt.trim()) return;
-        const apiKey = storage.getApiKey('gemini');
-        if (!apiKey) return;
+        const apiKey = localStorage.getItem('ninerouter_enabled') === 'true'
+            ? 'NINEROUTER_MODE'
+            : storage.getApiKey('gemini') || 'NINEROUTER_MODE';
 
         setIsOptimizing(true);
         try {
@@ -47,7 +48,7 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 flex gap-3 backdrop-blur-sm">
+            <div className="bg-emerald-50/80 p-4 rounded-xl border border-emerald-200/80 flex gap-3 shadow-xs ring-1 ring-emerald-500/10">
                 <div className="bg-white p-2 rounded-full shadow-sm">
                     <MagicWandIcon className="w-5 h-5 text-emerald-600" />
                 </div>
@@ -101,14 +102,23 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                         rows={4}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                     />
-                    <div className="panel-action-wrapper">
-                        <button
-                            onClick={() => onGenerate(prompt, 'general', outputCount)}
-                            disabled={isLoading || isDisabled || !hasInputImage || !prompt.trim()}
-                            className="w-full px-6 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                        >
-                            {isLoading ? "Đang xử lý..." : `TẠO ${outputCount} ẢNH CHỈNH SỬA`}
-                        </button>
+                    <div className="panel-action-wrapper mt-1">
+                        {(() => {
+                            const isGenDisabled = isLoading || isDisabled || !hasInputImage || !prompt.trim();
+                            return (
+                                <button
+                                    onClick={() => onGenerate(prompt, 'general', outputCount)}
+                                    disabled={isGenDisabled}
+                                    className={`w-full px-6 py-3.5 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                                        isGenDisabled
+                                            ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                            : 'bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white shadow-emerald-600/25 ring-1 ring-emerald-600/20 cursor-pointer'
+                                    }`}
+                                >
+                                    {isLoading ? "Đang xử lý..." : `TẠO ${outputCount} ẢNH CHỈNH SỬA`}
+                                </button>
+                            );
+                        })()}
                     </div>
                 </div>
             )}
@@ -119,14 +129,23 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                         ⚠️ Chế độ này yêu cầu bạn tải lên <strong>2 ảnh</strong> vào ô "Ảnh đầu vào" ở menu bên trái.
                         AI sẽ lấy trang phục từ ảnh 1 và ảnh 2 để phối hợp lại.
                     </p>
-                    <div className="panel-action-wrapper">
-                        <button
-                            onClick={() => onGenerate('', 'mix', outputCount)}
-                            disabled={isLoading || isDisabled}
-                            className="w-full px-6 py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-xl hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                        >
-                            {isLoading ? "Đang phối đồ..." : "MIX & MATCH OUTFIT"}
-                        </button>
+                    <div className="panel-action-wrapper mt-1">
+                        {(() => {
+                            const isMixDisabled = isLoading || isDisabled;
+                            return (
+                                <button
+                                    onClick={() => onGenerate('', 'mix', outputCount)}
+                                    disabled={isMixDisabled}
+                                    className={`w-full px-6 py-3.5 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                                        isMixDisabled
+                                            ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                            : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 active:scale-[0.98] text-white shadow-orange-500/25 ring-1 ring-orange-500/20 cursor-pointer'
+                                    }`}
+                                >
+                                    {isLoading ? "Đang phối đồ..." : "MIX & MATCH OUTFIT"}
+                                </button>
+                            );
+                        })()}
                     </div>
                 </div>
             )}
@@ -145,14 +164,23 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                             </button>
                         ))}
                     </div>
-                    <div className="panel-action-wrapper">
-                        <button
-                            onClick={() => onGenerate('', 'relight', outputCount, { lighting: selectedLight })}
-                            disabled={isLoading || isDisabled || !hasInputImage}
-                            className="w-full px-6 py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                        >
-                            {isLoading ? "Đang đổi ánh sáng..." : "THAY ĐỔI ÁNH SÁNG"}
-                        </button>
+                    <div className="panel-action-wrapper mt-1">
+                        {(() => {
+                            const isRelightDisabled = isLoading || isDisabled || !hasInputImage;
+                            return (
+                                <button
+                                    onClick={() => onGenerate('', 'relight', outputCount, { lighting: selectedLight })}
+                                    disabled={isRelightDisabled}
+                                    className={`w-full px-6 py-3.5 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                                        isRelightDisabled
+                                            ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                            : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white shadow-blue-600/25 ring-1 ring-blue-600/20 cursor-pointer'
+                                    }`}
+                                >
+                                    {isLoading ? "Đang đổi ánh sáng..." : "THAY ĐỔI ÁNH SÁNG"}
+                                </button>
+                            );
+                        })()}
                     </div>
                 </div>
             )}
@@ -172,19 +200,28 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
                         </div>
                     </div>
 
-                    <div className="panel-action-wrapper">
-                        <button
-                            onClick={() => onGenerate('', 'extract', outputCount)}
-                            disabled={isLoading || isDisabled || !hasInputImage}
-                            className="w-full px-6 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 hover:shadow-lg transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                        >
-                            {isLoading ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                    Đang tách trang phục...
-                                </span>
-                            ) : "TÁCH TRANG PHỤC NGAY"}
-                        </button>
+                    <div className="panel-action-wrapper mt-1">
+                        {(() => {
+                            const isExtractDisabled = isLoading || isDisabled || !hasInputImage;
+                            return (
+                                <button
+                                    onClick={() => onGenerate('', 'extract', outputCount)}
+                                    disabled={isExtractDisabled}
+                                    className={`w-full px-6 py-3.5 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                                        isExtractDisabled
+                                            ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                            : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white shadow-indigo-600/25 ring-1 ring-indigo-600/20 cursor-pointer'
+                                    }`}
+                                >
+                                    {isLoading ? (
+                                        <span className="flex items-center justify-center gap-2">
+                                            <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                            Đang tách trang phục...
+                                        </span>
+                                    ) : "TÁCH TRANG PHỤC NGAY"}
+                                </button>
+                            );
+                        })()}
                     </div>
                 </div>
             )}

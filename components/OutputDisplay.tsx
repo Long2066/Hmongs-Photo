@@ -67,7 +67,7 @@ const ClockLoader: React.FC = () => (
         </svg>
 
         {/* Clock Face & Hands */}
-        <div className="absolute inset-3 bg-white/90 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center border-2 border-white/60">
+        <div className="absolute inset-3 bg-white rounded-full shadow-md flex items-center justify-center border-2 border-indigo-100">
             {/* Center dot */}
             <div className="w-3 h-3 bg-indigo-600 rounded-full z-20 shadow-sm"></div>
             {/* Hour Hand - rotates from center */}

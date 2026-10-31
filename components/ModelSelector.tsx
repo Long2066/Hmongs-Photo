@@ -120,11 +120,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left bg-white border transition-all duration-150 shadow-xs group select-none cursor-pointer ${
                             isOpen
                                 ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-sm'
-                                : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50/80'
+                                : 'border-slate-300/90 ring-1 ring-slate-900/5 hover:border-slate-400 hover:bg-slate-50/80'
                         }`}
                         aria-expanded={isOpen}
                     >
-                        <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        <span className="text-xs sm:text-[13px] font-semibold text-slate-800 truncate">
                             {currentModelObj ? currentModelObj.name : selectedModel.replace('ag/', '').replace('openrouter/', '')}
                         </span>
 

@@ -6,9 +6,10 @@
   <link rel="icon" type="image/png" href="/icon.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ImageTool - AI Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-    rel="stylesheet">
   <style>
     :root {
       --primary-50: #eff6ff;
@@ -21,13 +22,32 @@
       --slate-900: #0f172a;
     }
 
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: geometricPrecision;
+      -webkit-text-size-adjust: 100%;
+    }
+
     body {
       background-color: #f8fafc;
       color: #0f172a;
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      text-rendering: optimizeLegibility;
-      -webkit-font-smoothing: subpixel-antialiased;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: geometricPrecision;
       overflow-x: hidden;
+    }
+
+    /* Force crisp vector rendering across all form elements */
+    button, input, select, textarea, label, span, p, h1, h2, h3, h4, h5, h6 {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: geometricPrecision;
     }
 
     /* Modern Scrollbar */
@@ -202,17 +222,17 @@
     @keyframes fade-in-up {
       from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(6px);
       }
 
       to {
         opacity: 1;
-        transform: translateY(0);
+        transform: none;
       }
     }
 
     .animate-fade-in {
-      animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      animation: fade-in-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
     @keyframes spin-slow {

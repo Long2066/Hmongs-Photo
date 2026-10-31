@@ -2,12 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== PERFORMANCE OPTIMIZATIONS ===== */
+/* ===== PERFORMANCE & SHARPNESS OPTIMIZATIONS ===== */
 
 /* GPU acceleration for smooth animations */
 .gpu-accelerated {
-  transform: translateZ(0);
-  will-change: transform;
   backface-visibility: hidden;
 }
 
@@ -43,7 +41,7 @@ body,
   overflow: hidden;
 }
 
-/* Custom scrollbar for sidebar - optimized with GPU */
+/* Custom scrollbar for sidebar - crisp and clean */
 .custom-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
@@ -75,8 +73,6 @@ body,
   padding-bottom: 8px;
   margin-top: auto;
   z-index: 10;
-  transform: translateZ(0);
-  /* GPU layer */
 }
 
 /* Panel content scrollable area */
@@ -85,8 +81,6 @@ body,
   flex: 1;
   display: flex;
   flex-direction: column;
-  contain: layout style;
-  /* Contain repaints */
 }
 
 /* Optimized spinner animation */
@@ -256,9 +250,9 @@ body,
 /* Large screens: Full layout */
 @media (min-width: 1025px) {
 
-  /* Ensure sidebar is visible */
+  /* Ensure sidebar is visible with pin-sharp vector rendering */
   aside {
-    transform: translateX(0) !important;
+    transform: none !important;
     position: relative !important;
   }
 }
@@ -417,8 +411,7 @@ body {
   }
 }
 
-/* GPU Optimization: Force hardware acceleration for key elements */
-.animate-fade-in,
+/* GPU Optimization: Only hardware accelerate sliding sheets */
 .animate-slide-in,
 .bottom-sheet {
   transform: translateZ(0);

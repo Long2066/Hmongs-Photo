@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SparklesIcon, MagicWandIcon } from './Icons';
 import { generateBatchPromptsText, optimizePrompt } from '../services/aiService';
+import type { CreativeRefImages } from '../services/aiService';
 import * as storage from '../services/storageService';
 import { getSystemApiKey, getSelectedResolution } from '../services/geminiCoreService';
 import { ModelSelector } from './ModelSelector';
@@ -20,6 +21,7 @@ interface PromptPanelProps {
     hasApiKey: boolean;
     selectedImageCount: number;
     inputCounts?: { male: number, female: number, maleAcc: number, femaleAcc: number };
+    refImages?: CreativeRefImages;
 }
 
 const aspectRatios = [
@@ -95,7 +97,7 @@ export const parsePromptsFromText = (text: string): string[] => {
     return prompts.map(p => p.replace(/^(?:[-*•]|\d+[\.\)]|Prompt\s*\d+[:\.])\s*/i, '').trim()).filter(p => p.length > 0);
 };
 
-export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 } }) => {
+export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 }, refImages }) => {
     const [topic, setTopic] = useState('');
     const [quantity, setQuantity] = useState(2);
     const [aspectRatio, setAspectRatio] = useState('1:1');
@@ -175,7 +177,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
 
         setIsGeneratingPrompts(true);
         try {
-            const text = await generateBatchPromptsText(apiKey, topic, quantity, shotType, style, outputMode, inputCounts);
+            const text = await generateBatchPromptsText(apiKey, topic, quantity, shotType, style, outputMode, inputCounts, refImages);
             setGeneratedPromptText(text);
             setStep(2);
         } catch (e: any) {
@@ -232,29 +234,29 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="Mô tả ý tưởng... (Ví dụ: Cô gái H'Mông mặc trang phục truyền thống thêu hoa văn Paj Ntaub bên hiên nhà gỗ...)"
                     rows={2}
-                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-600 focus:border-indigo-600 outline-none transition-all placeholder:text-slate-400 shadow-xs disabled:opacity-60 disabled:bg-slate-50 leading-relaxed"
+                    className="w-full bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl p-3 text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none transition-all placeholder:text-slate-400 placeholder:font-normal shadow-xs disabled:opacity-60 disabled:bg-slate-50 leading-relaxed"
                     disabled={step === 2}
                 />
             </div>
 
             {/* Config Grid - Hidden in Step 2 to focus on Prompts */}
             {step === 1 && (
-                <div className="grid grid-cols-2 gap-3.5 animate-fade-in">
+                <div className="grid grid-cols-2 gap-3.5">
                     {/* Output Mode */}
                     <div className="col-span-2">
                         <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5">
                             Chế độ Output
                         </label>
-                        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/90 gap-1">
+                        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/90 ring-1 ring-slate-900/5 gap-1">
                             <button
                                 onClick={() => setOutputMode('single')}
-                                className={`flex-1 py-2 text-xs rounded-lg transition-all ${outputMode === 'single' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
+                                className={`flex-1 py-2 text-xs sm:text-[13px] rounded-lg transition-all ${outputMode === 'single' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
                             >
                                 Ảnh đơn (Riêng)
                             </button>
                             <button
                                 onClick={() => setOutputMode('couple')}
-                                className={`flex-1 py-2 text-xs rounded-lg transition-all ${outputMode === 'couple' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
+                                className={`flex-1 py-2 text-xs sm:text-[13px] rounded-lg transition-all ${outputMode === 'couple' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
                             >
                                 Ảnh đôi (Ghép)
                             </button>
@@ -270,7 +272,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                     <div className="col-span-2">
                         <div className="flex justify-between items-center mb-1.5">
                             <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                                Số lượng ảnh: <span className="text-indigo-600 font-mono font-bold text-sm ml-1">{quantity}</span>
+                                Số lượng ảnh: <span className="text-indigo-600 font-mono font-bold text-sm ml-1 tabular-nums">{quantity}</span>
                             </label>
                         </div>
                         <input
@@ -279,7 +281,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                             max="10"
                             value={quantity}
                             onChange={(e) => setQuantity(parseInt(e.target.value))}
-                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-700 transition-all"
+                            className="w-full h-2.5 bg-slate-200 border border-slate-300/80 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-700 transition-all"
                         />
                         {selectedImageCount > 0 && (
                             <div className="flex items-center gap-2 mt-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-xs font-medium shadow-xs">
@@ -298,7 +300,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                             <select
                                 value={style}
                                 onChange={(e) => setStyle(e.target.value)}
-                                className="w-full px-3 py-2.5 pr-8 bg-white border border-slate-300 rounded-xl text-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-600 focus:border-indigo-600 outline-none cursor-pointer hover:border-slate-400 shadow-xs transition-all appearance-none"
+                                className="w-full px-3.5 py-2.5 pr-8 bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none cursor-pointer hover:border-slate-400 shadow-xs transition-all appearance-none"
                             >
                                 {styles.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
@@ -316,8 +318,8 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                         <div className="relative group">
                             <select
                                 value={shotType}
-                                onChange={(e) => setStyle(e.target.value)}
-                                className="w-full px-3 py-2.5 pr-8 bg-white border border-slate-300 rounded-xl text-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-600 focus:border-indigo-600 outline-none cursor-pointer hover:border-slate-400 shadow-xs transition-all appearance-none"
+                                onChange={(e) => setShotType(e.target.value)}
+                                className="w-full px-3.5 py-2.5 pr-8 bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none cursor-pointer hover:border-slate-400 shadow-xs transition-all appearance-none"
                             >
                                 {shotTypes.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
@@ -340,7 +342,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                                 value={filenamePrefix}
                                 onChange={(e) => setFilenamePrefix(e.target.value)}
                                 placeholder="Nhập tên file..."
-                                className="w-full py-2.5 pl-8 pr-3 bg-white border border-slate-300 rounded-xl text-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-600 focus:border-indigo-600 outline-none shadow-xs transition-all placeholder:text-slate-400"
+                                className="w-full py-2.5 pl-8 pr-3 bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none shadow-xs transition-all placeholder:text-slate-400 placeholder:font-normal"
                             />
                             <div className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -358,7 +360,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                             <select
                                 value={aspectRatio}
                                 onChange={(e) => setAspectRatio(e.target.value)}
-                                className="w-full px-3 py-2.5 pr-8 bg-white border border-slate-300 rounded-xl text-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-600 focus:border-indigo-600 outline-none cursor-pointer hover:border-slate-400 shadow-xs transition-all appearance-none"
+                                className="w-full px-3.5 py-2.5 pr-8 bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none cursor-pointer hover:border-slate-400 shadow-xs transition-all appearance-none"
                             >
                                 {aspectRatios.map(ar => <option key={ar.value} value={ar.value}>{ar.label}</option>)}
                             </select>
@@ -406,28 +408,41 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
             {/* ACTION BUTTONS - Sticky at bottom */}
             <div className="panel-action-wrapper mt-1">
                 {step === 1 ? (
-                    <button
-                        onClick={handleGeneratePrompts}
-                        disabled={isGeneratingPrompts || isDisabled || !topic.trim() || !hasAnyApiKey()}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white font-bold text-xs rounded-xl hover:bg-indigo-700 transition-all shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isGeneratingPrompts ? (
-                            <>
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                <span>Đang viết Prompt...</span>
-                            </>
-                        ) : (
-                            <>
-                                <MagicWandIcon className="w-4 h-4" />
-                                <span>BƯỚC 1: TẠO PROMPT</span>
-                            </>
-                        )}
-                    </button>
+                    (() => {
+                        const isStep1Disabled = isGeneratingPrompts || isDisabled || !topic.trim() || !hasAnyApiKey();
+                        return (
+                            <button
+                                onClick={handleGeneratePrompts}
+                                disabled={isStep1Disabled}
+                                className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                                    isStep1Disabled
+                                        ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white shadow-indigo-600/25 ring-1 ring-indigo-600/20 cursor-pointer'
+                                }`}
+                            >
+                                {isGeneratingPrompts ? (
+                                    <>
+                                        <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        <span>Đang viết Prompt...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <MagicWandIcon className={`w-4 h-4 ${isStep1Disabled ? 'text-slate-400' : 'text-white'}`} />
+                                        <span>BƯỚC 1: TẠO PROMPT</span>
+                                    </>
+                                )}
+                            </button>
+                        );
+                    })()
                 ) : (
                     <button
                         onClick={handleFinalGenerate}
                         disabled={isLoading}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white font-bold text-xs rounded-xl hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                        className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                            isLoading
+                                ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                : 'bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white shadow-emerald-600/25 ring-1 ring-emerald-600/20 cursor-pointer'
+                        }`}
                     >
                         {isLoading ? (
                             <span>Đang xử lý tạo ảnh...</span>

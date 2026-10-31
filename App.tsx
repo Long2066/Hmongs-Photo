@@ -774,7 +774,15 @@ const App: React.FC = () => {
         const creativeInputs = mState.creativeInputs!;
         const totalCreative = creativeInputs.male.length + creativeInputs.female.length + creativeInputs.maleAcc.length + creativeInputs.femaleAcc.length;
 
-        if (mode === 'creative') return <PromptPanel onGenerate={handleCreativeGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} selectedImageCount={totalCreative} inputCounts={{ male: creativeInputs.male.length, female: creativeInputs.female.length, maleAcc: creativeInputs.maleAcc.length, femaleAcc: creativeInputs.femaleAcc.length }} />;
+        if (mode === 'creative') {
+            const creativeRefImages = {
+                male: creativeInputs.male.map(img => ({ data: img.base64, mimeType: img.mimeType })),
+                female: creativeInputs.female.map(img => ({ data: img.base64, mimeType: img.mimeType })),
+                maleAccessories: creativeInputs.maleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType })),
+                femaleAccessories: creativeInputs.femaleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType }))
+            };
+            return <PromptPanel onGenerate={handleCreativeGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} selectedImageCount={totalCreative} inputCounts={{ male: creativeInputs.male.length, female: creativeInputs.female.length, maleAcc: creativeInputs.maleAcc.length, femaleAcc: creativeInputs.femaleAcc.length }} refImages={creativeRefImages} />;
+        }
         if (mode === 'id_photo') return <IdPhotoPanel onGenerate={handleIdPhotoGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'edit') return <EditImagePanel onGenerate={handleEditImage} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
@@ -824,7 +832,7 @@ const App: React.FC = () => {
 
                 {/* INPUT PANEL - Always visible, collapsible on mobile */}
                 {/* Desktop Sidebar - Hidden on mobile (using bottom navigation instead) */}
-                <aside className="hidden lg:flex lg:static lg:w-[380px] lg:h-full lg:flex-shrink-0 w-full bg-white border-r border-slate-200 shadow-xs flex-col overflow-hidden">
+                <aside className="hidden lg:flex lg:static lg:w-[380px] lg:h-full lg:flex-shrink-0 w-full bg-white border-r border-slate-200/90 shadow-xs flex-col overflow-hidden">
 
                     {/* Collapsible Header - Tap to expand/collapse on mobile */}
                     <div
@@ -860,14 +868,14 @@ const App: React.FC = () => {
                         </div>
 
                         {/* Auto Download Toggle - Always visible */}
-                        <div className="flex items-center justify-between bg-slate-50 border border-slate-100 p-2 rounded-lg" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-2">
-                                <div className="bg-white p-1.5 rounded-md text-indigo-600 shadow-sm border border-slate-100">
+                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 p-2.5 rounded-xl shadow-xs ring-1 ring-slate-900/5" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-2.5">
+                                <div className="bg-white p-1.5 rounded-lg text-indigo-600 shadow-xs border border-slate-200/80">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                                 </div>
                                 <div>
-                                    <h4 className="text-xs font-bold text-slate-700">Tự động tải về</h4>
-                                    <button onClick={handleDownloadConfigClick} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium hover:underline">Cấu hình thư mục</button>
+                                    <h4 className="text-xs font-bold text-slate-800">Tự động tải về</h4>
+                                    <button onClick={handleDownloadConfigClick} className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold hover:underline">Cấu hình thư mục</button>
                                 </div>
                             </div>
                             <div className="relative inline-block w-9 h-5 align-middle select-none">
@@ -883,18 +891,18 @@ const App: React.FC = () => {
                             <>
                                 {/* Input Section */}
                                 <div className="space-y-2">
-                                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
+                                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2 px-1">
                                         <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
                                         Dữ liệu đầu vào
                                     </h3>
-                                    <div className="bg-slate-50 rounded-xl border border-slate-200/90 p-1 overflow-hidden shadow-xs">
+                                    <div className="bg-slate-50 rounded-xl border border-slate-200/90 p-1 overflow-hidden shadow-xs ring-1 ring-slate-900/5">
                                         {renderInputs()}
                                     </div>
                                 </div>
 
                                 {/* Config Section */}
                                 <div className="space-y-2">
-                                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider px-1 flex items-center gap-2">
+                                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider px-1 flex items-center gap-2">
                                         <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
                                         Cấu hình AI
                                     </h3>
@@ -908,7 +916,7 @@ const App: React.FC = () => {
 
                     {/* Sidebar Footer - Hidden on mobile when collapsed */}
                     <div className={`p-3 bg-slate-50 border-t border-slate-200 text-center flex-shrink-0 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
-                        <p className="text-[11px] text-slate-500 font-semibold">ImageTool v{appVersion} © Studio Edition</p>
+                        <p className="text-[11px] text-slate-600 font-semibold tracking-wide">ImageTool v{appVersion} © Studio Edition</p>
                     </div>
                 </aside>
 

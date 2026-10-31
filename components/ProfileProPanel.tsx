@@ -49,12 +49,12 @@ export const ProfileProPanel: React.FC<ProfileProPanelProps> = ({ onGenerate, is
 
     return (
         <div className="flex flex-col gap-5">
-            <div className="bg-fuchsia-50/50 p-4 rounded-xl border border-fuchsia-100 flex gap-3 backdrop-blur-sm neon-border">
+            <div className="bg-fuchsia-50/80 p-4 rounded-xl border border-fuchsia-200/80 flex gap-3 shadow-xs ring-1 ring-fuchsia-500/10">
                 <div className="bg-white p-2 rounded-full shadow-sm">
                     <UserCircleIcon className="w-5 h-5 text-fuchsia-600" />
                 </div>
                 <div>
-                    <h3 className="text-sm font-bold text-fuchsia-900 led-text">Ảnh Profile Pro</h3>
+                    <h3 className="text-sm font-bold text-fuchsia-900">Ảnh Profile Pro</h3>
                     <p className="text-[10px] text-fuchsia-700/80 mt-0.5 font-medium">Avatar chuẩn tỷ lệ 1:1 cho MXH & CV</p>
                 </div>
             </div>
@@ -126,19 +126,28 @@ export const ProfileProPanel: React.FC<ProfileProPanelProps> = ({ onGenerate, is
                 <ModelSelector className="" imageCount={outputCount} showResolution={false} />
             </div>
 
-            <div className="panel-action-wrapper">
-                <button
-                    onClick={() => onGenerate(style, platform, resolution, outputCount)}
-                    disabled={isLoading || isDisabled || !hasInputImage}
-                    className="w-full px-6 py-4 bg-gradient-to-r from-fuchsia-600 to-pink-600 animate-gradient-x text-white font-bold rounded-xl hover:shadow-lg hover:shadow-fuchsia-500/40 transition-all duration-300 disabled:opacity-50 transform active:scale-[0.98]"
-                >
-                    {isLoading ? (
-                        <span className="flex items-center justify-center gap-2">
-                            <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            Đang thiết kế...
-                        </span>
-                    ) : `TẠO ${outputCount} PROFILE CHUYÊN NGHIỆP`}
-                </button>
+            <div className="panel-action-wrapper mt-1">
+                {(() => {
+                    const isProfileDisabled = isLoading || isDisabled || !hasInputImage;
+                    return (
+                        <button
+                            onClick={() => onGenerate(style, platform, resolution, outputCount)}
+                            disabled={isProfileDisabled}
+                            className={`w-full px-6 py-3.5 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
+                                isProfileDisabled
+                                    ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
+                                    : 'bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-700 hover:to-pink-700 active:scale-[0.98] text-white shadow-fuchsia-500/25 ring-1 ring-fuchsia-600/20 cursor-pointer'
+                            }`}
+                        >
+                            {isLoading ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    Đang thiết kế...
+                                </span>
+                            ) : `TẠO ${outputCount} PROFILE CHUYÊN NGHIỆP`}
+                        </button>
+                    );
+                })()}
             </div>
         </div>
     );
