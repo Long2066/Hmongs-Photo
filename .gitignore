@@ -13,6 +13,8 @@ dist-ssr
 release
 *.local
 .external
+*.py
+*.cjs
 
 # Editor directories and files
 .vscode/*

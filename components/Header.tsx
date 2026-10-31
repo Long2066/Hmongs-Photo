@@ -8,7 +8,7 @@ interface HeaderProps {
     onLoginClick: () => void;
     onLogout: () => void;
     onHistoryClick: () => void;
-    onApiKeyClick: () => void;
+    onApiKeyClick?: () => void;
     isHistoryVisible: boolean;
     currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore';
     onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore') => void;
@@ -197,9 +197,14 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
 
                     {/* User & Key Actions */}
                     <div className="flex items-center gap-3 self-end md:self-auto">
-                        <button onClick={onApiKeyClick} className="p-2.5 text-slate-700 bg-white border border-slate-300/80 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-xs ring-1 ring-slate-900/5" title="Cấu hình">
+                        <button
+                            onClick={onApiKeyClick}
+                            className="p-2.5 text-slate-700 bg-white border border-slate-300/80 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-xs ring-1 ring-slate-900/5 cursor-pointer"
+                            title="Cấu hình Admin"
+                        >
                             <KeyIcon className="w-5 h-5" />
                         </button>
+
 
                         {user ? (
                             <ProfileMenu

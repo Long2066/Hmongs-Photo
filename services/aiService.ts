@@ -1200,8 +1200,8 @@ export const generateBatchPromptsText = async (
                     `Generate ${count} prompts for topic: ${topic}`,
             'gemini-3-flash',
             systemInstruction,
-            labeledReferences,
-                    'gemini-3-flash' // Using fastest model to avoid rate limits
+
+
                 );
                 if (result) return result;
                 console.warn('[Antigravity] Text generation returned null, falling back...');

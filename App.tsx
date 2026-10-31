@@ -133,6 +133,17 @@ const App: React.FC = () => {
     // Record cloud visit on application mount
     useEffect(() => {
         firebaseService.recordCloudVisit();
+
+        // Subscribe to Realtime Cloud AI Proxy Configuration from Admin Panel
+        const unsubscribeProxy = firebaseService.subscribeToAiProxyConfig((config) => {
+            console.log('[App] Received AI Proxy Cloud Config update:', config ? { enabled: config.enabled, url: config.url } : 'none');
+            nineRouterService.updateNineRouterConfigFromCloud(config);
+            setHasGeminiKey(nineRouterService.isNineRouterEnabled());
+        });
+
+        return () => {
+            unsubscribeProxy();
+        };
     }, []);
 
     // Realtime Presence Heartbeat (sync online status with admin & marquee)
@@ -328,8 +339,7 @@ const App: React.FC = () => {
             return 'NINEROUTER_MODE';
         }
 
-        setError('Vui lòng kích hoạt và kết nối trong phần Cấu hình.');
-        setApiKeyModalOpen(true);
+        setError('Hệ thống AI Gateway hiện đang tắt hoặc chưa được cấu hình từ Admin.');
         return null;
     };
 
@@ -1005,7 +1015,9 @@ const App: React.FC = () => {
                     )}
                 </main>
             </div>
-            {isApiKeyModalOpen && <ApiKeyModal onClose={() => { setApiKeyModalOpen(false); checkApiKey(); }} />}
+
+            {isApiKeyModalOpen && <ApiKeyModal onClose={() => setApiKeyModalOpen(false)} />}
+
             {isAuthModalOpen && (
                 <AuthModal
                     onClose={() => setAuthModalOpen(false)}

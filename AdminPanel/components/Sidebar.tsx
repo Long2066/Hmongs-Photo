@@ -5,7 +5,8 @@ import {
     Bell,
     LogOut,
     Shield,
-    Shirt
+    Shirt,
+    Cpu
 } from 'lucide-react';
 import { AdminUser, logoutAdmin } from '../services/adminAuthService';
 

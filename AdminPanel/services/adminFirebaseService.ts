@@ -603,3 +603,194 @@ export const subscribeToRealtimeStats = (
         unsubAccess();
     };
 };
+
+
+// --- AI Proxy Configuration (Realtime Cloud Sync) ---
+export interface AiProxyConfig {
+    enabled: boolean;
+    url: string;
+    apiKey: string;
+    defaultTextModel?: string;
+    defaultImageModel?: string;
+    updatedAt?: number;
+    updatedBy?: string;
+}
+
+const SYSTEM_SETTINGS_COLLECTION = "systemSettings";
+const AI_PROXY_CONFIG_DOC = "aiProxyConfig";
+
+export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
+    enabled: true,
+    url: 'http://158.178.235.87:20128/v1',
+    apiKey: '',
+    defaultTextModel: 'gemini-3-flash',
+    defaultImageModel: 'gpt-image-2.5',
+};
+
+/**
+ * Get current AI Proxy configuration from Firestore
+ */
+export const getAiProxyConfig = async (): Promise<AiProxyConfig> => {
+    try {
+        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            return {
+                ...DEFAULT_AI_PROXY_CONFIG,
+                ...(docSnap.data() as Partial<AiProxyConfig>)
+            };
+        }
+        return DEFAULT_AI_PROXY_CONFIG;
+    } catch (error) {
+        console.error('[AdminFirebase] Error fetching AI Proxy config:', error);
+        return DEFAULT_AI_PROXY_CONFIG;
+    }
+};
+
+/**
+ * Save AI Proxy configuration to Firestore (broadcasts to all tool clients in real-time)
+ */
+export const saveAiProxyConfig = async (
+    config: Partial<AiProxyConfig>,
+    adminEmail?: string
+): Promise<void> => {
+    try {
+        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
+        const dataToSave: Partial<AiProxyConfig> = {
+            ...config,
+            updatedAt: Date.now(),
+            updatedBy: adminEmail || 'Admin'
+        };
+        await setDoc(docRef, dataToSave, { merge: true });
+        console.log('[AdminFirebase] Saved AI Proxy config to Firestore successfully');
+    } catch (error) {
+        console.error('[AdminFirebase] Error saving AI Proxy config:', error);
+        throw error;
+    }
+};
+
+/**
+ * Realtime subscribe to AI Proxy configuration
+ */
+export const subscribeToAiProxyConfig = (
+    callback: (config: AiProxyConfig) => void
+): (() => void) => {
+    try {
+        const docRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                callback({
+                    ...DEFAULT_AI_PROXY_CONFIG,
+                    ...(docSnap.data() as Partial<AiProxyConfig>)
+                });
+            } else {
+                callback(DEFAULT_AI_PROXY_CONFIG);
+            }
+        }, (error) => {
+            console.error('[AdminFirebase] Error subscribing to AI Proxy config:', error);
+        });
+        return unsubscribe;
+    } catch (error) {
+        console.error('[AdminFirebase] Failed to start AI Proxy config subscription:', error);
+        return () => {};
+    }
+};
+
+/**
+ * Helper to resolve request URL through cors-proxy if calling external host from browser
+ */
+const resolveProxyUrl = (targetUrl: string): string => {
+    if (typeof window !== 'undefined') {
+        try {
+            const parsed = new URL(targetUrl, window.location.href);
+            const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+            if (!isLocal) {
+                return `/api/cors-proxy?url=${encodeURIComponent(targetUrl)}`;
+            }
+        } catch {
+            // keep original
+        }
+    }
+    return targetUrl;
+};
+
+/**
+ * Test connection to CLIProxyAPI endpoint
+ */
+export const checkProxyConnection = async (
+    rawUrl: string,
+    apiKey: string
+): Promise<{ connected: boolean; latencyMs?: number; models?: string[]; error?: string }> => {
+    let cleanUrl = (rawUrl || '').trim();
+    if (!cleanUrl) return { connected: false, error: 'Endpoint URL không được để trống' };
+
+    // Normalize URL
+    cleanUrl = cleanUrl.replace(/\/+$/, '');
+    if (!cleanUrl.endsWith('/v1')) {
+        cleanUrl = `${cleanUrl}/v1`;
+    }
+
+    const testEndpoint = `${cleanUrl}/models`;
+    const targetUrl = resolveProxyUrl(testEndpoint);
+
+    const headers: Record<string, string> = {};
+    if (apiKey && apiKey.trim()) {
+        headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+
+    const startTime = performance.now();
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const resp = await fetch(targetUrl, {
+            method: 'GET',
+            headers,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const latencyMs = Math.round(performance.now() - startTime);
+
+        if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) {
+                return {
+                    connected: false,
+                    latencyMs,
+                    error: `Lỗi xác thực (HTTP ${resp.status}): API Key không hợp lệ hoặc thiếu quyền truy cập.`
+                };
+            }
+            if (resp.status === 404) {
+                return {
+                    connected: false,
+                    latencyMs,
+                    error: `Không tìm thấy endpoint (HTTP 404): Hãy đảm bảo URL kết thúc bằng /v1.`
+                };
+            }
+            return {
+                connected: false,
+                latencyMs,
+                error: `Máy chủ phản hồi mã lỗi HTTP ${resp.status}`
+            };
+        }
+
+        const data = await resp.json();
+        const models: string[] = Array.isArray(data?.data)
+            ? data.data.map((m: any) => String(m.id || m))
+            : [];
+
+        return {
+            connected: true,
+            latencyMs,
+            models
+        };
+    } catch (err: any) {
+        const latencyMs = Math.round(performance.now() - startTime);
+        const isAbort = err.name === 'AbortError';
+        return {
+            connected: false,
+            latencyMs,
+            error: isAbort ? 'Quá thời gian kết nối (Timeout > 10s)' : (err.message || 'Không thể kết nối đến máy chủ Proxy')
+        };
+    }
+};

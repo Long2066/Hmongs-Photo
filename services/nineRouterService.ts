@@ -9,8 +9,8 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
-const DEFAULT_TEXT_MODEL = 'gemini-3-flash';
+const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
+const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -60,14 +60,32 @@ export interface SupportedImageModel {
 
 export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
+        id: 'gemini-3.1-flash-image',
+        name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)',
+        shortName: 'Gemini 3.1 Flash',
+        tag: 'Khuyên dùng - Chuẩn ảnh mẫu',
+        tagColor: 'emerald',
+        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, giữ 100% khuôn mặt & ghép trang phục H’Mông',
+        speed: 'fast',
+        isDefault: true
+    },
+    {
+        id: 'gemini-3-pro-image',
+        name: 'Gemini 3 Pro Image (Studio)',
+        shortName: 'Gemini 3 Pro',
+        tag: 'Chi tiết cao',
+        tagColor: 'indigo',
+        description: 'Chất lượng ảnh studio độ nét cao, tái hiện hoa văn trang phục tinh xảo',
+        speed: 'medium'
+    },
+    {
         id: 'gpt-image-2.5',
         name: 'GPT Image 2.5 (OpenAI)',
         shortName: 'GPT Image 2.5',
-        tag: 'OpenAI - Khuyên dùng',
-        tagColor: 'emerald',
+        tag: 'OpenAI - Đa năng',
+        tagColor: 'blue',
         description: 'Model GPT mới nhất, tối ưu tạo ảnh nghệ thuật từ mô tả văn bản và ảnh tham chiếu',
-        speed: 'fast',
-        isDefault: true
+        speed: 'fast'
     },
     {
         id: 'gpt-image-2.5-flare',
@@ -211,7 +229,7 @@ export const getNineRouterApiKey = (): string => {
 };
 
 export const setNineRouterImageModel = (model: string): void => {
-    const cleanModel = model.trim() || DEFAULT_IMAGE_MODEL;
+    const cleanModel = model.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim() || DEFAULT_IMAGE_MODEL;
     localStorage.setItem(NINEROUTER_IMAGE_MODEL_KEY, cleanModel);
     window.dispatchEvent(new CustomEvent('ninerouter-model-changed', {
         detail: { model: cleanModel }
@@ -220,10 +238,14 @@ export const setNineRouterImageModel = (model: string): void => {
 
 export const getNineRouterImageModel = (): string => {
     const stored = localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY);
-    if (!stored || !SUPPORTED_IMAGE_MODELS.some(m => m.id === stored)) {
+    if (!stored) {
         return DEFAULT_IMAGE_MODEL;
     }
-    return stored;
+    const cleanStored = stored.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
+    if (SUPPORTED_IMAGE_MODELS.some(m => m.id === cleanStored)) {
+        return cleanStored;
+    }
+    return cleanStored || DEFAULT_IMAGE_MODEL;
 };
 
 export const setNineRouterTextModel = (model: string): void => {
@@ -808,6 +830,49 @@ export const generateTextViaNineRouter = async (
 };
 
 /**
+ * Convert base64 Data URI or raw base64 to binary Blob for multipart/form-data upload
+ */
+const base64ToBlob = (base64Data: string, mimeType: string = 'image/jpeg'): Blob => {
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const byteCharacters = atob(cleanBase64.replace(/\s+/g, ''));
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+};
+
+/**
+ * Extract image data from any response format (JSON data array, b64_json, url, or chat completion)
+ */
+const extractAnyImageFromResponse = async (parsed: ParsedNineRouterResponse): Promise<string | null> => {
+    const payloads = parsed.events.length > 0 ? parsed.events : (parsed.json ? [parsed.json] : []);
+    const imageItems = payloads.flatMap(p => Array.isArray(p?.data) ? p.data : []);
+    const first = imageItems[0];
+    if (first?.b64_json && first.b64_json.length > 100) return first.b64_json;
+    if (first?.url) {
+        const dataUrl = extractBase64FromDataUri(first.url);
+        if (dataUrl) return dataUrl;
+        if (first.url.startsWith('http')) {
+            const imgResp = await fetch(first.url);
+            if (imgResp.ok) {
+                const arrayBuffer = await imgResp.arrayBuffer();
+                let binary = '';
+                const bytes = new Uint8Array(arrayBuffer);
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return btoa(binary);
+            }
+        }
+    }
+    const chatFallback = extractImageFromChatResponse(parsed);
+    if (chatFallback) return chatFallback;
+    return null;
+};
+
+/**
  * Generate images through 9Router / CLIProxyAPI.
  * Reference-based requests use native multimodal chat so the image model sees
  * the original input pixels and complete prompt in one request.
@@ -817,7 +882,11 @@ export const generateImageViaNineRouter = async (
 ): Promise<string | null> => {
     const baseUrl = getNineRouterUrl();
     const apiKey = getNineRouterApiKey();
-    const activeModel = request.model || getNineRouterImageModel();
+    const activeModel = (request.model || getNineRouterImageModel())
+        .replace(/^ag\//i, '')
+        .replace(/^openrouter\//i, '')
+        .trim();
+
     const rawRefImages = request.referenceImages || [];
     // Automatically downscale and compress reference images (saving ~90% bandwidth)
     const referenceImages = await optimizeReferenceImages(rawRefImages);
@@ -830,197 +899,243 @@ export const generateImageViaNineRouter = async (
     }
 
     const ratio = mapRatioForNineRouter(request.aspectRatio);
-    const pixelSize = aspectRatioToPixelSize(request.aspectRatio, request.resolution);
+    const standardSize = getOpenAiStandardSize(request.aspectRatio);
     const framingDirective = getAspectFramingDirective(request.aspectRatio, request.shotType);
     const shotDirective = getShotTypeDirective(request.shotType);
-    const fullDirective = [framingDirective, shotDirective].filter(Boolean).join('\n\n');
 
-    try {
-        if (referenceImages.length > 0) {
-            // For OpenAI GPT Image models, edits and references use /v1/images/edits or multimodal chat
-            const editPayload: any = {
-                model: activeModel,
-                prompt: `${fullDirective}\n\n${request.prompt}`,
-                images: referenceImages.map(img => ({
-                    image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
-                })),
-                image: `data:${referenceImages[0].mimeType || 'image/jpeg'};base64,${referenceImages[0].data}`,
-                reference_images: referenceImages.map(img => `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`),
-                size: pixelSize,
-                aspect_ratio: ratio,
-                n: 1,
-                response_format: 'b64_json',
-                image_config: {
-                    aspect_ratio: ratio
-                },
-                extra_body: {
-                    aspect_ratio: ratio,
-                    size: pixelSize
-                }
-            };
+    // Strict directives enforcing canvas aspect ratio and 100% input fidelity
+    const strictFramingHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***\n*** MANDATORY INPUT REPRODUCTION PROTOCOL (STRICT FIDELITY) ***\n- Preserve exact visible facial features, skin tone, hairstyle, and identity from reference photo(s).\n- Faithfully render traditional H'Mông embroidery, pleated skirt textures, silver necklace collar ornaments, and accessories.\n- Strict aspect ratio ${ratio}: Compose all subjects completely within canvas safe zone without cutting head, hair, or ornaments.`;
+    const fullDirective = [strictFramingHeader, framingDirective, shotDirective].filter(Boolean).join('\n\n');
+    const combinedPrompt = `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`;
 
-            console.log(`[CLIProxyAPI] Sending image edit request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}, references: ${referenceImages.length}`);
-            let resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(editPayload)
-            }, 120000);
+    // Build candidate models order based on user selection
+    const isGeminiSelected = activeModel.toLowerCase().includes('gemini');
+    const candidateModels: string[] = isGeminiSelected
+        ? Array.from(new Set([
+            activeModel,
+            'gemini-3.1-flash-image',
+            'gemini-3-pro-image',
+            'gpt-image-2.5',
+            'gpt-image-2',
+            'gpt-image-1.5'
+        ])).filter(Boolean)
+        : Array.from(new Set([
+            activeModel || 'gpt-image-2.5',
+            'gpt-image-2.5',
+            'gpt-image-2',
+            'gpt-image-1.5',
+            'gemini-3.1-flash-image'
+        ])).filter(Boolean);
 
-            // If 400 error occurs due to strict OpenAI size check, retry /images/edits with standard OpenAI size
-            if (!resp.ok && resp.status === 400) {
-                const standardSize = getOpenAiStandardSize(request.aspectRatio);
-                console.warn(`[CLIProxyAPI] Retrying /images/edits with standard size: ${standardSize}`);
-                resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
+    let lastError: any = null;
+
+    for (const candidateModel of candidateModels) {
+        try {
+            console.log(`[CLIProxyAPI] Attempting image generation with candidate: ${candidateModel}, ratio: ${ratio}, size: ${standardSize}`);
+
+            // PATH A: Gemini multimodal via /v1/chat/completions
+            if (candidateModel.toLowerCase().includes('gemini')) {
+                const userContent: any[] = [{
+                    type: 'text',
+                    text: `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
+Inspect all ${referenceImages.length} attached input reference image(s) with utmost fidelity.
+Preserve exact face, features, identity, traditional H'Mông embroidered outfits, silver collar ornaments, and jewelry.
+Never alter or blend features between characters. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`
+                }];
+
+                referenceImages.forEach((img, idx) => {
+                    userContent.push({
+                        type: 'text',
+                        text: `INPUT REFERENCE ${idx + 1}: ${img.label || `Subject / Outfit ${idx + 1}`}`
+                    });
+                    userContent.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`,
+                            detail: 'high'
+                        }
+                    });
+                });
+
+                userContent.push({
+                    type: 'text',
+                    text: combinedPrompt
+                });
+
+                const chatBody: any = {
+                    model: candidateModel,
+                    messages: [{ role: 'user', content: userContent }],
+                    modalities: ['image', 'text'],
+                    image_config: {
+                        aspect_ratio: ratio
+                    },
+                    stream: false
+                };
+
+                const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify({
-                        ...editPayload,
-                        size: standardSize
-                    })
+                    body: JSON.stringify(chatBody)
                 }, 120000);
+
+                if (resp.ok) {
+                    const parsed = await parseNineRouterResponse(resp);
+                    const image = await extractAnyImageFromResponse(parsed);
+                    if (image) {
+                        console.log(`[CLIProxyAPI] Successfully generated image via /v1/chat/completions (${candidateModel})`);
+                        return image;
+                    }
+                } else {
+                    const errText = await resp.text();
+                    console.warn(`[CLIProxyAPI] Candidate ${candidateModel} /chat/completions returned HTTP ${resp.status}: ${errText}`);
+                }
             }
 
-            // Fallback: If gateway does not have /images/edits (404/405), fallback to /images/generations
-            if (!resp.ok && (resp.status === 404 || resp.status === 405)) {
-                console.warn(`[CLIProxyAPI] /images/edits returned HTTP ${resp.status}, falling back to /images/generations`);
-                resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+            // PATH B: Reference-based image editing via /v1/images/edits
+            if (referenceImages.length > 0) {
+                // Step B1: Try multipart/form-data with Binary Blobs
+                try {
+                    const formData = new FormData();
+                    formData.append('model', candidateModel);
+                    formData.append('prompt', combinedPrompt);
+                    formData.append('size', standardSize);
+                    formData.append('quality', 'high');
+                    formData.append('input_fidelity', 'high');
+                    formData.append('response_format', 'b64_json');
+                    formData.append('aspect_ratio', ratio);
+
+                    referenceImages.forEach((img, idx) => {
+                        const blob = base64ToBlob(img.data, img.mimeType || 'image/jpeg');
+                        if (idx === 0) {
+                            formData.append('image', blob, `ref_${idx + 1}.jpg`);
+                        }
+                        formData.append('images', blob, `ref_${idx + 1}.jpg`);
+                    });
+
+                    const formHeaders: Record<string, string> = {};
+                    if (apiKey) formHeaders['Authorization'] = `Bearer ${apiKey}`;
+
+                    const respMultipart = await fetchWithTimeout(`${baseUrl}/images/edits`, {
+                        method: 'POST',
+                        headers: formHeaders,
+                        body: formData
+                    }, 120000);
+
+                    if (respMultipart.ok) {
+                        const parsed = await parseNineRouterResponse(respMultipart);
+                        const image = await extractAnyImageFromResponse(parsed);
+                        if (image) {
+                            console.log(`[CLIProxyAPI] Successfully generated image via /images/edits (multipart: ${candidateModel})`);
+                            return image;
+                        }
+                    }
+                } catch (formErr) {
+                    console.warn('[CLIProxyAPI] Multipart /images/edits failed, trying JSON:', formErr);
+                }
+
+                // Step B2: Try application/json on /v1/images/edits
+                try {
+                    const editPayload: any = {
+                        model: candidateModel,
+                        prompt: combinedPrompt,
+                        images: referenceImages.map(img => ({
+                            image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
+                        })),
+                        image: `data:${referenceImages[0].mimeType || 'image/jpeg'};base64,${referenceImages[0].data}`,
+                        size: standardSize,
+                        quality: 'high',
+                        input_fidelity: 'high',
+                        aspect_ratio: ratio,
+                        n: 1,
+                        response_format: 'b64_json',
+                        image_config: {
+                            aspect_ratio: ratio
+                        }
+                    };
+
+                    const respJson = await fetchWithTimeout(`${baseUrl}/images/edits`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(editPayload)
+                    }, 120000);
+
+                    if (respJson.ok) {
+                        const parsed = await parseNineRouterResponse(respJson);
+                        const image = await extractAnyImageFromResponse(parsed);
+                        if (image) {
+                            console.log(`[CLIProxyAPI] Successfully generated image via /images/edits (JSON: ${candidateModel})`);
+                            return image;
+                        }
+                    }
+                } catch (jsonErr) {
+                    console.warn('[CLIProxyAPI] JSON /images/edits failed:', jsonErr);
+                }
+            }
+
+            // PATH C: Text-to-Image / Fallback via /v1/images/generations
+            try {
+                const genPayload: any = {
+                    model: candidateModel,
+                    prompt: combinedPrompt,
+                    n: 1,
+                    response_format: 'b64_json',
+                    size: standardSize,
+                    quality: 'high',
+                    aspect_ratio: ratio,
+                    image_config: {
+                        aspect_ratio: ratio
+                    },
+                    extra_body: {
+                        aspect_ratio: ratio,
+                        size: standardSize
+                    }
+                };
+
+                const respGen = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify(editPayload)
+                    body: JSON.stringify(genPayload)
                 }, 90000);
 
-                if (!resp.ok && resp.status === 400) {
-                    const standardSize = getOpenAiStandardSize(request.aspectRatio);
-                    resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                if (respGen.ok) {
+                    const parsed = await parseNineRouterResponse(respGen);
+                    const image = await extractAnyImageFromResponse(parsed);
+                    if (image) {
+                        console.log(`[CLIProxyAPI] Successfully generated image via /images/generations (${candidateModel})`);
+                        return image;
+                    }
+                } else if (respGen.status === 400 && standardSize !== '1024x1024') {
+                    // Fallback to square size if gateway rejects custom aspect size
+                    const respSquare = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                         method: 'POST',
                         headers,
                         body: JSON.stringify({
-                            model: activeModel,
-                            prompt: `${fullDirective}\n\n${request.prompt}`,
-                            n: 1,
-                            response_format: 'b64_json',
-                            size: standardSize
+                            ...genPayload,
+                            size: '1024x1024'
                         })
                     }, 90000);
-                }
-            }
 
-            if (!resp.ok) {
-                const errText = await resp.text();
-                throw new Error(`HTTP ${resp.status}: ${errText}`);
-            }
-
-            const parsed = await parseNineRouterResponse(resp);
-            const payloads = parsed.events.length > 0 ? parsed.events : (parsed.json ? [parsed.json] : []);
-            const imageItems = payloads.flatMap(p => Array.isArray(p?.data) ? p.data : []);
-            const first = imageItems[0];
-            if (first?.b64_json && first.b64_json.length > 100) return first.b64_json;
-            if (first?.url) {
-                const dataUrl = extractBase64FromDataUri(first.url);
-                if (dataUrl) return dataUrl;
-                if (first.url.startsWith('http')) {
-                    const imgResp = await fetch(first.url);
-                    if (imgResp.ok) {
-                        const arrayBuffer = await imgResp.arrayBuffer();
-                        let binary = '';
-                        const bytes = new Uint8Array(arrayBuffer);
-                        for (let i = 0; i < bytes.byteLength; i++) {
-                            binary += String.fromCharCode(bytes[i]);
+                    if (respSquare.ok) {
+                        const parsed = await parseNineRouterResponse(respSquare);
+                        const image = await extractAnyImageFromResponse(parsed);
+                        if (image) {
+                            console.log(`[CLIProxyAPI] Generated image via /images/generations fallback square (${candidateModel})`);
+                            return image;
                         }
-                        return btoa(binary);
                     }
                 }
+            } catch (genErr) {
+                console.warn('[CLIProxyAPI] /images/generations failed:', genErr);
             }
-            const chatFallback = extractImageFromChatResponse(parsed);
-            if (chatFallback) return chatFallback;
-
-            throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
+        } catch (candidateErr: any) {
+            console.error(`[CLIProxyAPI] Candidate ${candidateModel} failed:`, candidateErr);
+            lastError = candidateErr;
         }
-
-        // Standard text-to-image path for GPT image and other models:
-        const payload: any = {
-            model: activeModel,
-            prompt: `${fullDirective}\n\n${request.prompt}`,
-            n: 1,
-            response_format: 'b64_json',
-            size: pixelSize,
-            aspect_ratio: ratio,
-            image_config: {
-                aspect_ratio: ratio
-            },
-            extra_body: {
-                aspect_ratio: ratio,
-                size: pixelSize
-            }
-        };
-
-        console.log(`[CLIProxyAPI] Sending text-to-image request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}`);
-        let resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(payload)
-        }, 90000);
-
-        // If 400 error occurs due to strict OpenAI size check, retry with OpenAI standard size
-        if (!resp.ok && resp.status === 400) {
-            const standardSize = getOpenAiStandardSize(request.aspectRatio);
-            console.warn(`[CLIProxyAPI] Retrying with standard size: ${standardSize}`);
-            resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    model: activeModel,
-                    prompt: `${fullDirective}\n\n${request.prompt}`,
-                    n: 1,
-                    response_format: 'b64_json',
-                    size: standardSize
-                })
-            }, 90000);
-        }
-
-        if (!resp.ok) {
-            const errText = await resp.text();
-            throw new Error(`HTTP ${resp.status}: ${errText}`);
-        }
-
-        const parsed = await parseNineRouterResponse(resp);
-        const payloads = parsed.events.length > 0
-            ? parsed.events
-            : parsed.json
-                ? [parsed.json]
-                : [];
-
-        const imageItems = payloads.flatMap(payloadItem => Array.isArray(payloadItem?.data) ? payloadItem.data : []);
-        const first = imageItems[0];
-        if (first?.b64_json && first.b64_json.length > 100) {
-            return first.b64_json;
-        }
-
-        if (typeof first?.url === 'string') {
-            const dataUrlImage = extractBase64FromDataUri(first.url);
-            if (dataUrlImage) return dataUrlImage;
-
-            if (first.url.startsWith('http')) {
-                console.log(`[CLIProxyAPI] Downloading image from URL: ${first.url}`);
-                const imgResp = await fetch(first.url);
-                if (imgResp.ok) {
-                    const arrayBuffer = await imgResp.arrayBuffer();
-                    let binary = '';
-                    const bytes = new Uint8Array(arrayBuffer);
-                    for (let i = 0; i < bytes.byteLength; i++) {
-                        binary += String.fromCharCode(bytes[i]);
-                    }
-                    return btoa(binary);
-                }
-            }
-        }
-
-        const chatFallback = extractImageFromChatResponse(parsed);
-        if (chatFallback) return chatFallback;
-
-        return null;
-    } catch (err: any) {
-        console.error('[CLIProxyAPI] Image generation error:', err);
-        throw err;
     }
+
+    if (lastError) {
+        throw lastError;
+    }
+
+    throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh. Vui lòng kiểm tra lại trạng thái kết nối.');
 };
