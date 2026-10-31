@@ -70,23 +70,37 @@ class FlowUI:
     # ------------------------------------------------------------------
 
     async def open_settings_panel(self, page) -> bool:
-        """Open the generation settings panel (Image/Video mode, aspect, count).
-
-        The panel is triggered by clicking the mode/count pill at the bottom bar.
-        On the project page this pill shows: "Video □ x1" or "Nano Banana 2 … x2".
-
-        Returns True if panel is open (or was already open).
-        """
-        # Wait for React to hydrate — buttons may not exist on domcontentloaded
+        """Open the generation settings panel (Image/Video mode, aspect, count)."""
         try:
             await page.wait_for_selector('button', timeout=8000)
         except Exception:
             pass
         await asyncio.sleep(0.5)
 
-        already_open = await self._settings_visible(page)
-        if already_open:
+        if await self._settings_visible(page):
             return True
+
+        # Strategy 0: Playwright locator for settings trigger pill (works in both English & Vietnamese)
+        for sel in [
+            'button[aria-label*="cài đặt" i]',
+            'button[aria-label*="setting" i]',
+            'button:has-text("Nano Banana")',
+            'button:has-text("Veo")',
+            'button:has-text("Omni")',
+            'button:has-text("Video")',
+            'button:has-text("x1")',
+            'button:has-text("x2")',
+        ]:
+            loc = page.locator(sel).last
+            if await loc.count() > 0:
+                try:
+                    await loc.click(timeout=3000)
+                    await asyncio.sleep(0.8)
+                    if await self._settings_visible(page):
+                        log.debug("Settings panel opened via selector '%s'", sel)
+                        return True
+                except Exception:
+                    continue
 
         # Strategy 1: click by known pill text fragments
         for text in _SETTINGS_PILL_TEXTS:
@@ -104,31 +118,14 @@ class FlowUI:
                     log.debug("Settings panel opened via text '%s'", text)
                     return True
 
-        # Strategy 2: click the count selector (always has "x1" or "x2" etc.)
-        clicked = await page.evaluate("""
-            () => {
-                const btns = [...document.querySelectorAll('button')];
-                // The count pill has exactly the pattern "x1", "x2", etc. in its text
-                const pill = btns.find(b => /x[1-4]/.test(b.textContent.trim()));
-                if (pill) { pill.click(); return pill.textContent.trim(); }
-                return null;
-            }
-        """)
-        if clicked:
-            await asyncio.sleep(0.8)
-            if await self._settings_visible(page):
-                log.debug("Settings panel opened via count pill '%s'", clicked)
-                return True
-
         log.warning("Could not open settings panel (no pill found)")
         return False
 
     async def _settings_visible(self, page) -> bool:
-        """Check if the mode/aspect/count tabs are visible (settings panel open)."""
+        """Check if the mode/aspect/count controls are visible (settings panel open)."""
         count = await page.evaluate("""
             () => {
-                // Settings panel has role=tab elements for Image/Video/aspect/count
-                const tabs = document.querySelectorAll('[role=tab]');
+                const tabs = document.querySelectorAll('[role=tab], button[role=radio]');
                 return tabs.length;
             }
         """)
@@ -141,19 +138,14 @@ class FlowUI:
     async def switch_mode(self, page, mode: GenerationMode) -> bool:
         await self.open_settings_panel(page)
         label_map = {
-            GenerationMode.IMAGE:          ["Image", "image Image"],
-            GenerationMode.VIDEO:          ["Video", "videocam Video"],
-            GenerationMode.FRAME_TO_VIDEO: ["Frames", "crop_free Frames", "Video"],
+            GenerationMode.IMAGE:          ["Hình ảnh", "Image", "image"],
+            GenerationMode.VIDEO:          ["Video", "videocam"],
+            GenerationMode.FRAME_TO_VIDEO: ["Frames", "crop_free", "Video", "videocam"],
         }
         for label in label_map.get(mode, []):
-            tab = page.get_by_role("tab", name=label, exact=True).first
-            if await tab.count() > 0:
-                await tab.click()
-                await asyncio.sleep(0.4)
-                return True
-            tab = page.locator("[role='tab']").filter(has_text=label.split()[-1]).first
-            if await tab.count() > 0:
-                await tab.click()
+            loc = page.locator("button[role='radio'], [role='tab']").filter(has_text=label).first
+            if await loc.count() > 0:
+                await loc.click()
                 await asyncio.sleep(0.4)
                 return True
         log.warning("Could not find mode tab for %s", mode.value)
@@ -166,19 +158,14 @@ class FlowUI:
     async def set_aspect_ratio(self, page, ratio: AspectRatio) -> bool:
         await self.open_settings_panel(page)
         label_map = {
-            AspectRatio.LANDSCAPE: ["Landscape", "crop_16_9 Landscape"],
-            AspectRatio.PORTRAIT:  ["Portrait",  "crop_9_16 Portrait"],
-            AspectRatio.SQUARE:    ["Square",    "crop_1_1 Square"],
+            AspectRatio.LANDSCAPE: ["16:9", "Landscape", "crop_16_9"],
+            AspectRatio.PORTRAIT:  ["9:16", "Portrait",  "crop_9_16"],
+            AspectRatio.SQUARE:    ["1:1",  "Square",    "crop_1_1"],
         }
         for label in label_map.get(ratio, []):
-            tab = page.get_by_role("tab", name=label, exact=True).first
-            if await tab.count() > 0:
-                await tab.click()
-                await asyncio.sleep(0.3)
-                return True
-            tab = page.locator("[role='tab']").filter(has_text=label.split()[-1]).first
-            if await tab.count() > 0:
-                await tab.click()
+            loc = page.locator("button[role='radio'], [role='tab']").filter(has_text=label).first
+            if await loc.count() > 0:
+                await loc.click()
                 await asyncio.sleep(0.3)
                 return True
         log.warning("Could not find aspect ratio tab for %s", ratio.value)
@@ -192,9 +179,9 @@ class FlowUI:
         await self.open_settings_panel(page)
         count = max(1, min(4, count))
         label = f"x{count}"
-        tab = page.get_by_role("tab", name=label, exact=True).first
-        if await tab.count() > 0:
-            await tab.click()
+        loc = page.locator("button[role='radio'], [role='tab']").filter(has_text=label).first
+        if await loc.count() > 0:
+            await loc.click()
             await asyncio.sleep(0.3)
             return True
         log.warning("Could not set count to %d", count)
@@ -247,25 +234,19 @@ class FlowUI:
     # ------------------------------------------------------------------
 
     async def click_submit(self, page) -> bool:
-        clicked = await page.evaluate("""
-            () => {
-                const btns = [...document.querySelectorAll('button')];
-                const creates = btns.filter(b =>
-                    b.textContent.trim().includes('Create') && !b.disabled
-                );
-                if (creates.length > 0) {
-                    creates[creates.length - 1].click();
-                    return true;
-                }
-                return false;
-            }
-        """)
-        if clicked:
-            return True
-        btn = page.locator("button").filter(has_text="arrow_forward").last
-        if await btn.count() > 0:
-            await btn.click()
-            return True
+        for sel in [
+            'button[aria-label*="Bắt đầu tạo" i]',
+            'button:has-text("arrow_forward")',
+            'button:has-text("Create")',
+            'button:has-text("Tạo")',
+        ]:
+            btn = page.locator(sel).last
+            if await btn.count() > 0:
+                try:
+                    await btn.click(timeout=3000)
+                    return True
+                except Exception:
+                    continue
         log.warning("Could not find submit button")
         return False
 
@@ -274,12 +255,19 @@ class FlowUI:
     # ------------------------------------------------------------------
 
     async def upload_image(self, page, image_path: str) -> bool:
-        add_btn = page.locator("button").filter(has_text="Add Media").first
-        if await add_btn.count() == 0:
-            add_btn = page.get_by_text("Add Media").first
-        if await add_btn.count() > 0:
-            await add_btn.click()
-            await asyncio.sleep(1)
+        for sel in [
+            'button[aria-label*="Thêm thành phần" i]',
+            'button[aria-label*="Add" i]',
+            'button:has-text("Add Media")',
+        ]:
+            add_btn = page.locator(sel).first
+            if await add_btn.count() > 0:
+                try:
+                    await add_btn.click(timeout=3000)
+                    await asyncio.sleep(1)
+                    break
+                except Exception:
+                    continue
         file_input = page.locator("input[type='file']").first
         if await file_input.count() > 0:
             await file_input.set_input_files(image_path)

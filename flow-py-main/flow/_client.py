@@ -208,18 +208,30 @@ class FlowClient:
 
         # Wait for API response
         entry = await interceptor.wait_for(
-            "batchAsyncGenerateVideoText", timeout=timeout_s, require_success=True
+            "batchAsyncGenerateVideo", timeout=timeout_s, require_success=True
         )
+        if interceptor.bearer and self._api:
+            self._api._bearer_token = interceptor.bearer
+            self._api._bearer_token_ts = time.time()
 
         jobs = []
-        for job_data in entry.resp.get("jobs", []):
-            media_id = job_data.get("mediaId", {})
-            media_name = media_id.get("mediaName") or media_id.get("name", "")
+        media_name = UIInterceptor.extract_video_media_name(entry.resp)
+        if media_name:
             job = VideoJob.__new__(VideoJob)
             job.media_name = media_name
             job.status = "PENDING"
             job.project_id = self.project_id
             jobs.append(job)
+        else:
+            for job_data in entry.resp.get("jobs", []):
+                media_id = job_data.get("mediaId", {})
+                m_name = media_id.get("mediaName") or media_id.get("name", "")
+                if m_name:
+                    job = VideoJob.__new__(VideoJob)
+                    job.media_name = m_name
+                    job.status = "PENDING"
+                    job.project_id = self.project_id
+                    jobs.append(job)
 
         log.info("T2V submitted: %d job(s)", len(jobs))
         return jobs
