@@ -246,11 +246,10 @@ async def _bring_chrome_to_front(bm: BrowserManager) -> None:
 
 
 async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
-    """Return the singleton BrowserManager (prefers interactive CDP Chrome on port 9222)."""
+    """Return the singleton BrowserManager."""
     global _bm
     if _bm is not None and _bm._ctx is not None:
         try:
-            # Actually verify CDP connection is still alive!
             if _bm._cdp_browser is not None and not _bm._cdp_browser.is_connected():
                 raise RuntimeError("CDP browser disconnected")
             pages = _bm._ctx.pages
@@ -268,10 +267,19 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
             _bm = None
 
     ensure_dirs()
-    if await _ensure_cdp_chrome_running():
-        bm = BrowserManager.from_cdp("http://127.0.0.1:9222")
-    else:
-        bm = BrowserManager(headless=headless)
+    # If interactive CDP on 9222 is active, connect to it; otherwise use native persistent context
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=0.8) as resp:
+            if resp.status == 200:
+                bm = BrowserManager.from_cdp("http://127.0.0.1:9222")
+                await bm.start()
+                _bm = bm
+                return _bm
+    except Exception:
+        pass
+
+    bm = BrowserManager(headless=headless)
     await bm.start()
     _bm = bm
     return _bm
@@ -985,40 +993,17 @@ async def health_check(refresh: bool = False):
 
 @app.post("/v1/auth/login")
 async def trigger_flow_login():
-    """Launch visible Chrome on the user's real desktop (port 9222) and wait for Google login."""
-    global _login_in_progress, _ext_reload_done
-    _ext_reload_done = False
-
-    async def _prepare_flow():
-        global _login_in_progress
-        _login_in_progress = True
-        try:
-            await _ensure_cdp_chrome_running()
-            bm = await _get_or_start_bm(headless=False)
-            await _bring_chrome_to_front(bm)
-            page = await bm.page()
-            if "flow.google.com" not in page.url and "labs.google" not in page.url:
-                try:
-                    await page.goto("https://flow.google.com", wait_until="domcontentloaded", timeout=15000)
-                except Exception:
-                    pass
-            # Poll every 3s for up to 3 minutes while user logs in on the visible Chrome window
-            for _ in range(60):
-                state = await refresh_auth_state(force_navigate=False)
-                if state.get("authenticated") and state.get("email") not in (None, "Google Flow Connected"):
-                    log.info("Interactive CDP login succeeded: %s (credits=%s)", state.get("email"), state.get("credits"))
-                    break
-                await asyncio.sleep(3)
-        except Exception as e:
-            log.error("Login preparation error: %s", e)
-        finally:
-            _login_in_progress = False
-
-    asyncio.create_task(_prepare_flow())
-
+    """Launch visible Chrome login on the user's real desktop."""
+    bat_path = Path(__file__).parent / "login.bat"
+    try:
+        import os
+        os.startfile(str(bat_path))
+        log.info("Launched %s via Windows Shell (os.startfile)", bat_path)
+    except Exception as e:
+        log.warning("Could not launch login.bat: %s", e)
     return {
         "status": "opening_browser",
-        "message": "Đã mở cửa sổ Chrome đăng nhập Google Flow trên màn hình của bạn!",
+        "message": "Đã mở cửa sổ đăng nhập Google Flow trên màn hình của bạn!",
     }
 
 

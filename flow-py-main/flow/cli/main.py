@@ -130,25 +130,32 @@ def login():
         bm = BrowserManager(headless=False)
         await bm.start()
         page = await bm.page()
-        click.echo("🌐 Opening browser — sign in to Google, then come back...")
-        await page.goto(FLOW_BASE, wait_until="domcontentloaded")
+        click.echo("Opening browser - sign in to Google Flow...")
+        await page.goto("https://flow.google.com", wait_until="domcontentloaded")
 
-        # Wait for labs.google to be loaded and authenticated
+        # Wait for Google Flow to be loaded and authenticated
         while True:
             url = page.url
-            if "labs.google" in url:
-                # Check if logged in
+            if ("flow.google.com" in url or "labs.google" in url) and "accounts.google.com" not in url:
+                if "/project/" in url:
+                    click.echo(f"Logged in successfully: {url}")
+                    break
                 logged_in = await page.evaluate("""
-                    () => window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null
+                    () => {
+                        const acc = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
+                        if (acc) return acc.getAttribute('aria-label') || '';
+                        return window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null;
+                    }
                 """)
                 if logged_in:
-                    click.echo(f"✅ Logged in as: {logged_in}")
+                    click.echo(f"Logged in as: {logged_in}")
                     break
             await asyncio.sleep(2)
-            click.echo("  (waiting for login...)", err=True)
+            click.echo("  (waiting for login on Google Flow...)", err=True)
 
+        await asyncio.sleep(2)
         await bm.stop()
-        click.echo("🔐 Session saved. You can now use flow commands.")
+        click.echo("Session saved. You can now use Google Flow.")
 
     run(_go())
 
