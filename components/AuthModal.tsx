@@ -23,6 +23,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [showTermsModal, setShowTermsModal] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+    const [copiedDomain, setCopiedDomain] = useState(false);
 
     // Animation text effect
     const [welcomeText, setWelcomeText] = useState('');
@@ -65,6 +67,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     const handleGoogleSignIn = async () => {
         setError('');
         setInfoMessage('');
+        setUnauthorizedDomain(null);
         setIsGoogleLoading(true);
 
         try {
@@ -97,7 +100,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                 return;
             }
             if (err.code === 'auth/unauthorized-domain') {
-                setError('Tên miền trang web chưa được cấp phép trong Firebase Auth Console.');
+                const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+                const isFileProtocol = typeof window !== 'undefined' && window.location.protocol === 'file:';
+
+                if (isFileProtocol) {
+                    setError('Bản Desktop (file://) không hỗ trợ đăng nhập Google Pop-up trực tiếp do chính sách bảo mật OAuth. Quý khách vui lòng đăng nhập bằng Email/Mật khẩu bên dưới.');
+                } else {
+                    setUnauthorizedDomain(currentHost || 'tên miền trang web');
+                    setError(`Tên miền "${currentHost}" chưa được cấp phép trong Firebase Auth Console (dự án: toolphoto-2025).`);
+                }
                 return;
             }
             let msg = 'Đăng nhập Google thất bại.';
@@ -397,6 +408,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                 )}
 
                                 {error && <div className="text-red-600 text-xs sm:text-sm font-medium bg-red-50/90 border border-red-200/80 p-3.5 rounded-xl text-left whitespace-pre-line leading-relaxed shadow-sm animate-fade-in">{error}</div>}
+
+                                {unauthorizedDomain && (
+                                    <div className="p-3.5 bg-amber-50/95 border border-amber-200/90 rounded-xl text-left text-xs text-amber-900 leading-relaxed shadow-xs animate-fade-in">
+                                        <div className="flex items-center gap-2 font-bold text-amber-950 mb-1.5">
+                                            <svg className="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                            </svg>
+                                            <span>Hướng dẫn cấp phép tên miền Firebase</span>
+                                        </div>
+                                        <p className="text-amber-800 mb-2">
+                                            Để đăng nhập Google, tên miền này cần được thêm vào <strong>Authorized domains</strong> trong Firebase Console:
+                                        </p>
+                                        <div className="flex items-center justify-between gap-2 p-2 bg-white/95 border border-amber-200 rounded-lg mb-2.5 shadow-2xs">
+                                            <code className="font-mono font-semibold text-slate-800 text-[11px] truncate select-all">{unauthorizedDomain}</code>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(unauthorizedDomain);
+                                                    setCopiedDomain(true);
+                                                    setTimeout(() => setCopiedDomain(false), 2000);
+                                                }}
+                                                className="px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200/80 rounded transition-colors flex-shrink-0"
+                                            >
+                                                {copiedDomain ? '✓ Đã chép' : 'Sao chép'}
+                                            </button>
+                                        </div>
+                                        <div className="space-y-1 text-[11px] text-amber-800">
+                                            <p>1. Mở <a href="https://console.firebase.google.com/project/toolphoto-2025/authentication/settings" target="_blank" rel="noopener noreferrer" className="font-bold underline text-indigo-600 hover:text-indigo-800">Firebase Console (toolphoto-2025)</a></p>
+                                            <p>2. Chọn tab <strong>Authorized domains</strong> &gt; Bấm <strong>Add domain</strong></p>
+                                            <p>3. Dán tên miền trên và bấm <strong>Save</strong></p>
+                                        </div>
+                                    </div>
+                                )}
                                 {infoMessage && <div className="text-green-600 text-sm font-medium bg-green-50 p-3 rounded-lg text-center animate-pulse">{infoMessage}</div>}
 
                                 <button type="submit" className="w-full mt-2 px-6 py-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 animate-gradient-x text-white font-bold rounded-xl hover:shadow-xl hover:shadow-indigo-500/40 transition-all transform active:scale-[0.98]">
