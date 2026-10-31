@@ -204,14 +204,14 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </div>
                 </div>
 
-                {/* Quick Login Button when unauthenticated and panel is closed */}
-                {serverHealth.online && !serverHealth.authenticated && !showConfigPanel && (
+                {/* Always-visible Action Row: Open Google Flow & Toggle Cookie Config */}
+                {!showConfigPanel && (
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             type="button"
                             onClick={handleLoginClick}
                             disabled={isTriggeringLogin}
-                            className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                         >
                             <span>🌐</span>
                             <span>{isTriggeringLogin ? 'Đang mở...' : 'Mở Google Flow'}</span>
@@ -219,10 +219,10 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         <button
                             type="button"
                             onClick={() => setShowConfigPanel(true)}
-                            className="min-h-[40px] px-3 py-2 rounded-xl bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                             <span>🍪</span>
-                            <span>Dán Cookie</span>
+                            <span>{cookieInput.trim() ? 'Đổi Cookie' : 'Dán Cookie'}</span>
                         </button>
                     </div>
                 )}
