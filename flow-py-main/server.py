@@ -157,51 +157,6 @@ async def _extract_or_create_project_id(page) -> Optional[str]:
     set_active_project(default_pid, f"https://labs.google/fx/tools/flow/project/{default_pid}")
     return default_pid
 
-    # 3. Look for existing project links in DOM
-    try:
-        href = await page.evaluate("""
-            () => {
-                const links = [...document.querySelectorAll('a[href*="/project/"]')];
-                return links.length ? links[0].getAttribute('href') : null;
-            }
-        """)
-        if href:
-            m2 = re.search(r"/project/([a-f0-9\-]{8,})", href)
-            if m2:
-                pid = m2.group(1)
-                set_active_project(pid, f"https://labs.google/fx/tools/flow/project/{pid}")
-                add_project(pid, "auto", f"https://labs.google/fx/tools/flow/project/{pid}")
-                return pid
-    except Exception:
-        pass
-
-    # 4. Try clicking "New project" / "Create project" button if on Flow dashboard
-    try:
-        clicked = await page.evaluate("""
-            () => {
-                const btns = [...document.querySelectorAll('button, a')];
-                const target = btns.find(b => {
-                    const t = (b.textContent || '').toLowerCase();
-                    return t.includes('new project') || t.includes('dự án mới') || t.includes('create project') || t.includes('get started');
-                });
-                if (target) { target.click(); return true; }
-                return false;
-            }
-        """)
-        if clicked:
-            for _ in range(15):
-                await asyncio.sleep(1)
-                m3 = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
-                if m3:
-                    pid = m3.group(1)
-                    set_active_project(pid, f"https://labs.google/fx/tools/flow/project/{pid}")
-                    add_project(pid, "auto", f"https://labs.google/fx/tools/flow/project/{pid}")
-                    return pid
-    except Exception:
-        pass
-
-    return None
-
 
 async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
     """Check if the browser profile is logged in to Google Flow and refresh credits/project."""
@@ -211,12 +166,12 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             bm = await _get_or_start_bm(headless=False)
             page = await bm.page()
 
-            if force_navigate or ("labs.google" not in page.url and "flow.google" not in page.url and "accounts.google" not in page.url):
+            if force_navigate or ("labs.google" not in page.url and "accounts.google" not in page.url):
                 saved_pid, _ = get_active_project()
                 target_url = (
-                    f"https://flow.google.com/project/{saved_pid}"
+                    f"https://labs.google/fx/tools/flow/project/{saved_pid}"
                     if saved_pid
-                    else "https://flow.google.com/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
+                    else "https://labs.google/fx/tools/flow/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
                 )
                 try:
                     await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
@@ -229,12 +184,12 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                 _auth_state.update({
                     "authenticated": False,
                     "email": None,
-                    "error": "Chưa đăng nhập Google Flow. Hãy bấm nút 'Đăng nhập Google Flow' trên giao diện.",
+                    "error": "Chưa đăng nhập Google Flow.",
                     "last_checked": time.time(),
                 })
                 return _auth_state
 
-            # Check session via __NEXT_DATA__, /fx/api/auth/session, or /api/auth/session
+            # If Google Account Selector / Sign in button is on labs.google, try clicking Sign in automatically if google.com cookies exist
             session_info = await page.evaluate("""
                 async () => {
                     try {
@@ -259,24 +214,47 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             """)
 
             if not session_info or not session_info.get("email"):
-                # Also check if flow.google.com project page is loaded without accounts.google.com wall
-                has_flow_ui = await page.evaluate("""
-                    () => {
-                        const url = location.href;
-                        if (url.includes('accounts.google.com')) return false;
-                        return (url.includes('/project/') || document.querySelectorAll('button').length > 3);
-                    }
-                """)
-                if has_flow_ui and "accounts.google.com" not in page.url:
-                    session_info = {"email": "Google Flow Active", "token": None}
-                else:
-                    _auth_state.update({
-                        "authenticated": False,
-                        "email": None,
-                        "error": "Chưa đăng nhập Google Flow.",
-                        "last_checked": time.time(),
-                    })
-                    return _auth_state
+                # Try silent OAuth sign-in on labs.google using existing Google cookies
+                try:
+                    await page.goto("https://labs.google/fx/api/auth/signin/google?callbackUrl=https%3A%2F%2Flabs.google%2Ffx%2Ftools%2Fflow", wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(2)
+                    # If on accounts.google.com account chooser, click the first account
+                    if "accounts.google.com" in page.url:
+                        clicked_acc = await page.evaluate("""
+                            () => {
+                                const el = document.querySelector('[data-identifier], [data-email]');
+                                if (el) { el.click(); return true; }
+                                return false;
+                            }
+                        """)
+                        if clicked_acc:
+                            await asyncio.sleep(4)
+                    if "labs.google" in page.url:
+                        session_info = await page.evaluate("""
+                            async () => {
+                                try {
+                                    const r = await fetch('/fx/api/auth/session', { credentials: 'include' });
+                                    if (r.ok) {
+                                        const data = await r.json();
+                                        if (data?.user?.email) {
+                                            return { email: data.user.email, token: data.access_token || null };
+                                        }
+                                    }
+                                } catch (e) {}
+                                return null;
+                            }
+                        """)
+                except Exception as sso_err:
+                    log.debug("Silent SSO attempt: %s", sso_err)
+
+            if not session_info or not session_info.get("email"):
+                _auth_state.update({
+                    "authenticated": False,
+                    "email": None,
+                    "error": "Chưa đăng nhập Google Flow.",
+                    "last_checked": time.time(),
+                })
+                return _auth_state
 
             email = session_info["email"]
             pid = await _extract_or_create_project_id(page)
@@ -546,24 +524,42 @@ async def extension_pending_reload():
     return {"reload": False}
 
 
+@app.get("/v1/debug/page")
+async def debug_page():
+    """Inspect current Playwright page state and cookies."""
+    if _bm is None or _bm._ctx is None:
+        return {"bm": None}
+    page = await _bm.page()
+    cookies = await _bm.context.cookies()
+    html_snippet = (await page.content())[:1500]
+    title = await page.title()
+    return {
+        "url": page.url,
+        "title": title,
+        "cookie_count": len(cookies),
+        "cookie_names": [{"name": c["name"], "domain": c["domain"]} for c in cookies],
+        "html_snippet": html_snippet,
+    }
+
+
 @app.get("/health")
 async def health_check(refresh: bool = False):
     """Health check endpoint polled by ToolMedia VideoPanel.
-    Does NOT auto-launch browser on passive polls unless refresh=True or already logged in.
+    Fast & non-blocking: never blocks on _browser_lock during video generation.
     """
     from flow._storage import is_authenticated
 
     now = time.time()
-    if refresh or (_bm is not None and now - _auth_state["last_checked"] > 15 and not _login_in_progress):
-        await refresh_auth_state(force_navigate=False)
-    elif _bm is None and is_authenticated() and _auth_state["last_checked"] == 0.0:
-        await refresh_auth_state(force_navigate=False)
+    if refresh and not _browser_lock.locked():
+        asyncio.create_task(refresh_auth_state(force_navigate=False))
+    elif _bm is None and is_authenticated() and _auth_state["last_checked"] == 0.0 and not _browser_lock.locked():
+        asyncio.create_task(refresh_auth_state(force_navigate=False))
 
     return {
         "status": "ok",
         "engine": "flow-py",
         "backend_mode": "flow-py (Veo 3.1)",
-        "active_backend": "labs.google/fx/tools/flow",
+        "active_backend": "flow.google.com",
         "authenticated": _auth_state["authenticated"],
         "email": _auth_state["email"],
         "project_id": _auth_state["project_id"],
@@ -619,26 +615,35 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
         pw_cookies = []
         if req.cookies:
             raw_list = req.cookies
-            # Check if user pasted google.com cookies or flow.google.com cookies
-            has_flow_cookie = any("flow.google" in str(c.get("domain", "")) or "labs.google" in str(c.get("domain", "")) for c in raw_list)
             for c in raw_list:
-                name = c.get("name")
+                name = str(c.get("name", ""))
                 value = c.get("value")
                 domain = str(c.get("domain", ".google.com"))
                 if not name or value is None:
                     continue
                 domains_to_add = [domain]
-                if "google.com" in domain and not has_flow_cookie:
-                    domains_to_add = [".google.com", "flow.google.com", "labs.google"]
-                for dom in domains_to_add:
-                    item: dict[str, Any] = {
-                        "name": str(name),
-                        "value": str(value),
-                        "domain": dom,
-                        "path": str(c.get("path", "/")),
-                        "secure": bool(c.get("secure", True)),
-                        "httpOnly": bool(c.get("httpOnly", False)),
-                    }
+                if "google.com" in domain:
+                    domains_to_add = [domain, ".google.com", "labs.google"]
+                for dom in set(domains_to_add):
+                    # __Host- cookies cannot have a domain attribute in Playwright (must use url instead)
+                    if name.startswith("__Host-"):
+                        target_url = "https://labs.google/" if "labs.google" in dom else "https://accounts.google.com/"
+                        item: dict[str, Any] = {
+                            "name": name,
+                            "value": str(value),
+                            "url": target_url,
+                            "secure": True,
+                            "httpOnly": bool(c.get("httpOnly", True)),
+                        }
+                    else:
+                        item = {
+                            "name": name,
+                            "value": str(value),
+                            "domain": dom,
+                            "path": str(c.get("path", "/")),
+                            "secure": bool(c.get("secure", True)),
+                            "httpOnly": bool(c.get("httpOnly", False)),
+                        }
                     same_site = str(c.get("sameSite", "")).lower()
                     if same_site in ("strict", "lax", "none"):
                         item["sameSite"] = same_site.capitalize()
@@ -649,9 +654,15 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                             pass
                     pw_cookies.append(item)
 
-        if pw_cookies:
-            await bm.context.add_cookies(pw_cookies)
-            log.info("Injected %d cookies from user's Chrome into Flow Playwright context", len(pw_cookies))
+        injected_count = 0
+        for ck in pw_cookies:
+            try:
+                await bm.context.add_cookies([ck])
+                injected_count += 1
+            except Exception as ck_err:
+                log.debug("Skipped cookie %s: %s", ck.get("name"), ck_err)
+
+        log.info("Injected %d/%d cookies into Flow Playwright context", injected_count, len(pw_cookies))
 
         if req.project_id:
             set_active_project(req.project_id, f"https://labs.google/fx/tools/flow/project/{req.project_id}")
@@ -666,7 +677,7 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
     state = await refresh_auth_state(force_navigate=True)
     return {
         "status": "ok",
-        "injected": len(pw_cookies),
+        "injected": injected_count,
         "authenticated": state.get("authenticated"),
         "email": state.get("email"),
         "project_id": state.get("project_id"),

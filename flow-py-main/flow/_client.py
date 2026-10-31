@@ -93,7 +93,7 @@ class FlowClient:
         self.project_id = project_id
         self.workflow_id = workflow_id
         self._ui        = FlowUI()
-        self._project_url = f"https://flow.google.com/project/{project_id}"
+        self._project_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
 
     # ── Factory ────────────────────────────────────────────────────────────────
 

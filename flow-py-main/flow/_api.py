@@ -491,8 +491,8 @@ class FlowAPI:
         page = await self._bm.page()
 
         # ── Ensure we're on a Flow page (needed for NEXT_DATA + auth session) ──
-        proj_url = f"https://flow.google.com/project/{self.project_id}" if self.project_id else "https://flow.google.com/"
-        if "labs.google" not in page.url and "flow.google.com" not in page.url:
+        proj_url = f"{FLOW_BASE}/project/{self.project_id}" if self.project_id else FLOW_BASE
+        if "labs.google" not in page.url:
             log.info("Navigating to Flow project page for Bearer token extraction")
             await page.goto(proj_url, wait_until="domcontentloaded", timeout=20000)
             await asyncio.sleep(2)

@@ -69,7 +69,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     const handleLoginClick = async () => {
         setIsTriggeringLogin(true);
-        window.open('https://flow.google.com/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444', '_blank', 'noopener,noreferrer');
+        window.open('https://labs.google/fx/tools/flow/project/a589a2fc-8eb7-4b2e-9a39-c6ab11c28444', '_blank', 'noopener,noreferrer');
         setShowCookieBox(true);
         try {
             await triggerFlowBrowserLogin();
