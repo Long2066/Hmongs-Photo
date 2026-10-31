@@ -898,43 +898,31 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                                             paddingTop: '8px',
                                             marginTop: '4px'
                                         }}>
-                                            <span style={{ fontSize: '0.74rem', color: isPaid ? '#d97706' : '#059669', fontWeight: 600 }}>
-                                                {isPaid ? 'Cần số dư > 0đ (Khóa nếu 0đ)' : 'Dùng tự do (Kể cả 0đ)'}
+                                            <span style={{ fontSize: '0.74rem', color: isPaid ? '#d97706' : '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                {pricingSaving === model.id ? (
+                                                    <span style={{ color: '#6366f1' }}>Đang lưu & đồng bộ...</span>
+                                                ) : (
+                                                    isPaid ? 'Cần số dư > 0đ (Khóa nếu 0đ)' : 'Dùng tự do (Kể cả 0đ)'
+                                                )}
                                             </span>
 
                                             <div
                                                 role="switch"
                                                 aria-checked={isPaid}
                                                 tabIndex={0}
-                                                onClick={() => {
-                                                    const currentPricing = config.modelPricing || {
-                                                        'gemini-3.1-flash-image': false,
-                                                        'gpt-image-2.5': true,
-                                                        'gpt-image-2.5-flare': true,
-                                                        'gpt-image-2.5-sunburst': true,
-                                                        'gpt-image-2': true,
-                                                        'gpt-image-1.5': false
-                                                    };
-                                                    const updatedPricing = {
-                                                        ...currentPricing,
-                                                        [model.id]: !isPaid
-                                                    };
-                                                    setConfig(prev => ({
-                                                        ...prev,
-                                                        modelPricing: updatedPricing
-                                                    }));
-                                                }}
+                                                onClick={() => handleToggleModelPricing(model.id, isPaid)}
                                                 style={{
                                                     width: '38px',
                                                     height: '22px',
                                                     borderRadius: '11px',
                                                     background: isPaid ? '#f59e0b' : '#10b981',
                                                     position: 'relative',
-                                                    cursor: 'pointer',
+                                                    cursor: pricingSaving === model.id ? 'wait' : 'pointer',
                                                     transition: 'background-color 0.2s ease',
-                                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)'
+                                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)',
+                                                    opacity: pricingSaving === model.id ? 0.7 : 1
                                                 }}
-                                                title={isPaid ? 'Chuyển sang Miễn phí' : 'Chuyển sang Trả phí'}
+                                                title={isPaid ? 'Bấm để chuyển sang Miễn phí (Dùng tự do)' : 'Bấm để chuyển sang Trả phí (Khóa nếu 0đ)'}
                                             >
                                                 <div style={{
                                                     width: '18px',

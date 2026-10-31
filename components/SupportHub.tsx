@@ -307,7 +307,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
         {
             id: 'welcome',
             role: 'assistant',
-            content: 'Xin chào! 👋 Em là trợ lý AI thông minh của ImageTool. Em đã được kết nối với toàn bộ các model AI thế hệ mới (Claude Opus 5.5, ChatGPT 6.1, Gemini 4 Argon). Anh/chị cần em hỗ trợ điều gì hôm nay?',
+            content: 'Xin chào! 👋 Em là trợ lý AI thông minh của ImageTool. Anh/chị cần em hỗ trợ điều gì hôm nay?',
             isTypingComplete: true,
             modelName: 'AI Assistant'
         }
@@ -403,9 +403,9 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
     const handleClearChat = () => {
         setMessages([
             {
-                id: 'welcome-' + Date.now(),
+                id: 'welcome',
                 role: 'assistant',
-                content: 'Cuộc trò chuyện đã được làm mới. Em là trợ lý AI của ImageTool, anh/chị cần em hỗ trợ thêm thông tin gì ạ?',
+                content: 'Xin chào! 👋 Em là trợ lý AI thông minh của ImageTool. Anh/chị cần em hỗ trợ điều gì hôm nay?',
                 isTypingComplete: true,
                 modelName: 'AI Assistant'
             }

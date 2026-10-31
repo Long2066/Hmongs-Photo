@@ -1419,20 +1419,52 @@ const AI_PROXY_CONFIG_DOC = "aiProxyConfig";
  * Subscribe to AI Proxy Configuration updates from Firestore.
  * When the Admin updates the Endpoint, API Key, or ON/OFF switch in Admin Panel,
  * all clients receive the updated settings immediately.
+ * Dual-subscribes via background sync DB (userAccess) and primary DB (systemSettings).
  */
 export const subscribeToAiProxyConfig = (callback: (config: AiProxyConfig) => void): (() => void) => {
+    let unsubUserAccess: (() => void) | null = null;
+    let unsubSystemSettings: (() => void) | null = null;
+    let isCleanedUp = false;
+
+    // 1. Subscribe via getBackgroundSyncDb to userAccess/aiProxyConfig
+    // (guaranteed permission for all clients including unauthenticated/guests)
+    getBackgroundSyncDb().then(targetDb => {
+        if (isCleanedUp) return;
+        try {
+            const uaRef = doc(targetDb, USER_ACCESS_COLLECTION, AI_PROXY_CONFIG_DOC);
+            unsubUserAccess = onSnapshot(uaRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data() as AiProxyConfig;
+                    callback(data);
+                }
+            }, (err) => {
+                console.warn('[CloudConfig] userAccess aiProxyConfig listener warning:', err);
+            });
+        } catch (e) {
+            console.warn('[CloudConfig] Error setting up userAccess aiProxyConfig listener:', e);
+        }
+    }).catch(err => {
+        console.warn('[CloudConfig] Background sync db error for aiProxyConfig:', err);
+    });
+
+    // 2. Also subscribe via primary db to systemSettings/aiProxyConfig (for authenticated admin)
     try {
         const configRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
-        return onSnapshot(configRef, (docSnap) => {
+        unsubSystemSettings = onSnapshot(configRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data() as AiProxyConfig;
                 callback(data);
             }
         }, (err) => {
-            console.warn('[CloudConfig] Warning subscribing to AI proxy config:', err);
+            // Silently ignore if guest client doesn't have systemSettings read access
         });
     } catch (e) {
-        console.error('[CloudConfig] Error subscribing to AI proxy config:', e);
-        return () => {};
+        // Silently ignore
     }
+
+    return () => {
+        isCleanedUp = true;
+        if (unsubUserAccess) unsubUserAccess();
+        if (unsubSystemSettings) unsubSystemSettings();
+    };
 };
