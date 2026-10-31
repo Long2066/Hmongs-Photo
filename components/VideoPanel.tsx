@@ -4,6 +4,12 @@ import {
     checkVideoServerHealth,
     triggerFlowBrowserLogin,
     syncFlowCookiesRaw,
+    getVideoServerUrl,
+    setVideoServerUrl,
+    getSavedUserFlowCookies,
+    setSavedUserFlowCookies,
+    getSavedUserFlowProjectId,
+    setSavedUserFlowProjectId,
     VideoServerHealth,
 } from '../services/geminiVideoService';
 
@@ -46,9 +52,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [serverHealth, setServerHealth] = useState<VideoServerHealth>({ online: false });
     const [isCheckingServer, setIsCheckingServer] = useState(true);
     const [isTriggeringLogin, setIsTriggeringLogin] = useState(false);
-    const [showCookieBox, setShowCookieBox] = useState(false);
-    const [cookieInput, setCookieInput] = useState('');
+    const [showConfigPanel, setShowConfigPanel] = useState(false);
+    const [cookieInput, setCookieInput] = useState(() => getSavedUserFlowCookies());
+    const [projectIdInput, setProjectIdInput] = useState(() => getSavedUserFlowProjectId());
+    const [serverUrlInput, setServerUrlInput] = useState(() => getVideoServerUrl());
     const [isSyncingCookies, setIsSyncingCookies] = useState(false);
+    const [configMessage, setConfigMessage] = useState<string | null>(null);
 
     useEffect(() => {
         let mounted = true;
@@ -81,24 +90,47 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     };
 
     const handleSyncCookies = async () => {
-        if (!cookieInput.trim()) return;
         setIsSyncingCookies(true);
+        setConfigMessage(null);
         try {
-            await syncFlowCookiesRaw(cookieInput);
+            if (serverUrlInput.trim()) {
+                setVideoServerUrl(serverUrlInput.trim());
+            }
+            if (cookieInput.trim()) {
+                await syncFlowCookiesRaw(cookieInput, projectIdInput);
+                setConfigMessage('Đã lưu Cookie & kết nối tài khoản Google Flow thành công!');
+            } else {
+                setSavedUserFlowCookies('');
+                setSavedUserFlowProjectId(projectIdInput);
+                setConfigMessage('Đã lưu cấu hình kết nối!');
+            }
             const health = await checkVideoServerHealth(true);
             setServerHealth(health);
             if (health.authenticated) {
-                setShowCookieBox(false);
-                setCookieInput('');
+                setTimeout(() => setShowConfigPanel(false), 900);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('[Cookie Sync Error]:', err);
+            setConfigMessage(err?.message || 'Lỗi khi đồng bộ Cookie');
         } finally {
             setIsSyncingCookies(false);
         }
     };
 
-    const handleRefreshAuth = async () => {
+    const handleClearUserCookies = async () => {
+        setCookieInput('');
+        setProjectIdInput('');
+        setSavedUserFlowCookies('');
+        setSavedUserFlowProjectId('');
+        setConfigMessage('Đã xoá Cookie cá nhân — dùng tài khoản mặc định trên Server.');
+        const health = await checkVideoServerHealth(true);
+        setServerHealth(health);
+    };
+
+    const handleToggleConfig = async () => {
+        const nextState = !showConfigPanel;
+        setShowConfigPanel(nextState);
+        setConfigMessage(null);
         setIsCheckingServer(true);
         try {
             const health = await checkVideoServerHealth(true);
@@ -113,18 +145,25 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     return (
         <div className="flex flex-col gap-4 p-1 animate-fade-in">
-            {/* Compact Header & Login Action */}
+            {/* Compact Header & Expandable Multi-User Account/Cookie Config */}
             <div className="bg-slate-50 p-3 rounded-xl ring-1 ring-slate-900/5 flex flex-col gap-2.5">
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center text-white shadow-xs">
                             <VideoCameraIcon className="w-4 h-4" />
                         </div>
-                        <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-900">Google Flow</span>
-                            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-rose-600 text-white">
-                                Veo 3.1
-                            </span>
+                        <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-slate-900">Google Flow</span>
+                                <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-rose-600 text-white">
+                                    Veo 3.1
+                                </span>
+                            </div>
+                            {serverHealth.email && serverHealth.email !== 'Google Flow Active' && serverHealth.email !== 'Google Flow Connected' && (
+                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[140px]">
+                                    {serverHealth.email}
+                                </span>
+                            )}
                         </div>
                     </div>
 
@@ -136,8 +175,9 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         )}
                         <button
                             type="button"
-                            onClick={handleRefreshAuth}
-                            className="min-h-[30px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-50 transition-all cursor-pointer"
+                            onClick={handleToggleConfig}
+                            title="Bấm để cấu hình tài khoản hoặc dán Cookie Google Flow riêng"
+                            className="min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer"
                         >
                             <span
                                 className={`w-2 h-2 rounded-full ${
@@ -159,20 +199,112 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                     ? 'Đã kết nối'
                                     : 'Chưa đăng nhập'}
                             </span>
+                            <span className="text-[10px] text-slate-400 ml-0.5">{showConfigPanel ? '▲' : '⚙️'}</span>
                         </button>
                     </div>
                 </div>
 
-                {serverHealth.online && !serverHealth.authenticated && (
-                    <button
-                        type="button"
-                        onClick={handleLoginClick}
-                        disabled={isTriggeringLogin}
-                        className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-                    >
-                        <span>🌐</span>
-                        <span>{isTriggeringLogin ? 'Đang mở Chrome...' : 'Đăng nhập Google Flow'}</span>
-                    </button>
+                {/* Quick Login Button when unauthenticated and panel is closed */}
+                {serverHealth.online && !serverHealth.authenticated && !showConfigPanel && (
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            onClick={handleLoginClick}
+                            disabled={isTriggeringLogin}
+                            className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                        >
+                            <span>🌐</span>
+                            <span>{isTriggeringLogin ? 'Đang mở...' : 'Mở Google Flow'}</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowConfigPanel(true)}
+                            className="min-h-[40px] px-3 py-2 rounded-xl bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                            <span>🍪</span>
+                            <span>Dán Cookie</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Expandable User Account & Cookie Config Panel */}
+                {showConfigPanel && (
+                    <div className="pt-2 border-t border-slate-200/70 flex flex-col gap-2.5 animate-fade-in">
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={handleLoginClick}
+                                disabled={isTriggeringLogin}
+                                className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                            >
+                                <span>🌐</span>
+                                <span>{isTriggeringLogin ? 'Đang mở Chrome...' : 'Đăng nhập Chrome'}</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleClearUserCookies}
+                                className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-[11px] font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                                <span>🔄</span>
+                                <span>Dùng TK Server</span>
+                            </button>
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+                                Cookie Google Flow cá nhân (JSON hoặc Header)
+                            </label>
+                            <textarea
+                                value={cookieInput}
+                                onChange={(e) => setCookieInput(e.target.value)}
+                                placeholder="Dán JSON Cookie từ Cookie-Editor (flow.google.com / .google.com) hoặc để trống để dùng tài khoản Server..."
+                                rows={3}
+                                className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg p-2 text-slate-800 text-[11px] font-mono leading-relaxed focus:ring-2 focus:ring-rose-500/30 outline-none"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+                                    Project ID (Tuỳ chọn)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={projectIdInput}
+                                    onChange={(e) => setProjectIdInput(e.target.value)}
+                                    placeholder="Tự động nhận"
+                                    className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:ring-2 focus:ring-rose-500/30 outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+                                    Server Flow URL
+                                </label>
+                                <input
+                                    type="text"
+                                    value={serverUrlInput}
+                                    onChange={(e) => setServerUrlInput(e.target.value)}
+                                    placeholder="http://localhost:8100"
+                                    className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:ring-2 focus:ring-rose-500/30 outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        {configMessage && (
+                            <div className="text-[11px] font-medium text-emerald-700 bg-emerald-50 ring-1 ring-emerald-500/20 rounded-lg px-2.5 py-1.5">
+                                {configMessage}
+                            </div>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={handleSyncCookies}
+                            disabled={isSyncingCookies}
+                            className="w-full min-h-[38px] px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-60"
+                        >
+                            {isSyncingCookies ? 'Đang kết nối...' : 'Lưu & Xác nhận kết nối'}
+                        </button>
+                    </div>
                 )}
             </div>
 

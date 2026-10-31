@@ -82,12 +82,12 @@ class FlowUI:
 
         # Strategy 0: Playwright locator for settings trigger pill (works in both English & Vietnamese)
         for sel in [
-            'button[aria-label*="cài đặt" i]',
+            'button[aria-label="Điều kiện kích hoạt cài đặt"]',
+            'button[aria-label*="kích hoạt cài đặt" i]',
             'button[aria-label*="setting" i]',
             'button:has-text("Nano Banana")',
             'button:has-text("Veo")',
             'button:has-text("Omni")',
-            'button:has-text("Video")',
             'button:has-text("x1")',
             'button:has-text("x2")',
         ]:
@@ -122,11 +122,14 @@ class FlowUI:
         return False
 
     async def _settings_visible(self, page) -> bool:
-        """Check if the mode/aspect/count controls are visible (settings panel open)."""
+        """Check if the generation mode/aspect/count controls are visible (settings panel open)."""
         count = await page.evaluate("""
             () => {
-                const tabs = document.querySelectorAll('[role=tab], button[role=radio]');
-                return tabs.length;
+                const radios = [...document.querySelectorAll('[role=tab], button[role=radio]')];
+                return radios.filter(r => {
+                    const t = (r.textContent || '');
+                    return t.includes('16:9') || t.includes('9:16') || t.includes('x1') || t.includes('Khung hình') || t.includes('Landscape');
+                }).length;
             }
         """)
         return int(count or 0) > 0
@@ -137,10 +140,19 @@ class FlowUI:
 
     async def switch_mode(self, page, mode: GenerationMode) -> bool:
         await self.open_settings_panel(page)
+        # First ensure Video radio is selected for both VIDEO and FRAME_TO_VIDEO
+        if mode in (GenerationMode.VIDEO, GenerationMode.FRAME_TO_VIDEO):
+            vid_radio = page.locator("button[role='radio'], [role='tab']").filter(has_text="Video").first
+            if await vid_radio.count() > 0:
+                try:
+                    await vid_radio.click()
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
         label_map = {
             GenerationMode.IMAGE:          ["Hình ảnh", "Image", "image"],
-            GenerationMode.VIDEO:          ["Video", "videocam"],
-            GenerationMode.FRAME_TO_VIDEO: ["Frames", "crop_free", "Video", "videocam"],
+            GenerationMode.VIDEO:          ["Khung hình", "Frames", "Video", "videocam"],
+            GenerationMode.FRAME_TO_VIDEO: ["Khung hình", "Frames", "crop_free", "Video"],
         }
         for label in label_map.get(mode, []):
             loc = page.locator("button[role='radio'], [role='tab']").filter(has_text=label).first
@@ -256,7 +268,26 @@ class FlowUI:
 
     async def upload_image(self, page, image_path: str) -> bool:
         """Upload a start frame image on Google Flow (Vietnamese & English Boq UI)."""
-        # 1. Open the Start-frame ("Bắt đầu" / "Start") or Add Media picker
+        import os as _os
+        filename = _os.path.basename(image_path)
+
+        # Ensure settings panel is closed first so "Bắt đầu" is unobstructed
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.4)
+        except Exception:
+            pass
+
+        # Remove any existing start-frame attachment ("Thành phần tạo hình ảnh") first
+        old_start = page.locator('button[aria-label*="Thành phần tạo hình ảnh" i]').first
+        if await old_start.count() > 0:
+            try:
+                await old_start.click(timeout=2000)
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+        # 1. Open the Start-frame ("Bắt đầu" / "Start") picker
         picker_btn = page.locator(
             'button:has-text("uploadTải nội dung"), '
             'button:has-text("Tải nội dung nghe nhìn lên"), '
@@ -313,25 +344,40 @@ class FlowUI:
 
         await asyncio.sleep(1.0)
 
-        # 4. If the picker modal is still open, select the first option and click "Thêm vào câu lệnh" if present
-        first_opt = page.locator('[role="option"]').first
-        if await first_opt.count() > 0:
-            try:
-                await first_opt.click(timeout=2000)
-                await asyncio.sleep(0.6)
-            except Exception:
-                pass
+        # 4. Ensure the uploaded image is attached into the Start-frame ("Bắt đầu") slot!
+        attached = await page.locator('button[aria-label*="Thành phần tạo hình ảnh" i]').count() > 0
+        if not attached:
+            # Re-open "Bắt đầu" if the upload closed the popover
+            if await page.locator('[role="option"]').count() == 0:
+                start_btn = page.locator('button:has-text("Bắt đầu"):not([aria-label*="tạo"]), button:has-text("Start")').first
+                if await start_btn.count() > 0:
+                    try:
+                        await start_btn.click(timeout=3000)
+                        await asyncio.sleep(1.0)
+                    except Exception:
+                        pass
 
-        add_to_prompt = page.locator('button:has-text("Thêm vào câu lệnh"), button:has-text("Add to prompt")').last
-        if await add_to_prompt.count() > 0:
-            try:
-                if not await add_to_prompt.is_disabled():
-                    await add_to_prompt.click(timeout=2000)
+            # Click the option matching our filename, or the first [role="option"]
+            target_opt = page.locator(f'[role="option"]:has-text("{filename}")').first
+            if await target_opt.count() == 0:
+                target_opt = page.locator('[role="option"]').first
+            if await target_opt.count() > 0:
+                try:
+                    await target_opt.click(timeout=2500)
                     await asyncio.sleep(0.8)
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-        log.info("Uploaded start-frame image successfully: %s", image_path)
+            add_to_prompt = page.locator('button:has-text("Thêm vào câu lệnh"), button:has-text("Add to prompt")').last
+            if await add_to_prompt.count() > 0:
+                try:
+                    if not await add_to_prompt.is_disabled():
+                        await add_to_prompt.click(timeout=2000)
+                        await asyncio.sleep(0.8)
+                except Exception:
+                    pass
+
+        log.info("Uploaded & attached start-frame image successfully: %s", image_path)
         return True
 
     # ------------------------------------------------------------------

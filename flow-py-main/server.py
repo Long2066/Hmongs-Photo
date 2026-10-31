@@ -330,6 +330,8 @@ class VideoGenerationRequest(BaseModel):
     aspect_ratio: str = "16:9"
     images: Optional[list[str]] = None
     model: Optional[str] = None
+    cookies: Optional[list[dict[str, Any]]] = None
+    project_id: Optional[str] = None
 
 
 class SetProjectRequest(BaseModel):
@@ -372,6 +374,8 @@ async def _run_video_generation_job(
     aspect_ratio: str,
     images: Optional[list[str]],
     model_override: Optional[str] = None,
+    user_cookies: Optional[list[dict[str, Any]]] = None,
+    user_project_id: Optional[str] = None,
 ):
     """Execute Flow video generation directly on the live Google Flow Angular UI and download MP4."""
     global _shared_bearer_token, _shared_bearer_ts, _bm
@@ -392,19 +396,27 @@ async def _run_video_generation_job(
     aspect_mode = "portrait" if aspect_ratio == "9:16" else "landscape"
 
     try:
+        if user_cookies:
+            try:
+                await sync_cookies_from_extension(
+                    CookieSyncRequest(cookies=user_cookies, project_id=user_project_id)
+                )
+            except Exception as ck_err:
+                log.warning("[%s] User cookie injection warning: %s", job_id, ck_err)
+
         state = await refresh_auth_state(force_navigate=False)
         if not state.get("authenticated"):
             job_entry["status"] = "failed"
             job_entry["error"] = (
                 "Chưa đăng nhập tài khoản Google trên Google Flow. "
-                "Vui lòng bấm nút 'Đăng nhập Google Flow' ở cột bên trái để đăng nhập 1 lần."
+                "Vui lòng bấm vào trạng thái kết nối để đăng nhập hoặc dán Cookie."
             )
             return
 
         async with _browser_lock:
             bm = await _get_or_start_bm(headless=False)
             page = await bm.page()
-            pid = state.get("project_id") or await _extract_or_create_project_id(page)
+            pid = user_project_id or state.get("project_id") or await _extract_or_create_project_id(page)
 
             # Ensure we are on the project main view (not /edit/...)
             if "/edit/" in page.url or "/project/" not in page.url:
@@ -412,11 +424,16 @@ async def _run_video_generation_job(
                 await page.goto(proj_url, wait_until="domcontentloaded", timeout=25000)
                 await asyncio.sleep(2.5)
 
-            # Record existing /asb/ thumbnails before submitting
+            # Record existing GENERATED VIDEO thumbnails before submitting
+            # Note: uploaded user images have alt="Ô hiển thị hình ảnh của người dùng" or "=s512-rw"
+            # whereas generated videos have alt="Hình thu nhỏ của video đã tạo" (or "Generated video thumbnail")
             before_srcs: list[str] = await page.evaluate("""
                 () => [...document.querySelectorAll('img')]
+                    .filter(i => i.src && i.src.includes('/asb/') && (
+                        (i.alt && (i.alt.includes('video') || i.alt.includes('Video'))) ||
+                        (!i.src.includes('-rw') && (!i.alt || !i.alt.includes('hình ảnh')))
+                    ))
                     .map(i => i.src)
-                    .filter(s => s && s.includes('/asb/'))
             """)
 
             from flow._flow_ui import FlowUI
@@ -439,6 +456,15 @@ async def _run_video_generation_job(
                     job_entry["status"] = "failed"
                     job_entry["error"] = "Không thể tải ảnh đầu vào lên Google Flow."
                     return
+                # Refresh before_srcs after uploading start-frame image so uploaded image is never mistaken for a finished video
+                before_srcs = await page.evaluate("""
+                    () => [...document.querySelectorAll('img')]
+                        .filter(i => i.src && i.src.includes('/asb/') && (
+                            (i.alt && (i.alt.includes('video') || i.alt.includes('Video'))) ||
+                            (!i.src.includes('-rw') && (!i.alt || !i.alt.includes('hình ảnh')))
+                        ))
+                        .map(i => i.src)
+                """)
 
             await ui.fill_prompt(page, prompt)
 
@@ -449,12 +475,12 @@ async def _run_video_generation_job(
                 job_entry["error"] = "Không thể bấm nút Tạo video trên Google Flow."
                 return
 
-            log.info("[%s] Clicked submit on Google Flow (before_srcs=%d)", job_id, len(before_srcs))
+            log.info("[%s] Clicked submit on Google Flow (before_video_srcs=%d)", job_id, len(before_srcs))
 
             # Wait up to 300s for the new video thumbnail to finish rendering on the project page
             t0 = time.monotonic()
             max_wait = 300
-            new_thumb_ready = False
+            new_video_src: Optional[str] = None
             while time.monotonic() - t0 < max_wait:
                 await asyncio.sleep(3)
                 elapsed = int(time.monotonic() - t0)
@@ -463,10 +489,13 @@ async def _run_video_generation_job(
                         const pctMatch = document.body.innerText.match(/\\d+%/);
                         const pct = pctMatch ? pctMatch[0] : null;
                         const curImgs = [...document.querySelectorAll('img')]
-                            .map(i => i.src)
-                            .filter(s => s && s.includes('/asb/'));
+                            .filter(i => i.src && i.src.includes('/asb/') && (
+                                (i.alt && (i.alt.includes('video') || i.alt.includes('Video'))) ||
+                                (!i.src.includes('-rw') && (!i.alt || !i.alt.includes('hình ảnh')))
+                            ))
+                            .map(i => i.src);
                         const newImgs = curImgs.filter(s => !beforeList.includes(s));
-                        return { pct, newCount: newImgs.length, totalCount: curImgs.length };
+                        return { pct, newCount: newImgs.length, newestSrc: newImgs[0] || null, totalCount: curImgs.length };
                     }
                 """, before_srcs)
 
@@ -476,12 +505,12 @@ async def _run_video_generation_job(
                 else:
                     job_entry["progress_text"] = f"Veo 3.1 đang xử lý ({elapsed}s)..."
 
-                # Completed when a new /asb/ thumbnail is present and no percentage spinner remains
+                # Completed when a new generated video thumbnail is present and no percentage spinner remains
                 if dom_state.get("newCount", 0) > 0 and not pct_str and elapsed >= 8:
-                    new_thumb_ready = True
+                    new_video_src = dom_state.get("newestSrc")
                     break
 
-            if not new_thumb_ready:
+            if not new_video_src:
                 job_entry["status"] = "failed"
                 job_entry["error"] = "Quá thời gian chờ hoặc Google Flow từ chối tạo video."
                 return
@@ -526,13 +555,25 @@ async def _run_video_generation_job(
 
             page.on("response", _sync_resp)
             try:
-                # Click the newest video thumbnail (first /asb/ image in the grid) to open edit view
+                # Clear old performance entries so fallback never picks an older video URL
+                try:
+                    await page.evaluate("() => performance.clearResourceTimings()")
+                except Exception:
+                    pass
+
+                # Click the exact newly generated video thumbnail to open its edit view
                 await page.evaluate("""
-                    () => {
-                        const img = [...document.querySelectorAll('img')].find(i => i.src && i.src.includes('/asb/'));
-                        if (img) img.click();
+                    (targetSrc) => {
+                        const imgs = [...document.querySelectorAll('img')];
+                        const exact = imgs.find(i => i.src === targetSrc);
+                        if (exact) {
+                            exact.click();
+                            return;
+                        }
+                        const vidImg = imgs.find(i => i.src && i.src.includes('/asb/') && i.alt && (i.alt.includes('video') || i.alt.includes('Video')));
+                        if (vidImg) vidImg.click();
                     }
-                """)
+                """, new_video_src)
                 # Wait up to 8s for edit page batchexecute (as29s) or video/mp4 response to arrive
                 for _ in range(16):
                     if captured_mp4_url:
@@ -973,6 +1014,8 @@ async def create_video_generation(req: VideoGenerationRequest):
             aspect_ratio=req.aspect_ratio,
             images=req.images,
             model_override=req.model,
+            user_cookies=req.cookies,
+            user_project_id=req.project_id,
         )
     )
 

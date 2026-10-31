@@ -108,19 +108,18 @@ export const setFlowProjectId = async (projectId: string): Promise<any> => {
 };
 
 /**
- * Đồng bộ Cookie từ Cookie-Editor (JSON) hoặc chuỗi Cookie sang Google Flow Server
+ * Phân tích chuỗi Cookie (từ Cookie-Editor JSON hoặc Header) thành danh sách cookie object
  */
-export const syncFlowCookiesRaw = async (rawCookieText: string): Promise<any> => {
-    const baseUrl = getVideoServerUrl();
+export const parseRawCookies = (rawCookieText: string): any[] => {
     let cookies: any[] = [];
     const trimmed = rawCookieText.trim();
+    if (!trimmed) return cookies;
 
     if (trimmed.startsWith('[')) {
         cookies = JSON.parse(trimmed);
     } else if (trimmed.startsWith('{')) {
         cookies = [JSON.parse(trimmed)];
     } else {
-        // Parse header format: name=val; name2=val2 or multi-line
         const parts = trimmed.split(/[;\n]+/).map(s => s.trim()).filter(Boolean);
         for (const p of parts) {
             if (p.includes('=')) {
@@ -135,11 +134,51 @@ export const syncFlowCookiesRaw = async (rawCookieText: string): Promise<any> =>
             }
         }
     }
+    return cookies;
+};
+
+export const getSavedUserFlowCookies = (): string => {
+    return localStorage.getItem('flow_user_raw_cookies') || '';
+};
+
+export const setSavedUserFlowCookies = (raw: string): void => {
+    if (!raw.trim()) {
+        localStorage.removeItem('flow_user_raw_cookies');
+    } else {
+        localStorage.setItem('flow_user_raw_cookies', raw.trim());
+    }
+};
+
+export const getSavedUserFlowProjectId = (): string => {
+    return localStorage.getItem('flow_user_project_id') || '';
+};
+
+export const setSavedUserFlowProjectId = (pid: string): void => {
+    if (!pid.trim()) {
+        localStorage.removeItem('flow_user_project_id');
+    } else {
+        localStorage.setItem('flow_user_project_id', pid.trim());
+    }
+};
+
+/**
+ * Đồng bộ Cookie từ Cookie-Editor (JSON) hoặc chuỗi Cookie sang Google Flow Server
+ */
+export const syncFlowCookiesRaw = async (rawCookieText: string, projectId?: string): Promise<any> => {
+    const baseUrl = getVideoServerUrl();
+    const cookies = parseRawCookies(rawCookieText);
+    setSavedUserFlowCookies(rawCookieText);
+    if (projectId !== undefined) {
+        setSavedUserFlowProjectId(projectId);
+    }
 
     const resp = await fetch(`${baseUrl}/v1/auth/cookies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cookies }),
+        body: JSON.stringify({
+            cookies,
+            project_id: projectId?.trim() || getSavedUserFlowProjectId() || undefined,
+        }),
     });
     if (!resp.ok) {
         const err = await resp.text();
@@ -160,6 +199,23 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
         prompt: prompt.trim(),
         aspect_ratio: aspectRatio,
     };
+
+    // Nếu user có lưu Cookie / Project ID riêng trên trình duyệt thì đính kèm theo request
+    const savedRawCookies = getSavedUserFlowCookies();
+    if (savedRawCookies) {
+        try {
+            const parsed = parseRawCookies(savedRawCookies);
+            if (parsed.length > 0) {
+                bodyPayload.cookies = parsed;
+            }
+        } catch {
+            // ignore invalid saved cookies
+        }
+    }
+    const savedPid = getSavedUserFlowProjectId();
+    if (savedPid) {
+        bodyPayload.project_id = savedPid;
+    }
 
     // Nếu có ảnh đầu vào (Image -> Video)
     if (inputImageBase64) {
