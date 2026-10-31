@@ -43,6 +43,7 @@ export interface NineRouterImageRequest {
     hasMaleAccessories?: boolean;
     hasFemaleAccessories?: boolean;
     sessionSeed?: number;
+    outputMode?: 'single' | 'couple';
 }
 
 export interface NineRouterLabeledReferenceImage {
@@ -1296,6 +1297,10 @@ export const generateImageViaNineRouter = async (
     const framingDirective = getAspectFramingDirective(request.aspectRatio, request.shotType);
     const shotDirective = getShotTypeDirective(request.shotType);
 
+    const hasMaleRef = referenceImages.some(img => (img.label || '').toUpperCase().includes('MALE OUTFIT') || (img.label || '').toUpperCase().includes('NAM'));
+    const hasFemaleRef = referenceImages.some(img => (img.label || '').toUpperCase().includes('FEMALE OUTFIT') || (img.label || '').toUpperCase().includes('NỮ') || (img.label || '').toUpperCase().includes('NU'));
+    const isCoupleScene = request.outputMode === 'couple' || (hasMaleRef && hasFemaleRef);
+
     // Determine task type (extract, edit, mix, relight, upscale, profile, restore, create)
     const taskType = request.taskType || (
         request.prompt.includes('CLOTHING EXTRACTION') ? 'extract' :
@@ -1374,16 +1379,43 @@ Preserve 100% of the pixels, face, clothing, and composition of the attached ima
 
         geminiInstruction = `*** PROFESSIONAL PORTRAIT / ID PHOTO TASK ***
 Generate a polished, centered, professional ID/profile portrait maintaining realistic facial proportions and professional lighting.`;
+    } else if (isCoupleScene) {
+        // Couple / Dual-subject Creative Generation
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
+- PHYSICAL GROUNDING (CRITICAL): Both subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic gravitational contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky, hovering above mountains, or rendered as giant titans towering over miniature landscapes.
+- 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements (market stalls, houses, tents, fences, and trees).
+
+*** MANDATORY COUPLE SCENE & STRICT DUAL-OUTFIT BINDING PROTOCOL ***
+- DUAL CHARACTER VISUAL: Depict BOTH a breathtakingly handsome Korean male K-Pop Idol AND an exquisitely gorgeous Korean female K-Pop Idol / Ulzzang together in the scene. Both have flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawlines, tall and graceful builds.
+- REFERENCE PHOTOS ROLE: Input reference images provide CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
+- STRICT GENDER-TO-OUTFIT BINDING (NON-NEGOTIABLE):
+  1. MALE IDOL: MUST wear 100% of the garments from "INPUT REFERENCE: MALE OUTFIT" (exact suit/jacket, trousers, embroidery trims, and colors).
+  2. FEMALE IDOL: MUST wear 100% of the garments from "INPUT REFERENCE: FEMALE OUTFIT" (exact dress, colors, patterns, bodice, sleeves, flared skirt, and headdress).
+  3. ZERO HALLUCINATION FOR FEMALE OUTFIT: Strictly FORBIDDEN to replace or alter the female outfit with generic black/indigo velvet or generic silver collars. If the female reference is red, pink, white, blue, etc., the female idol MUST wear that exact color palette and garment design!
+- CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose both subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
+
+        geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (COUPLE SCENE) ***
+Inspect all ${referenceImages.length} attached input reference image(s).
+CRITICAL RULES FOR COUPLE GENERATION:
+1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Both subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape.
+2. DUAL KOREAN IDOL VISUAL: Render BOTH a handsome Korean male K-Pop idol AND a gorgeous Korean female idol / Ulzzang together. Flawless porcelain glass skin, charismatic eyes, elegant idol visual.
+3. STRICT MULTIMODAL OUTFIT BINDING (NON-NEGOTIABLE):
+   - "INPUT REFERENCE: MALE OUTFIT" -> Worn exclusively by the MALE idol. Faithfully replicate 100% of the suit/jacket, trousers, embroidery, and colors from that photo.
+   - "INPUT REFERENCE: FEMALE OUTFIT" -> Worn exclusively by the FEMALE idol. Faithfully replicate 100% of the dress, colors, patterns, bodice, flared skirt, and headdress from that photo.
+   - ZERO HALLUCINATION: DO NOT alter or substitute the female outfit with standard black/indigo H'Mong dress. The female idol MUST wear the exact authentic colors (e.g. red, pink, white) and craftsmanship from her reference photo.
+4. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`;
     } else {
-        // Standard Creative Generation (taskType === 'create')
+        // Standard Creative Generation (Single Character)
+        const targetGender = hasFemaleRef ? 'FEMALE' : hasMaleRef ? 'MALE' : 'SOLO';
         systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
 *** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
 - PHYSICAL GROUNDING (CRITICAL): Subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky, hovering above mountains, or rendered as giant titans towering over miniature landscapes.
 - 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements (market stalls, houses, tents, fences, and trees).
 *** MANDATORY KOREAN IDOL VISUAL & 100% OUTFIT CLONING PROTOCOL ***
-- CHARACTER VISUAL (MANDATORY): Always depict stunning, ultra-attractive Korean K-Pop Idol / Ulzzang visuals (flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawline, tall and graceful build).
+- CHARACTER VISUAL (MANDATORY): Always depict stunning, ultra-attractive Korean K-Pop Idol / Ulzzang visuals (${targetGender === 'FEMALE' ? 'exquisitely gorgeous female idol' : targetGender === 'MALE' ? 'handsomely striking male idol' : 'idol visual'}, flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawline, tall and graceful build).
 - REFERENCE PHOTOS ROLE: Input reference images are strictly for CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
-- OUTFIT REPLICATION: Faithfully clone 100% of the authentic traditional garments, hand-embroidery, brocade motifs, and accessories directly from the input reference photos onto the handsome/beautiful Korean idol, faithfully preserving the original outfit's colors (whether red, blue, green, black, white, or indigo) and textures.
+- OUTFIT REPLICATION: Faithfully clone 100% of the authentic traditional garments, hand-embroidery, brocade motifs, and accessories directly from the input reference photos onto the Korean idol, faithfully preserving the original outfit's colors (whether red, blue, green, black, white, or indigo) and textures. DO NOT hallucinate or change colors!
 - CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose all subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
 
         geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
@@ -1439,9 +1471,20 @@ CRITICAL RULES:
                 }];
 
                 referenceImages.forEach((img, idx) => {
+                    let labelDesc = img.label || `Subject / Outfit ${idx + 1}`;
+                    const labelUpper = labelDesc.toUpperCase();
+                    if (labelUpper.includes('MALE OUTFIT') || labelUpper.includes('NAM')) {
+                        labelDesc += ' (MUST be worn 100% by the handsome Korean MALE idol - suit/jacket, pants, colors, embroidery)';
+                    } else if (labelUpper.includes('FEMALE OUTFIT') || labelUpper.includes('NỮ') || labelUpper.includes('NU')) {
+                        labelDesc += ' (MUST be worn 100% by the gorgeous Korean FEMALE idol - replicate exact dress colors, bodice, skirt, and headdress. DO NOT replace with black/indigo)';
+                    } else if (labelUpper.includes('MALE ACCESSORY')) {
+                        labelDesc += ' (Held/carried exclusively by the MALE idol)';
+                    } else if (labelUpper.includes('FEMALE ACCESSORY')) {
+                        labelDesc += ' (Held/carried exclusively by the FEMALE idol)';
+                    }
                     userContent.push({
                         type: 'text',
-                        text: `INPUT REFERENCE ${idx + 1}: ${img.label || `Subject / Outfit ${idx + 1}`}`
+                        text: `INPUT REFERENCE ${idx + 1}: ${labelDesc}`
                     });
                     userContent.push({
                         type: 'image_url',

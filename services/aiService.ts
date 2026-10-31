@@ -647,12 +647,18 @@ const generateImageWithSystemKey = async (
 ): Promise<string | null> => {
     try {
         const ai = getGeminiClient(systemKey);
-        const refParts = (referenceImages || []).map(img => ({
-            inlineData: {
-                data: img.data,
-                mimeType: img.mimeType
+        const refParts: any[] = [];
+        (referenceImages || []).forEach((img, idx) => {
+            if (img.label) {
+                refParts.push({ text: `*** INPUT REFERENCE ${idx + 1}: ${img.label} ***` });
             }
-        }));
+            refParts.push({
+                inlineData: {
+                    data: img.data,
+                    mimeType: img.mimeType
+                }
+            });
+        });
 
         const activeModel = getActiveImageModel();
         const response = await ai.models.generateContent({
@@ -1080,7 +1086,12 @@ export const generateBatchPromptsText = async (
 
     let modeInstruction = "";
     if (outputMode === 'couple') {
-        modeInstruction = "OUTPUT MODE: COUPLE (TOGETHER). You MUST generate prompts where BOTH the Male character AND the Female character appear TOGETHER in the same scene interacting naturally.";
+        modeInstruction = `OUTPUT MODE: COUPLE (MALE AND FEMALE TOGETHER).
+        You MUST generate prompts where BOTH the Male Korean idol AND the Female Korean idol appear TOGETHER in the same scene interacting naturally.
+        MANDATORY DUAL-OUTFIT CLAUSE IN EVERY SINGLE PROMPT:
+        - The Male character: explicitly describe "the male idol is wearing 100% of the authentic MALE REFERENCE OUTFIT shown in the input photo, replicating exact colors, jacket/suit cut, trousers, and embroidery".
+        - The Female character: explicitly describe "the female idol is wearing 100% of the authentic FEMALE REFERENCE OUTFIT shown in the input photo, replicating exact dress colors, bodice, floral patterns, flared skirt, and matching headdress".
+        - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). BOTH outfits MUST be explicitly designated to their respective models in every single prompt!`;
     } else {
         // SINGLE MODE - Determine gender based on which input slots have images
         const hasMaleInput = inputCounts.male > 0;
@@ -1140,9 +1151,12 @@ export const generateBatchPromptsText = async (
     
     *** ABSOLUTE RULES FOR INPUT ACCURACY (NON-NEGOTIABLE) ***
     1. REFERENCE OUTFIT CLONING: The outfit reference images are NOT inspiration - they are TEXTURES to be mapped EXACTLY.
-       - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing directly from the input photo.
+       - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing directly from the input photo(s).
        - CRITICAL: DO NOT invent specific colors or clothing items (e.g. NEVER write "indigo skirt", "silver collar", etc.).
-       - Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures"
+       ${outputMode === 'couple' ?
+         `- COUPLE REQUIREMENT: Every prompt MUST explicitly describe BOTH the Male idol wearing the MALE Reference Outfit (100% original colors, cuts, and embroidery) AND the Female idol wearing the FEMALE Reference Outfit (100% original colors, bodice, flared skirt, and headdress).` :
+         `- Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures"`
+       }
     2. REFERENCE ACCESSORY CLONING: If accessory images are provided:
        - Male Accessory: The male MUST hold/use the EXACT item shown in the reference image
        - Female Accessory: The female MUST hold/use the EXACT item shown in the reference image
@@ -1153,8 +1167,12 @@ export const generateBatchPromptsText = async (
     6. ${modeInstruction}
     
     *** PROMPT STRUCTURE ***
-    Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"
-    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"
+    ${outputMode === 'couple' ?
+      `Each prompt should follow: "[Handsome Korean male idol] wearing 100% of the authentic Male Reference Outfit with exact cuts and embroidery + [stunning Korean female idol] wearing 100% of the authentic Female Reference Outfit with exact colors and headdress + [natural couple interaction/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [cinematic lighting/mood]"
+    Example: "A breathtakingly handsome Korean male K-pop idol center visual wearing 100% of the authentic Male Reference Outfit with exact cuts and embroidery, holding hands warmly with an extraordinarily gorgeous Korean female idol wearing 100% of the authentic Female Reference Outfit with exact vibrant colors, floral bodice, flared skirt, and matching headdress, both standing firmly grounded on a cobblestone mountain trail, surrounded by authentic highland village scenery in realistic 1:1 human scale, cinematic golden hour lighting"` :
+      `Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"
+    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"`
+    }
 
     Output format: Just the prompts, separated by double newlines. No numbering, no introduction.
     `;
@@ -1357,6 +1375,25 @@ export const generateImagesFromPromptsList = async (
             // Dynamic person framing enforcement based on shotType
             const isPortrait = shotType?.toLowerCase().includes("chân dung") || shotType?.toLowerCase().includes("portrait");
             const isMacro = shotType?.toLowerCase().includes("cận cảnh") || shotType?.toLowerCase().includes("macro");
+            const isCouple = (refImages.male && refImages.male.length > 0) && (refImages.female && refImages.female.length > 0);
+            const outfitTryOnDirective = isCouple
+                ? `*** COUPLE SCENE & STRICT DUAL-OUTFIT TRY-ON PROTOCOL (MANDATORY) ***
+            - DUAL SUBJECT: Both a handsome Korean male K-Pop idol and an exquisitely beautiful Korean female idol appear together in the scene.
+            - MALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: MALE OUTFIT' exclusively onto the Male model (exact colors, suit/jacket cut, pants, embroidery).
+            - FEMALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: FEMALE OUTFIT' exclusively onto the Female model (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
+            - ZERO HALLUCINATION ON FEMALE OUTFIT: Strictly FORBIDDEN to render the female in generic black/indigo velvet or generic silver collars. The female model MUST replicate the exact color palette (e.g. red, pink, white, blue) and design from 'INPUT REFERENCE: FEMALE OUTFIT'.
+            - COMPLETE REPLICATION: Faithfully reproduce all embroidery motifs, textile patterns, trims, and accessories from both reference photos with 100% fidelity.`
+                : (refImages.female && refImages.female.length > 0)
+                ? `*** FEMALE SOLO SCENE & OUTFIT TRY-ON PROTOCOL ***
+            - FEMALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: FEMALE OUTFIT' exclusively onto the Female model (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
+            - ZERO HALLUCINATION ON FEMALE OUTFIT: Strictly FORBIDDEN to render the female in generic black/indigo velvet or generic silver collars. The female model MUST replicate the exact color palette and design from 'INPUT REFERENCE: FEMALE OUTFIT'.`
+                : (refImages.male && refImages.male.length > 0)
+                ? `*** MALE SOLO SCENE & OUTFIT TRY-ON PROTOCOL ***
+            - MALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: MALE OUTFIT' exclusively onto the Male model (exact colors, suit/jacket cut, pants, embroidery).
+            - Faithfully replicate 100% of the reference garments onto the male model.`
+                : `*** VIRTUAL TRY-ON ENFORCEMENT ***
+            - Clone 100% the patterns, colors, cuts, and every detail of the clothing directly from the input photo(s).`;
+
             const personFramingRule = isPortrait
                 ? "- MANDATORY FRAMING: TIGHT VERTICAL PORTRAIT (Head and chest bust shot). The person MUST be wearing the upper garment and neck jewelry/accessories. DO NOT PULL BACK to full body; legs/feet must NOT be shown."
                 : isMacro
@@ -1387,12 +1424,8 @@ export const generateImagesFromPromptsList = async (
             *** STRICT CAMERA & COMPOSITION INSTRUCTION ***
             ${shotDirective}
             
-            VIRTUAL TRY-ON ENFORCEMENT: 
-            - The input images are NOT just inspiration. They are TEXTURES to be mapped.
-            - You MUST clone the patterns, colors, cuts, and every detail of the clothing EXACTLY 100%.
-            - CLOTHING MUST BE WORN BY THE PERSON - never floating, never displayed separately
+            ${outfitTryOnDirective}
             - IDENTITY LOCK: Use SEED ${sessionSeed} to maintain consistent features across all generated images.
-            - GENDER BINDING: Apply 'Male Outfit' inputs ONLY to the Male character. Apply 'Female Outfit' inputs ONLY to the Female character.
             ${hasMaleAccessories || hasFemaleAccessories ?
                     `- ACCESSORY CLONING: The accessory image(s) provided MUST appear in the output EXACTLY as shown.
                  - Male has accessory: ${hasMaleAccessories ? 'YES - clone it exactly' : 'NO - empty hands'}
@@ -1428,7 +1461,8 @@ export const generateImagesFromPromptsList = async (
                             resolution: resolution,
                             shotType: shotType,
                             style: style,
-                            taskType: 'create'
+                            taskType: 'create',
+                            outputMode: isCouple ? 'couple' : 'single'
                         });
                         if (base64Image) {
                             usedNineRouter = true;
@@ -1542,7 +1576,7 @@ export const generateImagesFromPromptsList = async (
 
                 try {
                     base64Image = await callWithRetry(
-                        async () => generateImageWithSystemKey(systemApiKey!, fullPrompt, optimizedAllRefImages, aspectRatio),
+                        async () => generateImageWithSystemKey(systemApiKey!, fullPrompt, labeledNineRouterReferences, aspectRatio),
                         3,
                         5000,
                         (msg) => onStatusUpdate(`[VIP ${index + 1}] ${msg}`)
