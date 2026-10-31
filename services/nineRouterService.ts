@@ -939,6 +939,166 @@ export const generateTextViaNineRouter = async (
     throw lastError || new Error('Máy chủ Cấu hình không trả về nội dung text. Đã thử tất cả các model text dự phòng.');
 };
 
+export interface ChatMessageItem {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+}
+
+export interface ChatResponseResult {
+    content: string;
+    modelUsed: string;
+    modelName: string;
+}
+
+/**
+ * Generate multi-turn chat responses through 9Router text models
+ * with auto fallback across Claude Opus 5.5, ChatGPT 6.1, Gemini 4, Gemini 3.8
+ * and fallback to Google Gemini system key if NineRouter is unreachable.
+ */
+export const generateChatCompletionViaNineRouter = async (
+    chatMessages: ChatMessageItem[],
+    preferredModel?: string,
+    systemInstruction?: string
+): Promise<ChatResponseResult> => {
+    const baseUrl = getNineRouterUrl();
+    const apiKey = getNineRouterApiKey();
+
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
+    if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const messages: Array<{ role: string; content: string }> = [];
+    if (systemInstruction) {
+        messages.push({ role: 'system', content: systemInstruction });
+    }
+
+    // Format chat messages
+    chatMessages.forEach(m => {
+        messages.push({
+            role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+            content: m.content
+        });
+    });
+
+    // Build candidate models order
+    const defaultTextModel = getNineRouterTextModel();
+    const cleanPreferred = preferredModel && preferredModel !== 'auto'
+        ? preferredModel.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim()
+        : null;
+
+    const baseCandidates = [
+        'claude-opus-5-5-high',
+        'chatgpt-6.1-sol',
+        'gemini-4-argon',
+        'gemini-3.8-flash',
+        'gemini-3-flash'
+    ];
+
+    const candidateModels: string[] = Array.from(new Set([
+        cleanPreferred,
+        defaultTextModel,
+        ...baseCandidates
+    ])).filter(Boolean) as string[];
+
+    let lastError: any = null;
+
+    // Check if NineRouter gateway is enabled
+    if (isNineRouterEnabled()) {
+        for (const candidateModel of candidateModels) {
+            try {
+                console.log(`[CLIProxyAPI Chat] Attempting chatbot reply with model: ${candidateModel}`);
+                const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        model: candidateModel,
+                        messages,
+                        temperature: 0.7,
+                        max_tokens: 2048,
+                        stream: false
+                    })
+                }, 35000);
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    console.warn(`[CLIProxyAPI Chat] Model ${candidateModel} failed with HTTP ${resp.status}: ${errText.slice(0, 160)}`);
+                    lastError = new Error(`HTTP ${resp.status}: ${errText}`);
+                    continue;
+                }
+
+                const parsed = await parseNineRouterResponse(resp);
+                const content = extractTextResponse(parsed);
+                if (content && content.trim()) {
+                    const matchedModel = SUPPORTED_TEXT_MODELS.find(m => m.id === candidateModel);
+                    const modelName = matchedModel ? matchedModel.shortName : candidateModel;
+                    return {
+                        content: content.trim(),
+                        modelUsed: candidateModel,
+                        modelName
+                    };
+                }
+            } catch (err: any) {
+                console.warn(`[CLIProxyAPI Chat] Model ${candidateModel} error:`, err?.message || err);
+                lastError = err;
+            }
+        }
+    }
+
+    // Fallback: If NineRouter fails, try direct Gemini with system API key
+    try {
+        const { getSystemApiKey, GEMINI_VIP_MODEL } = await import('./geminiCoreService');
+        const systemKey = getSystemApiKey();
+        if (systemKey) {
+            console.log('[Chatbot Fallback] Falling back to Google Gemini system key...');
+            const geminiContents: any[] = [];
+            if (systemInstruction) {
+                geminiContents.push({ role: 'user', parts: [{ text: systemInstruction }] });
+                geminiContents.push({ role: 'model', parts: [{ text: 'Tôi hiểu rõ nhiệm vụ hỗ trợ người dùng.' }] });
+            }
+            chatMessages.forEach(m => {
+                geminiContents.push({
+                    role: m.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: m.content }]
+                });
+            });
+
+            const resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VIP_MODEL}:generateContent?key=${systemKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: geminiContents,
+                        generationConfig: {
+                            temperature: 0.7,
+                            maxOutputTokens: 1000
+                        }
+                    })
+                }
+            );
+
+            if (resp.ok) {
+                const data = await resp.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text && text.trim()) {
+                    return {
+                        content: text.trim(),
+                        modelUsed: GEMINI_VIP_MODEL,
+                        modelName: 'Gemini Backup'
+                    };
+                }
+            }
+        }
+    } catch (fallbackErr) {
+        console.error('[Chatbot Fallback Error]:', fallbackErr);
+    }
+
+    throw lastError || new Error('Không thể kết nối đến các model sinh text. Vui lòng thử lại sau giây lát.');
+};
+
 /**
  * Convert base64 Data URI or raw base64 to binary Blob for multipart/form-data upload
  */
