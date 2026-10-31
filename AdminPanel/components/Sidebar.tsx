@@ -33,7 +33,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
         <aside className="sidebar">
             <div className="sidebar-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Shield size={24} style={{ color: '#6366f1' }} />
+                    <Shield size={24} style={{ color: 'var(--accent-primary)' }} />
                     <div>
                         <h2>Admin Panel</h2>
                         <p>ImageTool</p>

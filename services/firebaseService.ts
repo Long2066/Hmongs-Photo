@@ -920,3 +920,40 @@ export const subscribeToTerms = (callback: (terms: TermsData) => void) => {
         }
     });
 };
+
+
+// --- AI Proxy Configuration (Realtime Cloud Sync) ---
+export interface AiProxyConfig {
+    enabled: boolean;
+    url: string;
+    apiKey: string;
+    defaultTextModel?: string;
+    defaultImageModel?: string;
+    updatedAt?: number;
+    updatedBy?: string;
+}
+
+const SYSTEM_SETTINGS_COLLECTION = "systemSettings";
+const AI_PROXY_CONFIG_DOC = "aiProxyConfig";
+
+/**
+ * Subscribe to AI Proxy Configuration updates from Firestore.
+ * When the Admin updates the Endpoint, API Key, or ON/OFF switch in Admin Panel,
+ * all clients receive the updated settings immediately.
+ */
+export const subscribeToAiProxyConfig = (callback: (config: AiProxyConfig) => void): (() => void) => {
+    try {
+        const configRef = doc(db, SYSTEM_SETTINGS_COLLECTION, AI_PROXY_CONFIG_DOC);
+        return onSnapshot(configRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data() as AiProxyConfig;
+                callback(data);
+            }
+        }, (err) => {
+            console.warn('[CloudConfig] Warning subscribing to AI proxy config:', err);
+        });
+    } catch (e) {
+        console.error('[CloudConfig] Error subscribing to AI proxy config:', e);
+        return () => {};
+    }
+};

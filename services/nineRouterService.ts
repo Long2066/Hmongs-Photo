@@ -9,8 +9,8 @@ import { optimizeReferenceImages } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://158.178.235.87:20128/v1';
-const DEFAULT_IMAGE_MODEL = 'ag/gemini-3.1-flash-image';
-const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
+const DEFAULT_TEXT_MODEL = 'gemini-3-flash';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -60,41 +60,14 @@ export interface SupportedImageModel {
 
 export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
-        id: 'ag/gemini-3.1-flash-image',
-        name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)',
-        shortName: 'Gemini 3.1 Flash',
-        tag: 'Khuyên dùng - Chuẩn ảnh mẫu',
-        tagColor: 'emerald',
-        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, giữ 100% khuôn mặt & ghép trang phục H’Mông',
-        speed: 'fast',
-        isDefault: true
-    },
-    {
-        id: 'ag/gemini-3.8-flash',
-        name: 'Gemini 3.8 Flash (Thế hệ mới)',
-        shortName: 'Gemini 3.8 Flash',
-        tag: 'Thế hệ mới',
-        tagColor: 'blue',
-        description: 'Phiên bản mới nhất, cân bằng tối ưu giữa tốc độ tạo và độ chi tiết',
-        speed: 'fast'
-    },
-    {
-        id: 'ag/gemini-3.1-pro',
-        name: 'Gemini 3.1 Pro Studio',
-        shortName: 'Gemini 3.1 Pro',
-        tag: 'Chi tiết cao',
-        tagColor: 'indigo',
-        description: 'Chất lượng ảnh studio độ nét cao, tái hiện hoa văn trang phục tinh xảo',
-        speed: 'medium'
-    },
-    {
         id: 'gpt-image-2.5',
         name: 'GPT Image 2.5 (OpenAI)',
         shortName: 'GPT Image 2.5',
-        tag: 'OpenAI - Mới nhất',
+        tag: 'OpenAI - Khuyên dùng',
         tagColor: 'emerald',
-        description: 'Model GPT mới nhất, tối ưu tạo ảnh nghệ thuật từ mô tả văn bản',
-        speed: 'fast'
+        description: 'Model GPT mới nhất, tối ưu tạo ảnh nghệ thuật từ mô tả văn bản và ảnh tham chiếu',
+        speed: 'fast',
+        isDefault: true
     },
     {
         id: 'gpt-image-2.5-flare',
@@ -134,6 +107,43 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     }
 ];
 
+// --- Cloud Synchronization & Caching ---
+export interface AiProxyCloudConfig {
+    enabled?: boolean;
+    url?: string;
+    apiKey?: string;
+    defaultTextModel?: string;
+    defaultImageModel?: string;
+    updatedAt?: number;
+    updatedBy?: string;
+}
+
+let _cachedCloudConfig: AiProxyCloudConfig | null = null;
+
+export const updateNineRouterConfigFromCloud = (config: Partial<AiProxyCloudConfig>): void => {
+    if (config.enabled !== undefined) {
+        localStorage.setItem(NINEROUTER_ENABLED_KEY, config.enabled ? 'true' : 'false');
+    }
+    if (config.url) {
+        localStorage.setItem(NINEROUTER_URL_KEY, normalizeNineRouterUrl(config.url));
+    }
+    if (config.apiKey !== undefined) {
+        localStorage.setItem(NINEROUTER_API_KEY_KEY, config.apiKey.trim());
+    }
+    _cachedCloudConfig = {
+        enabled: config.enabled ?? isNineRouterEnabled(),
+        url: config.url ? normalizeNineRouterUrl(config.url) : getNineRouterUrl(),
+        apiKey: config.apiKey ?? getNineRouterApiKey(),
+        defaultTextModel: config.defaultTextModel ?? DEFAULT_TEXT_MODEL,
+        defaultImageModel: config.defaultImageModel ?? DEFAULT_IMAGE_MODEL,
+        updatedAt: config.updatedAt ?? Date.now()
+    };
+    window.dispatchEvent(new CustomEvent('ninerouter-status-changed', {
+        detail: { enabled: _cachedCloudConfig.enabled }
+    }));
+    console.log('[CLIProxyAPI] Đồng bộ cấu hình AI Tool từ Cloud:', _cachedCloudConfig);
+};
+
 // --- URL Normalization Helper ---
 export const normalizeNineRouterUrl = (rawUrl: string): string => {
     let url = (rawUrl || '').trim();
@@ -150,6 +160,9 @@ export const normalizeNineRouterUrl = (rawUrl: string): string => {
 // --- Storage Functions ---
 export const setNineRouterEnabled = (value: boolean): void => {
     localStorage.setItem(NINEROUTER_ENABLED_KEY, value ? 'true' : 'false');
+    if (_cachedCloudConfig) {
+        _cachedCloudConfig.enabled = value;
+    }
     // Dispatch event for real-time UI updates
     window.dispatchEvent(new CustomEvent('ninerouter-status-changed', {
         detail: { enabled: value }
@@ -157,6 +170,9 @@ export const setNineRouterEnabled = (value: boolean): void => {
 };
 
 export const isNineRouterEnabled = (): boolean => {
+    if (_cachedCloudConfig?.enabled !== undefined) {
+        return _cachedCloudConfig.enabled;
+    }
     const val = localStorage.getItem(NINEROUTER_ENABLED_KEY);
     // Default to true if not explicitly set to false
     if (val === null) return true;
@@ -164,19 +180,33 @@ export const isNineRouterEnabled = (): boolean => {
 };
 
 export const setNineRouterUrl = (url: string): void => {
-    localStorage.setItem(NINEROUTER_URL_KEY, normalizeNineRouterUrl(url));
+    const normalized = normalizeNineRouterUrl(url);
+    localStorage.setItem(NINEROUTER_URL_KEY, normalized);
+    if (_cachedCloudConfig) {
+        _cachedCloudConfig.url = normalized;
+    }
 };
 
 export const getNineRouterUrl = (): string => {
+    if (_cachedCloudConfig?.url) {
+        return normalizeNineRouterUrl(_cachedCloudConfig.url);
+    }
     const url = localStorage.getItem(NINEROUTER_URL_KEY) || DEFAULT_NINEROUTER_URL;
     return normalizeNineRouterUrl(url);
 };
 
 export const setNineRouterApiKey = (key: string): void => {
-    localStorage.setItem(NINEROUTER_API_KEY_KEY, key.trim());
+    const cleanKey = key.trim();
+    localStorage.setItem(NINEROUTER_API_KEY_KEY, cleanKey);
+    if (_cachedCloudConfig) {
+        _cachedCloudConfig.apiKey = cleanKey;
+    }
 };
 
 export const getNineRouterApiKey = (): string => {
+    if (_cachedCloudConfig?.apiKey !== undefined) {
+        return _cachedCloudConfig.apiKey;
+    }
     return localStorage.getItem(NINEROUTER_API_KEY_KEY) || '';
 };
 
@@ -190,28 +220,21 @@ export const setNineRouterImageModel = (model: string): void => {
 
 export const getNineRouterImageModel = (): string => {
     const stored = localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY);
-    // Reset to default Gemini model if not set or if temporarily set to gpt-image-2.5 from prior migration
-    if (!stored || stored === 'gpt-image-2.5' || !SUPPORTED_IMAGE_MODELS.some(m => m.id === stored)) {
+    if (!stored || !SUPPORTED_IMAGE_MODELS.some(m => m.id === stored)) {
         return DEFAULT_IMAGE_MODEL;
     }
     return stored;
 };
 
 export const setNineRouterTextModel = (model: string): void => {
-    const cleanModel = model.trim() || DEFAULT_TEXT_MODEL;
-    localStorage.setItem(NINEROUTER_TEXT_MODEL_KEY, cleanModel);
+    localStorage.setItem(NINEROUTER_TEXT_MODEL_KEY, DEFAULT_TEXT_MODEL);
     window.dispatchEvent(new CustomEvent('ninerouter-textmodel-changed', {
-        detail: { model: cleanModel }
+        detail: { model: DEFAULT_TEXT_MODEL }
     }));
 };
 
 export const getNineRouterTextModel = (): string => {
-    const stored = localStorage.getItem(NINEROUTER_TEXT_MODEL_KEY);
-    // If empty or still using legacy sonnet/gemini models, auto-migrate to DEFAULT_TEXT_MODEL
-    if (!stored || stored.startsWith('ag/') || stored.includes('sonnet') || stored.includes('gemini')) {
-        return DEFAULT_TEXT_MODEL;
-    }
-    return stored;
+    return DEFAULT_TEXT_MODEL;
 };
 
 // Helper to resolve request URL (handles browser CORS proxying for remote endpoints)
@@ -704,7 +727,8 @@ const getModelWithAspectSuffix = (baseModel: string, aspectRatio?: string): stri
 export const generateTextViaNineRouter = async (
     prompt: string,
     model?: string,
-    systemInstruction?: string
+    systemInstruction?: string,
+    referenceImages?: NineRouterLabeledReferenceImage[]
 ): Promise<string | null> => {
     const baseUrl = getNineRouterUrl();
     const apiKey = getNineRouterApiKey();
@@ -717,14 +741,42 @@ export const generateTextViaNineRouter = async (
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const messages: Array<{ role: string; content: string }> = [];
+    const messages: Array<{ role: string; content: any }> = [];
     if (systemInstruction) {
         messages.push({ role: 'system', content: systemInstruction });
     }
-    messages.push({ role: 'user', content: prompt });
+
+    // Support multimodal vision inspection for gemini-3-flash
+    if (referenceImages && referenceImages.length > 0) {
+        const userParts: any[] = [];
+        userParts.push({
+            type: 'text',
+            text: `ATTACHED REFERENCE IMAGES (${referenceImages.length} items): Please inspect each garment/accessory image carefully and reflect its exact visual details into the prompts.`
+        });
+        referenceImages.forEach((ref) => {
+            userParts.push({
+                type: 'text',
+                text: `[REFERENCE: ${ref.label}]`
+            });
+            userParts.push({
+                type: 'image_url',
+                image_url: {
+                    url: `data:${ref.mimeType || 'image/jpeg'};base64,${ref.data}`,
+                    detail: 'high'
+                }
+            });
+        });
+        userParts.push({
+            type: 'text',
+            text: prompt
+        });
+        messages.push({ role: 'user', content: userParts });
+    } else {
+        messages.push({ role: 'user', content: prompt });
+    }
 
     try {
-        console.log(`[9Router] Sending chat request to model: ${activeModel}`);
+        console.log(`[CLIProxyAPI] Sending prompt generation request to model: ${activeModel}`);
         const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers,
@@ -750,13 +802,13 @@ export const generateTextViaNineRouter = async (
         }
         return content;
     } catch (err: any) {
-        console.error('[9Router] Chat completion error:', err);
+        console.error('[CLIProxyAPI] Chat completion error:', err);
         throw err;
     }
 };
 
 /**
- * Generate images through 9Router.
+ * Generate images through 9Router / CLIProxyAPI.
  * Reference-based requests use native multimodal chat so the image model sees
  * the original input pixels and complete prompt in one request.
  */
@@ -785,70 +837,7 @@ export const generateImageViaNineRouter = async (
 
     try {
         if (referenceImages.length > 0) {
-            // Native multimodal path for Gemini models (ag/gemini-3.1-flash-image, ag/gemini-3.8-flash, etc.):
-            // Original image pixels and complete prompt are sent in one request matching Gemini API specs.
-            if (activeModel.toLowerCase().includes('gemini')) {
-                const userContent: any[] = [{
-                    type: 'text',
-                    text: `DIRECT MULTIMODAL REFERENCE PROTOCOL
-You are receiving ${referenceImages.length} original input image(s), each followed by an authoritative label.
-Inspect and use the actual pixels directly. Preserve exact visible garment/accessory colors, patterns, cuts, embroidery, layers, textures and distinguishing details.
-Never swap, merge or cross-apply details between labels. Ignore all backgrounds visible inside the reference images; the final background must come only from the generation instructions after the references.`
-                }];
-
-                referenceImages.forEach((image, index) => {
-                    userContent.push({
-                        type: 'text',
-                        text: `REFERENCE ${index + 1} — ${image.label || `INPUT IMAGE ${index + 1}`}`
-                    });
-                    userContent.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: `data:${image.mimeType || 'image/jpeg'};base64,${image.data}`,
-                            detail: 'high'
-                        }
-                    });
-                });
-
-                userContent.push({
-                    type: 'text',
-                    text: `FINAL GENERATION INSTRUCTIONS
-Target aspect ratio: ${ratio}
-Target resolution size: ${pixelSize}
-${fullDirective}
-
-${request.prompt}`
-                });
-
-                const chatBody: any = {
-                    model: activeModel,
-                    messages: [{ role: 'user', content: userContent }],
-                    modalities: ['text', 'image'],
-                    stream: false
-                };
-
-                console.log(`[9Router] Sending native multimodal image request to model: ${activeModel}, ratio: ${ratio}, pixelSize: ${pixelSize}, references: ${referenceImages.length}`);
-                const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(chatBody)
-                }, 120000);
-
-                if (!resp.ok) {
-                    const errText = await resp.text();
-                    throw new Error(`HTTP ${resp.status}: ${errText}`);
-                }
-
-                const parsed = await parseNineRouterResponse(resp);
-                const image = extractImageFromChatResponse(parsed);
-                if (!image) {
-                    throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
-                }
-                return image;
-            }
-
-            // For non-Gemini models (OpenAI GPT Image models, etc.):
-            // On 9Router/OpenAI-compatible gateways, image-to-image with reference inputs uses /v1/images/edits
+            // For OpenAI GPT Image models, edits and references use /v1/images/edits or multimodal chat
             const editPayload: any = {
                 model: activeModel,
                 prompt: `${fullDirective}\n\n${request.prompt}`,
@@ -870,7 +859,7 @@ ${request.prompt}`
                 }
             };
 
-            console.log(`[9Router] Sending image edit request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}, references: ${referenceImages.length}`);
+            console.log(`[CLIProxyAPI] Sending image edit request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}, references: ${referenceImages.length}`);
             let resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                 method: 'POST',
                 headers,
@@ -880,7 +869,7 @@ ${request.prompt}`
             // If 400 error occurs due to strict OpenAI size check, retry /images/edits with standard OpenAI size
             if (!resp.ok && resp.status === 400) {
                 const standardSize = getOpenAiStandardSize(request.aspectRatio);
-                console.warn(`[9Router] Retrying /images/edits with standard size: ${standardSize}`);
+                console.warn(`[CLIProxyAPI] Retrying /images/edits with standard size: ${standardSize}`);
                 resp = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                     method: 'POST',
                     headers,
@@ -893,7 +882,7 @@ ${request.prompt}`
 
             // Fallback: If gateway does not have /images/edits (404/405), fallback to /images/generations
             if (!resp.ok && (resp.status === 404 || resp.status === 405)) {
-                console.warn(`[9Router] /images/edits returned HTTP ${resp.status}, falling back to /images/generations`);
+                console.warn(`[CLIProxyAPI] /images/edits returned HTTP ${resp.status}, falling back to /images/generations`);
                 resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                     method: 'POST',
                     headers,
@@ -948,37 +937,6 @@ ${request.prompt}`
             throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
         }
 
-        // Pure text-to-image path: Gemini models use /chat/completions with modalities ['text', 'image']
-        if (activeModel.toLowerCase().includes('gemini')) {
-            const userContent: any[] = [{
-                type: 'text',
-                text: `${fullDirective}\n\n${request.prompt}`
-            }];
-            console.log(`[9Router] Sending text-to-image chat request to Gemini model: ${activeModel}, ratio: ${ratio}`);
-            const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    model: activeModel,
-                    messages: [{ role: 'user', content: userContent }],
-                    modalities: ['text', 'image'],
-                    stream: false
-                })
-            }, 90000);
-
-            if (!resp.ok) {
-                const errText = await resp.text();
-                throw new Error(`HTTP ${resp.status}: ${errText}`);
-            }
-
-            const parsed = await parseNineRouterResponse(resp);
-            const image = extractImageFromChatResponse(parsed);
-            if (!image) {
-                throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh.');
-            }
-            return image;
-        }
-
         // Standard text-to-image path for GPT image and other models:
         const payload: any = {
             model: activeModel,
@@ -996,7 +954,7 @@ ${request.prompt}`
             }
         };
 
-        console.log(`[9Router] Sending text-to-image request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}`);
+        console.log(`[CLIProxyAPI] Sending text-to-image request to model: ${activeModel}, ratio: ${ratio}, size: ${pixelSize}`);
         let resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
             method: 'POST',
             headers,
@@ -1006,7 +964,7 @@ ${request.prompt}`
         // If 400 error occurs due to strict OpenAI size check, retry with OpenAI standard size
         if (!resp.ok && resp.status === 400) {
             const standardSize = getOpenAiStandardSize(request.aspectRatio);
-            console.warn(`[9Router] Retrying with standard size: ${standardSize}`);
+            console.warn(`[CLIProxyAPI] Retrying with standard size: ${standardSize}`);
             resp = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                 method: 'POST',
                 headers,
@@ -1043,7 +1001,7 @@ ${request.prompt}`
             if (dataUrlImage) return dataUrlImage;
 
             if (first.url.startsWith('http')) {
-                console.log(`[9Router] Downloading image from URL: ${first.url}`);
+                console.log(`[CLIProxyAPI] Downloading image from URL: ${first.url}`);
                 const imgResp = await fetch(first.url);
                 if (imgResp.ok) {
                     const arrayBuffer = await imgResp.arrayBuffer();
@@ -1062,7 +1020,7 @@ ${request.prompt}`
 
         return null;
     } catch (err: any) {
-        console.error('[9Router] Image generation error:', err);
+        console.error('[CLIProxyAPI] Image generation error:', err);
         throw err;
     }
 };

@@ -1084,7 +1084,8 @@ export const generateBatchPromptsText = async (
     shotType: string,
     style: string,
     outputMode: 'single' | 'couple',
-    inputCounts: { male: number, female: number, maleAcc: number, femaleAcc: number }
+    inputCounts: { male: number, female: number, maleAcc: number, femaleAcc: number },
+    refImages?: CreativeRefImages
 ): Promise<string> => {
     // Check VIP mode first
     const systemApiKey = getVIPApiKey();
@@ -1126,6 +1127,13 @@ export const generateBatchPromptsText = async (
     const styleDetail = getStylePrompt(style);
     const characterAesthetics = getCharacterAestheticDirective(style);
     const shotDirective = nineRouterService.getShotTypeDirective(shotType);
+
+    const labeledReferences: nineRouterService.NineRouterLabeledReferenceImage[] = refImages ? [
+        ...(refImages.male || []).map((img, idx) => ({ ...img, label: `MALE OUTFIT ${idx + 1}` })),
+        ...(refImages.female || []).map((img, idx) => ({ ...img, label: `FEMALE OUTFIT ${idx + 1}` })),
+        ...(refImages.maleAccessories || []).map((img, idx) => ({ ...img, label: `MALE ACCESSORY ${idx + 1}` })),
+        ...(refImages.femaleAccessories || []).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` }))
+    ] : [];
 
     const systemInstruction = `
     You are an AI Art Director for a professional Photography Studio.
@@ -1170,7 +1178,10 @@ export const generateBatchPromptsText = async (
 
         console.log('[9Router] Using 9Router for prompt generation');
         const result = await nineRouterService.generateTextViaNineRouter(
-            `${systemInstruction}\n\nTask: Generate ${count} prompts for topic: ${topic}`
+            `Generate ${count} prompts for topic: ${topic}`,
+            'gemini-3-flash',
+            systemInstruction,
+            labeledReferences
         );
         if (!result) {
             throw new Error('Cấu hình không trả về nội dung text. Hãy kiểm tra Text Model.');
@@ -1186,7 +1197,10 @@ export const generateBatchPromptsText = async (
             console.log('[Antigravity] Using Antigravity for prompt generation');
             try {
                 const result = await antigravityService.generateTextViaAntigravity(
-                    `${systemInstruction}\n\nTask: Generate ${count} prompts for topic: ${topic}`,
+                    `Generate ${count} prompts for topic: ${topic}`,
+            'gemini-3-flash',
+            systemInstruction,
+            labeledReferences,
                     'gemini-3-flash' // Using fastest model to avoid rate limits
                 );
                 if (result) return result;
@@ -1333,6 +1347,13 @@ export const generateImagesFromPromptsList = async (
 
             const characterAesthetics = getCharacterAestheticDirective(style);
             const shotDirective = nineRouterService.getShotTypeDirective(shotType);
+
+    const labeledReferences: nineRouterService.NineRouterLabeledReferenceImage[] = refImages ? [
+        ...(refImages.male || []).map((img, idx) => ({ ...img, label: `MALE OUTFIT ${idx + 1}` })),
+        ...(refImages.female || []).map((img, idx) => ({ ...img, label: `FEMALE OUTFIT ${idx + 1}` })),
+        ...(refImages.maleAccessories || []).map((img, idx) => ({ ...img, label: `MALE ACCESSORY ${idx + 1}` })),
+        ...(refImages.femaleAccessories || []).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` }))
+    ] : [];
             const framingDirective = nineRouterService.getAspectFramingDirective(aspectRatio, shotType);
 
             // Dynamic resolution directive

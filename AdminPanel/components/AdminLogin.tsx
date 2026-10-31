@@ -31,7 +31,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
         <div className="login-container">
             <div className="login-card">
                 <div className="login-logo">
-                    <Shield size={48} style={{ color: '#6366f1', marginBottom: '12px' }} />
+                    <Shield size={48} style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
                     <h1>Admin Panel</h1>
                     <p>ImageTool - Quản lý hệ thống</p>
                 </div>
@@ -54,7 +54,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
                                     left: '14px',
                                     top: '50%',
                                     transform: 'translateY(-50%)',
-                                    color: '#6b6b8d'
+                                    color: 'var(--text-muted)'
                                 }}
                             />
                             <input
@@ -79,7 +79,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
                                     left: '14px',
                                     top: '50%',
                                     transform: 'translateY(-50%)',
-                                    color: '#6b6b8d'
+                                    color: 'var(--text-muted)'
                                 }}
                             />
                             <input
@@ -118,7 +118,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
                     textAlign: 'center',
                     marginTop: '24px',
                     fontSize: '0.8rem',
-                    color: '#6b6b8d'
+                    color: 'var(--text-muted)'
                 }}>
                     Chỉ quản trị viên được phép truy cập
                 </p>

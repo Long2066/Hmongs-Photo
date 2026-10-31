@@ -43,8 +43,9 @@ const UserList: React.FC = () => {
         } else {
             const query = searchQuery.toLowerCase();
             setFilteredUsers(users.filter(user =>
-                user.displayName.toLowerCase().includes(query) ||
-                (user.email && user.email.toLowerCase().includes(query))
+                (user.displayName && user.displayName.toLowerCase().includes(query)) ||
+                (user.email && user.email.toLowerCase().includes(query)) ||
+                (user.id && user.id.toLowerCase().includes(query))
             ));
         }
     }, [searchQuery, users]);
@@ -101,9 +102,23 @@ const UserList: React.FC = () => {
 
     return (
         <div className="user-list-container">
-            <div className="page-header">
-                <h1>Quản lý Users</h1>
-                <p>Danh sách tất cả người dùng đã đăng ký</p>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <h1>Quản lý Users</h1>
+                        <span style={{
+                            background: 'rgba(59, 130, 246, 0.15)',
+                            color: '#3b82f6',
+                            padding: '3px 10px',
+                            borderRadius: '9999px',
+                            fontSize: '0.8rem',
+                            fontWeight: 700
+                        }}>
+                            {users.length} tài khoản
+                        </span>
+                    </div>
+                    <p>Danh sách tất cả người dùng đã đăng ký trên hệ thống</p>
+                </div>
             </div>
 
             <div className="toolbar">
@@ -111,7 +126,7 @@ const UserList: React.FC = () => {
                     <Search size={18} />
                     <input
                         type="text"
-                        placeholder="Tìm kiếm theo email hoặc tên..."
+                        placeholder="Tìm kiếm theo email, tên hoặc User ID..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -163,11 +178,11 @@ const UserList: React.FC = () => {
                         <div key={user.id} className="table-row">
                             <div className="user-info">
                                 <div className="user-avatar">
-                                    {user.displayName[0]?.toUpperCase() || '?'}
+                                    {(user.displayName && user.displayName[0]?.toUpperCase()) || '?'}
                                 </div>
                                 <div className="user-details">
-                                    <h4>{user.displayName}</h4>
-                                    <p>{user.id.substring(0, 8)}...</p>
+                                    <h4>{user.displayName || 'Không có tên'}</h4>
+                                    <p title={user.id}>{user.id ? `${user.id.substring(0, 8)}...` : '-'}</p>
                                 </div>
                             </div>
 
@@ -176,7 +191,7 @@ const UserList: React.FC = () => {
                             </span>
 
                             <span className="credits-display">
-                                {formatVND(user.credits)}
+                                {formatVND(user.credits || 0)}
                             </span>
 
                             <span className={`status-badge ${user.isLocked ? 'locked' : 'active'}`}>

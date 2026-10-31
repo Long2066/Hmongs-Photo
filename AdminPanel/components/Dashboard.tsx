@@ -124,8 +124,9 @@ const Dashboard: React.FC = () => {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
-                            background: 'rgba(16, 185, 129, 0.12)',
-                            color: '#10b981',
+                            background: '#ecfdf5',
+                            color: '#047857',
+                            border: '1px solid rgba(5, 150, 105, 0.2)',
                             padding: '4px 10px',
                             borderRadius: '9999px',
                             fontSize: '0.75rem',
@@ -137,8 +138,8 @@ const Dashboard: React.FC = () => {
                                 width: '7px',
                                 height: '7px',
                                 borderRadius: '50%',
-                                background: '#10b981',
-                                boxShadow: '0 0 8px #10b981'
+                                background: '#059669',
+                                boxShadow: '0 0 6px #059669'
                             }}></span>
                             Realtime Sync
                         </span>
@@ -159,26 +160,26 @@ const Dashboard: React.FC = () => {
             {/* Realtime & Key Stats Grid */}
             <div className="stats-grid">
                 {/* 1. Realtime Online Active Sessions */}
-                <div className="stat-card" style={{ borderColor: 'rgba(16, 185, 129, 0.35)', position: 'relative', overflow: 'hidden' }}>
+                <div className="stat-card" style={{ borderColor: '#a7f3d0', position: 'relative', overflow: 'hidden' }}>
                     <div style={{
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         right: 0,
                         height: '3px',
-                        background: 'linear-gradient(90deg, #10b981, #34d399)'
+                        background: 'linear-gradient(90deg, #059669, #10b981)'
                     }}></div>
                     <div className="stat-icon green">
                         <Radio size={24} />
                     </div>
                     <div className="stat-content">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h3 style={{ color: '#10b981' }}>{formatNumber(cloudStats.onlineCount)}</h3>
+                            <h3 style={{ color: '#059669' }}>{formatNumber(cloudStats.onlineCount)}</h3>
                             <span style={{
                                 width: '8px',
                                 height: '8px',
                                 borderRadius: '50%',
-                                background: '#10b981',
+                                background: '#059669',
                                 animation: 'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite'
                             }}></span>
                         </div>
@@ -188,14 +189,14 @@ const Dashboard: React.FC = () => {
                 </div>
 
                 {/* 2. Today's Cloud Visits */}
-                <div className="stat-card" style={{ borderColor: 'rgba(56, 189, 248, 0.35)', position: 'relative', overflow: 'hidden' }}>
+                <div className="stat-card" style={{ borderColor: '#bae6fd', position: 'relative', overflow: 'hidden' }}>
                     <div style={{
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         right: 0,
                         height: '3px',
-                        background: 'linear-gradient(90deg, #0ea5e9, #38bdf8)'
+                        background: 'linear-gradient(90deg, #0284c7, #38bdf8)'
                     }}></div>
                     <div className="stat-icon cyan">
                         <Cloud size={24} />
@@ -208,14 +209,14 @@ const Dashboard: React.FC = () => {
                 </div>
 
                 {/* 3. Total Cloud Visits */}
-                <div className="stat-card" style={{ borderColor: 'rgba(99, 102, 241, 0.35)', position: 'relative', overflow: 'hidden' }}>
+                <div className="stat-card" style={{ borderColor: '#c7d2fe', position: 'relative', overflow: 'hidden' }}>
                     <div style={{
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         right: 0,
                         height: '3px',
-                        background: 'linear-gradient(90deg, #6366f1, #818cf8)'
+                        background: 'linear-gradient(90deg, #4f46e5, #818cf8)'
                     }}></div>
                     <div className="stat-icon purple">
                         <Globe size={24} />
@@ -297,11 +298,12 @@ const Dashboard: React.FC = () => {
                     borderRadius: 'var(--border-radius)',
                     padding: '24px',
                     display: 'flex',
-                    flexDirection: 'column'
+                    flexDirection: 'column',
+                    boxShadow: 'var(--shadow-xs)'
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Activity size={20} className="text-emerald-500" />
+                        <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                            <Activity size={20} style={{ color: '#059669' }} />
                             🟢 Phiên trực tuyến thời gian thực ({cloudStats.onlineCount})
                         </h3>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Heartbeat: 40s</span>
@@ -338,9 +340,9 @@ const Dashboard: React.FC = () => {
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
                                         padding: '10px 14px',
-                                        background: 'rgba(255, 255, 255, 0.03)',
+                                        background: '#f8fafc',
                                         border: '1px solid var(--border-color)',
-                                        borderRadius: '8px',
+                                        borderRadius: '10px',
                                         fontSize: '0.85rem'
                                     }}
                                 >
@@ -349,11 +351,11 @@ const Dashboard: React.FC = () => {
                                             width: '8px',
                                             height: '8px',
                                             borderRadius: '50%',
-                                            background: '#10b981',
-                                            boxShadow: '0 0 6px #10b981'
+                                            background: '#059669',
+                                            boxShadow: '0 0 6px #059669'
                                         }}></span>
                                         <div>
-                                            <div style={{ fontWeight: 600, color: 'var(--text-color)' }}>
+                                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                                                 {session.displayName || 'Khách truy cập'}
                                             </div>
                                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -364,10 +366,11 @@ const Dashboard: React.FC = () => {
                                     <div style={{ textAlign: 'right' }}>
                                         <span style={{
                                             fontSize: '0.72rem',
-                                            background: 'rgba(16, 185, 129, 0.1)',
-                                            color: '#10b981',
+                                            background: '#ecfdf5',
+                                            color: '#047857',
+                                            border: '1px solid rgba(5, 150, 105, 0.2)',
                                             padding: '2px 8px',
-                                            borderRadius: '4px',
+                                            borderRadius: '6px',
                                             fontWeight: 600
                                         }}>
                                             {formatTimeAgo(session.lastSeen)}
@@ -384,9 +387,10 @@ const Dashboard: React.FC = () => {
                     background: 'var(--bg-card)',
                     border: '1px solid var(--border-color)',
                     borderRadius: 'var(--border-radius)',
-                    padding: '24px'
+                    padding: '24px',
+                    boxShadow: 'var(--shadow-xs)'
                 }}>
-                    <h3 style={{ marginBottom: '20px', fontSize: '1.05rem' }}>
+                    <h3 style={{ marginBottom: '20px', fontSize: '1.05rem', color: 'var(--text-primary)' }}>
                         📊 Đăng ký 7 ngày gần đây ({stats.registrationStats.reduce((a, b) => a + b.count, 0)} người dùng)
                     </h3>
 
@@ -407,18 +411,31 @@ const Dashboard: React.FC = () => {
                                         gap: '8px'
                                     }}
                                 >
-                                    <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>
                                         {stat.count}
                                     </span>
                                     <div
                                         style={{
                                             width: '100%',
-                                            height: `${Math.max((stat.count / maxCount) * 140, 8)}px`,
-                                            background: 'linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%)',
+                                            height: '130px',
+                                            background: '#f1f5f9',
                                             borderRadius: '6px 6px 0 0',
-                                            transition: 'height 0.3s ease'
+                                            display: 'flex',
+                                            alignItems: 'flex-end',
+                                            overflow: 'hidden'
                                         }}
-                                    />
+                                    >
+                                        <div
+                                            style={{
+                                                width: '100%',
+                                                height: `${Math.max((stat.count / maxCount) * 130, 8)}px`,
+                                                background: 'linear-gradient(180deg, #4f46e5 0%, #7c3aed 100%)',
+                                                borderRadius: '6px 6px 0 0',
+                                                transition: 'height 0.3s ease',
+                                                boxShadow: '0 2px 4px rgba(79, 70, 229, 0.2)'
+                                            }}
+                                        />
+                                    </div>
                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         {formatDate(stat.date)}
                                     </span>

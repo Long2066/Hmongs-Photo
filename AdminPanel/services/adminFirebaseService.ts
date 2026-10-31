@@ -79,59 +79,74 @@ export interface RealtimeCloudStats {
 // USER MANAGEMENT
 // =====================
 
-// Get all users with their data
+// Get all users with their data (resilient: registrations is primary source of truth)
 export const getAllUsers = async (): Promise<UserData[]> => {
     try {
-        // Get all user credits data
-        const creditsSnapshot = await getDocs(collection(db, USER_CREDITS_COLLECTION));
+        // 1. Fetch registrations (primary source of truth for users)
+        let registrationsDocs: any[] = [];
+        try {
+            const registrationsQuery = query(
+                collection(db, REGISTRATIONS_COLLECTION),
+                orderBy("timestamp", "desc")
+            );
+            const registrationsSnapshot = await getDocs(registrationsQuery);
+            registrationsDocs = registrationsSnapshot.docs;
+        } catch (regErr) {
+            console.warn("Fallback to raw registrations query:", regErr);
+            const fallbackSnap = await getDocs(collection(db, REGISTRATIONS_COLLECTION));
+            registrationsDocs = fallbackSnap.docs;
+        }
+
+        // 2. Safely fetch user credits data (if permissions allow)
         const creditsMap = new Map<string, { credits: number; isLocked: boolean; lockedAt?: number; lockedReason?: string; lastUpdated?: number }>();
-
-        creditsSnapshot.forEach(doc => {
-            const data = doc.data();
-            creditsMap.set(doc.id, {
-                credits: data.credits || 0,
-                isLocked: data.isLocked || false,
-                lockedAt: data.lockedAt,
-                lockedReason: data.lockedReason,
-                lastUpdated: data.lastUpdated
+        try {
+            const creditsSnapshot = await getDocs(collection(db, USER_CREDITS_COLLECTION));
+            creditsSnapshot.forEach(doc => {
+                const data = doc.data();
+                creditsMap.set(doc.id, {
+                    credits: data.credits || 0,
+                    isLocked: data.isLocked || false,
+                    lockedAt: data.lockedAt,
+                    lockedReason: data.lockedReason,
+                    lastUpdated: data.lastUpdated
+                });
             });
-        });
+        } catch (credErr) {
+            console.warn("Could not batch load userCredits (permission or rule restriction):", credErr);
+        }
 
-        // Get all registrations
-        const registrationsQuery = query(
-            collection(db, REGISTRATIONS_COLLECTION),
-            orderBy("timestamp", "desc")
-        );
-        const registrationsSnapshot = await getDocs(registrationsQuery);
-
-        // Get emails from approved bills
-        const billsSnapshot = await getDocs(collection(db, APPROVED_BILLS_COLLECTION));
+        // 3. Safely fetch emails from approved bills
         const emailMap = new Map<string, string>();
-        billsSnapshot.forEach(billDoc => {
-            const data = billDoc.data();
-            if (data.userId && data.userEmail) {
-                emailMap.set(data.userId, data.userEmail);
-            }
-        });
+        try {
+            const billsSnapshot = await getDocs(collection(db, APPROVED_BILLS_COLLECTION));
+            billsSnapshot.forEach(billDoc => {
+                const data = billDoc.data();
+                if (data.userId && data.userEmail) {
+                    emailMap.set(data.userId, data.userEmail);
+                }
+            });
+        } catch (billErr) {
+            console.warn("Could not batch load approvedBills (permission or rule restriction):", billErr);
+        }
 
         const usersMap = new Map<string, UserData>();
 
-        registrationsSnapshot.forEach(docSnap => {
+        registrationsDocs.forEach(docSnap => {
             const data = docSnap.data();
-            const userId = data.userId;
+            const userId = data.userId || docSnap.id;
 
             if (!usersMap.has(userId)) {
                 const creditsData = creditsMap.get(userId);
                 usersMap.set(userId, {
                     id: userId,
-                    email: emailMap.get(userId) || data.email || '',
-                    displayName: data.displayName || 'Unknown',
+                    email: data.email || emailMap.get(userId) || '',
+                    displayName: data.displayName || data.name || (data.email ? data.email.split('@')[0] : 'User ' + userId.substring(0, 6)),
                     credits: creditsData?.credits || 0,
                     isLocked: creditsData?.isLocked || false,
                     lockedAt: creditsData?.lockedAt,
                     lockedReason: creditsData?.lockedReason,
                     registeredAt: data.timestamp,
-                    lastUpdated: creditsData?.lastUpdated
+                    lastUpdated: creditsData?.lastUpdated || data.timestamp
                 });
             }
         });
@@ -142,20 +157,23 @@ export const getAllUsers = async (): Promise<UserData[]> => {
                 usersMap.set(odUserId, {
                     id: odUserId,
                     email: emailMap.get(odUserId) || '',
-                    displayName: 'Unknown User',
+                    displayName: 'User ' + odUserId.substring(0, 6),
                     credits: data.credits,
                     isLocked: data.isLocked,
                     lockedAt: data.lockedAt,
                     lockedReason: data.lockedReason,
+                    registeredAt: data.lastUpdated,
                     lastUpdated: data.lastUpdated
                 });
             }
         });
 
-        return Array.from(usersMap.values());
+        const result = Array.from(usersMap.values());
+        result.sort((a, b) => (b.registeredAt || 0) - (a.registeredAt || 0));
+        return result;
     } catch (error) {
         console.error("Error fetching users:", error);
-        throw error;
+        return [];
     }
 };
 
