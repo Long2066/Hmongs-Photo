@@ -328,7 +328,7 @@ const Dashboard: React.FC = () => {
                             {loading ? '...' : formatVND(stats.totalDeposited)}
                         </h3>
                         <p style={{ fontWeight: 600, color: '#1e293b' }}>Tổng tiền nạp (VNĐ)</p>
-                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Từ các giao dịch nạp tiền</small>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Cổng thanh toán tự động PayOS</small>
                     </div>
                 </div>
 
@@ -342,7 +342,7 @@ const Dashboard: React.FC = () => {
                             {loading ? '...' : formatVND(stats.totalSpent)}
                         </h3>
                         <p style={{ fontWeight: 600, color: '#1e293b' }}>Đã tiêu thụ (VNĐ)</p>
-                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Chi phí tạo ảnh VIP & gói cước</small>
+                        <small style={{ fontSize: '0.75rem', color: '#64748b' }}>Chi phí tạo ảnh VIP & gói cước PayOS</small>
                     </div>
                 </div>
 
