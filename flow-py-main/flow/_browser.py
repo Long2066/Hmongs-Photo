@@ -98,8 +98,26 @@ class BrowserManager:
             log.info("CDP connected: %d existing pages", len(self._ctx.pages))
         else:
             # Normal persistent profile launch
-            # Use full Chromium / Chrome executable instead of headless_shell
-            # so reCAPTCHA Enterprise passes and missing headless_shell never breaks launch
+            # Clean up any stale headless Chrome process holding the lock on this profile_dir
+            try:
+                import subprocess
+                prof_str = str(self.profile_dir).lower()
+                ps_cmd = (
+                    "Get-CimInstance Win32_Process | "
+                    "Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*flow-py*' } | "
+                    "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+                )
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, timeout=5)
+                for lock_name in ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"):
+                    lp = self.profile_dir / lock_name
+                    if lp.exists():
+                        try:
+                            lp.unlink()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             args = [
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
@@ -108,6 +126,22 @@ class BrowserManager:
             if self.headless:
                 args.append("--headless=new")
 
+            # Prefer system Google Chrome executable directly
+            chrome_candidates = [
+                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+                Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+                Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "Application" / "chrome.exe",
+            ]
+            pw_chromium_dir = Path.home() / "AppData" / "Local" / "ms-playwright"
+            if pw_chromium_dir.exists():
+                chrome_candidates.extend(sorted(pw_chromium_dir.glob("chromium-*/chrome-win64/chrome.exe"), reverse=True))
+
+            exe_path: Optional[str] = None
+            for cand in chrome_candidates:
+                if cand.exists():
+                    exe_path = str(cand)
+                    break
+
             launch_kwargs = dict(
                 headless=False,
                 slow_mo=self.slow_mo,
@@ -115,27 +149,16 @@ class BrowserManager:
                 user_agent=_USER_AGENT,
                 accept_downloads=True,
                 args=args,
-                channel="chrome",
             )
+            if exe_path:
+                launch_kwargs["executable_path"] = exe_path
+            else:
+                launch_kwargs["channel"] = "chrome"
 
-            try:
-                self._ctx = await self._pw.chromium.launch_persistent_context(
-                    str(self.profile_dir),
-                    **launch_kwargs,
-                )
-            except Exception:
-                # Fallback to bundled Playwright Chromium if system Chrome is unavailable
-                launch_kwargs.pop("channel", None)
-                pw_chromium_dir = Path.home() / "AppData" / "Local" / "ms-playwright"
-                if pw_chromium_dir.exists():
-                    for candidate in sorted(pw_chromium_dir.glob("chromium-*/chrome-win64/chrome.exe"), reverse=True):
-                        if candidate.exists():
-                            launch_kwargs["executable_path"] = str(candidate)
-                            break
-                self._ctx = await self._pw.chromium.launch_persistent_context(
-                    str(self.profile_dir),
-                    **launch_kwargs,
-                )
+            self._ctx = await self._pw.chromium.launch_persistent_context(
+                str(self.profile_dir),
+                **launch_kwargs,
+            )
             await self._ctx.add_init_script(
                 "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
             )

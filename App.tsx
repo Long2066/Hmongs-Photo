@@ -960,7 +960,7 @@ const App: React.FC = () => {
                 return (
                     <div className="p-3">
                         <ImageUploader
-                            label="Ảnh gốc cần tạo video chuyển động"
+                            label="Ảnh đầu vào"
                             onImagesChange={handleImagesChange}
                             maxImages={1}
                         />
@@ -968,14 +968,9 @@ const App: React.FC = () => {
                 );
             }
             return (
-                <div className="p-5 text-center">
-                    <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-rose-50 text-rose-500 mb-2 shadow-xs ring-1 ring-rose-500/10">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                    </div>
-                    <p className="text-xs font-bold text-slate-800">Chế độ Văn bản ➔ Video</p>
-                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">Không cần tải ảnh đầu vào. Hãy nhập kịch bản hoặc gợi ý ở bảng Cấu hình AI bên dưới.</p>
+                <div className="p-3 flex items-center justify-center gap-2 text-slate-600">
+                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                    <span className="text-xs font-semibold text-slate-800">Văn bản ➔ Video</span>
                 </div>
             );
         }
