@@ -10,6 +10,7 @@ tenancy = config["tenancy"]
 
 script = """#!/bin/bash
 DIR="/var/lib/ocarun/cliproxyapi"
+mkdir -p "$DIR/static"
 cd "$DIR"
 
 echo "=== 1. TAI VA CAI DAT NGROK ==="
@@ -22,29 +23,73 @@ fi
 
 "$DIR/ngrok" version
 
-echo "=== 2. CAU HINH AUTHTOKEN ==="
+echo "=== 2. CAU HINH AUTHTOKEN NGROK ==="
 "$DIR/ngrok" config add-authtoken "2trN0vkOTQRc4thK1j7o3gq0bhf_5uUWnggg6r5EAEHnvNECn"
 
-echo "=== 3. KIEM TRA TIEN TRINH CLIPROXYAPI ==="
-ps aux | grep "cli-proxy-api" | grep -v grep || {
-    export MANAGEMENT_STATIC_PATH="$DIR/static/management.html"
-    nohup "$DIR/cli-proxy-api" --config "$DIR/config.yaml" --no-browser </dev/null >"$DIR/cpa.log" 2>&1 &
-    sleep 2
-}
+echo "=== 3. DAM BAO CONFIG.YAML VA MANAGEMENT.HTML CHUAN PORT 9000 ==="
+cat << 'CFG_EOF' > "$DIR/config.yaml"
+config-version: 8
+server:
+  host: ""
+  port: 9000
+port: 9000
+management:
+  allow-remote: true
+  secret-key: "123456"
+  disable-control-panel: false
+remote-management:
+  allow-remote: true
+  secret-key: "123456"
+  disable-control-panel: false
+oauth:
+  auth-dir: "/var/lib/ocarun/cliproxyapi/oauth"
+auth-dir: "/var/lib/ocarun/cliproxyapi/oauth"
+access:
+  api-keys:
+    - "123456"
+api-keys:
+  - "123456"
+CFG_EOF
 
-echo "=== 4. KHOI DONG NGROK PERMANENT TUNNEL ==="
+if [ ! -s "$DIR/static/management.html" ] || [ $(wc -c < "$DIR/static/management.html") -lt 50000 ]; then
+    curl -sSL "https://cpamc.router-for.me/" -o "$DIR/static/management.html"
+fi
+cp "$DIR/static/management.html" "$DIR/management.html" 2>/dev/null || true
+
+echo "=== 4. KHOI DONG CLIPROXYAPI PORT 9000 ==="
+pkill -9 -f "cli-proxy-api" 2>/dev/null || true
+sleep 1
+export MANAGEMENT_STATIC_PATH="$DIR/static/management.html"
+nohup "$DIR/cli-proxy-api" --config "$DIR/config.yaml" --no-browser </dev/null >"$DIR/cpa.log" 2>&1 &
+sleep 2
+
+cat << 'ST_EOF' > "$DIR/start.sh"
+#!/bin/bash
+DIR="/var/lib/ocarun/cliproxyapi"
+export MANAGEMENT_STATIC_PATH="$DIR/static/management.html"
+nohup "$DIR/cli-proxy-api" --config "$DIR/config.yaml" --no-browser </dev/null >"$DIR/cpa.log" 2>&1 &
+nohup "$DIR/ngrok" http 9000 --log=stdout >"$DIR/ngrok.log" 2>&1 &
+ST_EOF
+chmod +x "$DIR/start.sh"
+
+echo "=== 5. KHOI DONG NGROK PERMANENT TUNNEL ==="
 pkill -9 -f "ngrok" 2>/dev/null || true
+pkill -9 -f "cloudflared" 2>/dev/null || true
 sleep 1
 rm -f "$DIR/ngrok.log"
 nohup "$DIR/ngrok" http 9000 --log=stdout >"$DIR/ngrok.log" 2>&1 &
-sleep 5
 
-echo "=== 5. LAY URL NGROK VINH VIEN ==="
-URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -oE "https://[a-zA-Z0-9-]+\.(ngrok-free\.app|ngrok\.io|ngrok\.app)" | head -n 1)
-
-if [ -z "$URL" ]; then
+for i in $(seq 1 10); do
+    sleep 2
+    URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -oE "https://[a-zA-Z0-9-]+\.(ngrok-free\.app|ngrok\.io|ngrok\.app)" | head -n 1)
+    if [ -n "$URL" ]; then
+        break
+    fi
     URL=$(grep -oE "https://[a-zA-Z0-9-]+\.(ngrok-free\.app|ngrok\.io|ngrok\.app)" "$DIR/ngrok.log" | head -n 1)
-fi
+    if [ -n "$URL" ]; then
+        break
+    fi
+done
 
 echo "PERMANENT_URL: $URL"
 
@@ -54,7 +99,7 @@ if [ -z "$URL" ]; then
 fi
 
 echo "=== 6. CAU HINH AUTO-START REBOOT ==="
-(crontab -l 2>/dev/null | grep -v "ngrok"; echo "@reboot nohup $DIR/ngrok http 9000 --log=stdout >$DIR/ngrok.log 2>&1 &") | crontab - 2>/dev/null || true
+(crontab -l 2>/dev/null | grep -v -E "ngrok|cliproxyapi|cloudflared"; echo "@reboot /bin/bash $DIR/start.sh") | crontab - 2>/dev/null || true
 """
 
 m = oci.compute_instance_agent.models
@@ -72,7 +117,7 @@ cmd = agent_client.create_instance_agent_command(details)
 print(f"Sent: {cmd.data.id}")
 print("Dang cai dat Ngrok va tao ten mien tinh vinh vien (khoang 15-20s)...")
 
-for i in range(20):
+for i in range(25):
     time.sleep(3)
     try:
         exs = agent_client.list_instance_agent_command_executions(
