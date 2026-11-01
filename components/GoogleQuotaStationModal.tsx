@@ -33,6 +33,8 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const [contributedList, setContributedList] = useState<ContributedAccountItem[]>([]);
     const [isExtensionInstalled, setIsExtensionInstalled] = useState<boolean>(false);
     const [showManualPaste, setShowManualPaste] = useState<boolean>(false);
+    const [showExtensionGuide, setShowExtensionGuide] = useState<boolean>(false);
+    const [copiedExtensionsUrl, setCopiedExtensionsUrl] = useState<boolean>(false);
 
     // Keep ref to avoid stale closures in event listeners
     const expectedStateRef = useRef(expectedState);
@@ -60,6 +62,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
             setCallbackInput('');
             setStep('idle');
             setShowManualPaste(false);
+            setShowExtensionGuide(false);
         }
     }, [isOpen, user?.id]);
 
@@ -147,6 +150,15 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         }
         const inputEl = document.getElementById('quota-callback-input');
         if (inputEl) inputEl.focus();
+    };
+
+    // Copy chrome://extensions helper
+    const handleCopyExtensionsUrl = async () => {
+        try {
+            await navigator.clipboard.writeText('chrome://extensions');
+            setCopiedExtensionsUrl(true);
+            setTimeout(() => setCopiedExtensionsUrl(false), 2500);
+        } catch {}
     };
 
     // Core submission processing (shared by manual click and extension auto-capture)
@@ -244,28 +256,112 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
 
                 {/* Body Content */}
                 <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
-                    {/* Extension Status Callout */}
+                    {/* Extension Status / Install Section */}
                     {isExtensionInstalled ? (
-                        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 shadow-xs flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 text-base font-bold">
-                                ⚡
+                        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 shadow-xs flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 text-base font-bold">
+                                    ⚡
+                                </div>
+                                <div className="text-xs text-emerald-950">
+                                    <p className="font-bold flex items-center gap-1.5 text-emerald-900">
+                                        <span>Bổ trợ vip-imagetools: ĐANG HOẠT ĐỘNG</span>
+                                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                    </p>
+                                    <p className="text-slate-600 text-[11px] mt-0.5">
+                                        Chế độ tự động 100% đã sẵn sàng. Bạn chỉ việc bấm đăng nhập Google!
+                                    </p>
+                                </div>
                             </div>
-                            <div className="text-xs text-emerald-950 flex-1">
-                                <p className="font-bold flex items-center gap-1.5 text-emerald-900">
-                                    <span>Tự động 100% qua Extension</span>
-                                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                </p>
-                                <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
-                                    Bạn chỉ cần bấm đăng nhập. Extension sẽ tự động bắt link và hoàn tất trong chớp mắt!
-                                </p>
-                            </div>
+                            <a
+                                href="/vip-imagetools.zip"
+                                download="vip-imagetools.zip"
+                                className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[10px] font-semibold transition-colors shrink-0"
+                                title="Tải lại file zip bổ trợ nếu cần"
+                            >
+                                Tải lại .zip
+                            </a>
                         </div>
                     ) : (
-                        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-3 text-xs">
-                            <div className="flex items-center gap-2 text-slate-700">
-                                <span className="text-base">💡</span>
-                                <span>Tiện ích <strong>vip-imagetools</strong> hỗ trợ tự động nạp 100% không cần copy link.</span>
+                        <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 border border-indigo-200/80 shadow-xs space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 font-bold shadow-xs">
+                                        🧩
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h4 className="text-xs font-bold text-slate-900">Cài Bổ Trợ Tự Động (vip-imagetools)</h4>
+                                            <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-100 rounded-md">
+                                                Khuyên dùng
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                                            Tự động bắt link và nạp +20 ảnh ngay sau khi đăng nhập Google (Không cần copy link).
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
+
+                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                <a
+                                    href="/vip-imagetools.zip"
+                                    download="vip-imagetools.zip"
+                                    className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 min-h-[40px]"
+                                >
+                                    <span>📥</span>
+                                    <span>Tải Bổ Trợ (.zip)</span>
+                                </a>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowExtensionGuide(!showExtensionGuide)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition-colors min-h-[40px]"
+                                >
+                                    <span>{showExtensionGuide ? 'Ẩn hướng dẫn' : '📖 Xem hướng dẫn cài (3 bước)'}</span>
+                                    <span className="text-[10px]">{showExtensionGuide ? '▲' : '▼'}</span>
+                                </button>
+                            </div>
+
+                            {/* Collapsible 3-Step Guide */}
+                            {showExtensionGuide && (
+                                <div className="p-3.5 rounded-xl bg-white/95 border border-indigo-200/70 text-xs space-y-2.5 mt-2 animate-fade-in shadow-xs">
+                                    <div className="flex items-start gap-2.5">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
+                                        <div className="text-slate-700 text-[11px] leading-relaxed">
+                                            Bấm nút <strong>"Tải Bổ Trợ (.zip)"</strong> ở trên và <strong>giải nén</strong> được thư mục <code>vip-imagetools</code> vào máy.
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-start gap-2.5">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
+                                        <div className="text-slate-700 text-[11px] leading-relaxed flex-1">
+                                            <div>Mở một tab mới trên trình duyệt Chrome, gõ:</div>
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                                <code className="px-2 py-1 bg-slate-100 text-slate-800 rounded font-mono text-[11px]">chrome://extensions</code>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleCopyExtensionsUrl}
+                                                    className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-[11px] font-bold transition-colors shrink-0"
+                                                >
+                                                    {copiedExtensionsUrl ? '✓ Đã chép' : '📋 Chép link'}
+                                                </button>
+                                            </div>
+                                            <div className="text-slate-500 text-[10px] mt-1">
+                                                Sau đó gạt bật <strong>"Chế độ dành cho nhà phát triển" (Developer mode)</strong> ở góc trên bên phải.
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-start gap-2.5">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-[11px]">3</span>
+                                        <div className="text-slate-700 text-[11px] leading-relaxed">
+                                            Bấm <strong>"Tải tiện ích đã giải nén"</strong> (Load unpacked) ở góc trái ➔ Chọn thư mục <code>vip-imagetools</code>.
+                                            <p className="text-emerald-600 font-semibold mt-1">✓ Xong! Trình duyệt sẽ tự động kết nối và modal này sẽ chuyển sang màu xanh.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
