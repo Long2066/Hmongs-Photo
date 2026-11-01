@@ -235,7 +235,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                 <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
                     {/* Extension Status / Install Section */}
                     {isExtensionInstalled ? (
-                        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 shadow-xs flex items-center justify-between gap-3">
+                        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 text-base font-bold">
                                     ⚡
@@ -250,14 +250,25 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                     </p>
                                 </div>
                             </div>
-                            <a
-                                href="/vip-imagetools.zip"
-                                download="vip-imagetools.zip"
-                                className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[10px] font-semibold transition-colors shrink-0"
-                                title="Tải lại file zip bổ trợ nếu cần"
-                            >
-                                Tải lại .zip
-                            </a>
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                                <button
+                                    type="button"
+                                    onClick={handleOpenExtensionsPage}
+                                    className="px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition-all shadow-2xs flex items-center gap-1.5 active:scale-95"
+                                    title="Mở trang chrome://extensions/"
+                                >
+                                    <span>⚙️</span>
+                                    <span>{copiedExtensionsUrl ? '✓ Đã copy link' : 'Mở Tiện ích'}</span>
+                                </button>
+                                <a
+                                    href="/vip-imagetools.zip"
+                                    download="vip-imagetools.zip"
+                                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+                                    title="Tải lại file zip bổ trợ nếu cần"
+                                >
+                                    Tải .zip
+                                </a>
+                            </div>
                         </div>
                     ) : (
                         <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 border border-indigo-200/80 shadow-xs space-y-3">
@@ -326,6 +337,18 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                     <span>✓</span>
                                     <span>Sau khi chọn xong, web sẽ tự động kết nối và nhận diện A-Z!</span>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {copiedExtensionsUrl && (
+                        <div className="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-950 flex items-start gap-2.5 animate-fade-in shadow-xs">
+                            <span className="text-base shrink-0">📋</span>
+                            <div className="leading-relaxed">
+                                <p className="font-bold text-indigo-900">Đã sao chép liên kết vào bộ nhớ tạm!</p>
+                                <p className="text-slate-600 text-[11px] mt-0.5">
+                                    Để bảo vệ an ninh, Google Chrome chặn trang web tự ý mở trực tiếp trang hệ thống. Bạn chỉ cần <strong>mở 1 Tab mới</strong> trên trình duyệt, nhấn <strong>Ctrl + V</strong> (Dán) rồi ấn <strong>Enter</strong> là xong!
+                                </p>
                             </div>
                         </div>
                     )}
