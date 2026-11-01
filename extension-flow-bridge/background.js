@@ -6,8 +6,9 @@
  * tự động bắt link video trả thẳng về web ImageTool.
  */
 
-const DEFAULT_TOOL_URL =
-  'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP';
+const CANONICAL_SHARED_TOOL_URL =
+  'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719';
+const DEFAULT_TOOL_URL = CANONICAL_SHARED_TOOL_URL;
 
 // 1. Check if user has active Google Flow cookies
 async function checkFlowAuth() {
@@ -104,27 +105,43 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
 
   // Step A: Search for existing tabs on flow.google.com
   const existingTabs = await chrome.tabs.query({ url: '*://flow.google.com/*' });
-  let flowTab = existingTabs.find((t) => t.url && t.url.includes('b18b72cc-9dc1-4560-bf52-70266e226a18'));
+  
+  // 1. Search for exact shared tool or project tool tab
+  let flowTab = existingTabs.find((t) =>
+    t.url && (
+      t.url.includes('c056b8dd') ||
+      t.url.includes('b18b72cc') ||
+      t.url.includes('/shared/tool/') ||
+      (t.url.includes('/tool/') && !t.url.includes('/tools'))
+    )
+  );
 
+  // 2. Search by tab title
+  if (!flowTab) {
+    flowTab = existingTabs.find(
+      (t) => t.title && (t.title.includes('ImageTool') || t.title.includes('VideoTool') || t.title.includes('Pro Studio'))
+    );
+  }
+
+  // 3. Fallback: Any Flow tab that is currently open -> navigate to the canonical shared tool
   if (!flowTab && existingTabs.length > 0) {
-    // Tab exists on Flow (e.g. on /tools or /project) -> navigate it to exact tool URL!
     flowTab = existingTabs[0];
-    console.log('[Background] Tab not on tool URL, navigating to tool:', targetUrl);
+    console.log('[Background] Navigating existing Google Flow tab to shared tool:', targetUrl);
     await chrome.tabs.update(flowTab.id, { url: targetUrl });
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 4500));
   } else if (!flowTab) {
-    console.log('[Background] No Flow tab found, opening tool tab');
+    console.log('[Background] No Flow tab found, opening canonical shared tool tab');
     flowTab = await chrome.tabs.create({
       url: targetUrl,
       active: false,
     });
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 4500));
   } else {
-    // If tab URL accidentally moved to /tools catalog, redirect back
+    // If tab URL accidentally moved to /tools explore catalog, restore shared tool URL
     if (flowTab.url && flowTab.url.includes('/tools') && !flowTab.url.includes('/tool/')) {
-      console.log('[Background] Tab redirected to /tools catalog, restoring tool URL:', targetUrl);
+      console.log('[Background] Tab redirected to /tools catalog, restoring shared tool URL:', targetUrl);
       await chrome.tabs.update(flowTab.id, { url: targetUrl });
-      await new Promise((r) => setTimeout(r, 4000));
+      await new Promise((r) => setTimeout(r, 4500));
     }
   }
 

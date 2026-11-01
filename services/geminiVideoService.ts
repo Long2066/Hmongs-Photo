@@ -145,7 +145,7 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
                 imageBase64: inputImageBase64
                     ? (inputImageBase64.startsWith('data:') ? inputImageBase64 : `data:image/png;base64,${inputImageBase64}`)
                     : undefined,
-                toolUrl: 'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP',
+                toolUrl: 'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719',
             },
         }, '*');
     });

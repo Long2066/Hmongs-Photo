@@ -106,13 +106,30 @@
 
   // Ensure the tool panel is expanded and not an empty grey canvas or catalog page
   async function ensureToolPanelOpen() {
-    // If somehow on /tools catalog (Image 2), redirect immediately to the tool app URL
+    // If somehow on /tools catalog, redirect immediately to the canonical shared tool URL
     if (window.location.href.includes('/tools') && !window.location.href.includes('/tool/')) {
-      console.log('[Flow Bridge] Tab is on /tools catalog page, redirecting to tool app URL...');
+      console.log('[Flow Bridge] Tab is on /tools catalog page, redirecting to shared tool URL...');
       window.location.href =
-        'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP';
+        'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719';
       await new Promise((r) => setTimeout(r, 4500));
       return;
+    }
+
+    // Check if on shared tool landing page with a "Sử dụng công cụ" or "Use tool" button
+    const useToolBtn = [...document.querySelectorAll('button, div[role="button"], a')].find((el) => {
+      const txt = (el.innerText || el.textContent || '').toLowerCase().trim();
+      return (
+        txt === 'sử dụng công cụ' ||
+        txt === 'use tool' ||
+        txt === 'dùng công cụ' ||
+        txt === 'mở công cụ' ||
+        txt === 'thử công cụ'
+      );
+    });
+    if (useToolBtn) {
+      console.log('[Flow Bridge] Found "Use tool" button on shared tool landing page, clicking it...');
+      useToolBtn.click();
+      await new Promise((r) => setTimeout(r, 2000));
     }
 
     // Wait up to 12s for the tool UI to paint
