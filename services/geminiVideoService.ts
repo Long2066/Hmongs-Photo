@@ -40,6 +40,28 @@ export const addElectronProfile = async (): Promise<{ success: boolean; profile?
     }
 };
 
+export const importElectronFlowCookies = async (cookiesText: string, email?: string): Promise<{ success: boolean; profile?: ElectronFlowProfile; error?: string }> => {
+    if (!isElectronApp()) return { success: false, error: 'Chỉ hỗ trợ trên ứng dụng Electron máy tính' };
+    try {
+        return await (window as any).electronAPI.flowProfileImportCookies(cookiesText, email);
+    } catch (e: any) {
+        return { success: false, error: e.message || 'Lỗi khi nhập Cookie' };
+    }
+};
+
+export const openExternalFlowUrl = async (): Promise<boolean> => {
+    if (!isElectronApp()) {
+        window.open('https://flow.google.com/', '_blank');
+        return true;
+    }
+    try {
+        await (window as any).electronAPI.flowProfileOpenFlowUrl();
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 export const removeElectronProfile = async (profileId: string): Promise<boolean> => {
     if (!isElectronApp()) return false;
     try {

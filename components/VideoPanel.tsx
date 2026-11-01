@@ -13,6 +13,8 @@ import {
     isElectronApp,
     listElectronProfiles,
     addElectronProfile,
+    importElectronFlowCookies,
+    openExternalFlowUrl,
     removeElectronProfile,
     ElectronFlowProfile,
 } from '../services/geminiVideoService';
@@ -118,26 +120,81 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [profiles, setProfiles] = useState<ElectronFlowProfile[]>([]);
     const [selectedProfileId, setSelectedProfileId] = useState<string>('auto');
     const [isLoggingInGoogle, setIsLoggingInGoogle] = useState<boolean>(false);
+    const [showAddAccountModal, setShowAddAccountModal] = useState<boolean>(false);
+    const [addAccountTab, setAddAccountTab] = useState<'chrome' | 'cookie'>('chrome');
+    const [cookieInputText, setCookieInputText] = useState<string>('');
+    const [cookieEmailText, setCookieEmailText] = useState<string>('');
+    const [isSubmittingCookie, setIsSubmittingCookie] = useState<boolean>(false);
+    const [chromeAuthStatusText, setChromeAuthStatusText] = useState<string>('');
 
     useEffect(() => {
         if (isElectron) {
             listElectronProfiles().then(setProfiles);
+
+            const api = (window as any).electronAPI;
+            if (api?.onFlowAuthStatus) {
+                const unsubscribe = api.onFlowAuthStatus((data: any) => {
+                    if (data?.message) {
+                        setChromeAuthStatusText(data.message);
+                    }
+                });
+                return () => {
+                    if (typeof unsubscribe === 'function') unsubscribe();
+                };
+            }
         }
     }, [isElectron]);
 
-    const handleAddGoogleAccount = async () => {
+    const handleOpenAddAccountModal = () => {
+        setShowAddAccountModal(true);
+        setChromeAuthStatusText('');
+    };
+
+    const handleStartChromeLogin = async () => {
         setIsLoggingInGoogle(true);
+        setChromeAuthStatusText('Đang mở trình duyệt Chrome... Vui lòng đăng nhập Gmail trên cửa sổ vừa mở.');
         try {
             const res = await addElectronProfile();
             if (res.success && res.profile) {
                 const updated = await listElectronProfiles();
                 setProfiles(updated);
                 setSelectedProfileId(res.profile.id);
+                setShowAddAccountModal(false);
+                setChromeAuthStatusText('');
+                alert(`Đã kết nối tài khoản Google: ${res.profile.email} thành công!`);
+            } else if (res.error) {
+                alert(`Lỗi kết nối: ${res.error}`);
             }
-        } catch (e) {
-            console.error('Login error:', e);
+        } catch (e: any) {
+            alert(`Lỗi: ${e.message || 'Không thể mở trình duyệt Chrome'}`);
         } finally {
             setIsLoggingInGoogle(false);
+        }
+    };
+
+    const handleImportCookies = async () => {
+        if (!cookieInputText.trim()) {
+            alert('Vui lòng dán chuỗi Cookie hoặc JSON từ Cookie-Editor!');
+            return;
+        }
+        setIsSubmittingCookie(true);
+        try {
+            const res = await importElectronFlowCookies(cookieInputText.trim(), cookieEmailText.trim());
+            if (res.success && res.profile) {
+                const updated = await listElectronProfiles();
+                setProfiles(updated);
+                setSelectedProfileId(res.profile.id);
+                setCookieInputText('');
+                setCookieEmailText('');
+                setShowAddAccountModal(false);
+                alert(`Đã kết nối tài khoản Google: ${res.profile.email} thành công!`);
+            } else {
+                alert(`Lỗi nạp Cookie: ${res.error || 'Cookie không hợp lệ hoặc đã hết hạn'}`);
+            }
+        } catch (e: any) {
+            alert(`Lỗi: ${e.message || 'Lỗi khi nhập Cookie'}`);
+        } finally {
+            setIsSubmittingCookie(false);
         }
     };
 
@@ -420,30 +477,58 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
             {/* Engine Segmented Bar */}
             {isElectron ? (
-                <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
+                <div className="grid grid-cols-4 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
                     <button
                         type="button"
                         onClick={() => handleSwitchEngine('flow_profile')}
-                        className={`min-h-[40px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            engine === 'flow_profile' || engine === 'flow_extension'
+                        className={`min-h-[38px] flex items-center justify-center gap-1 px-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+                            engine === 'flow_profile'
                                 ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
                                 : 'text-slate-600 hover:text-slate-900'
                         }`}
+                        title="Hồ sơ tài khoản Google lưu trực tiếp trên máy"
                     >
                         <span>👤</span>
-                        <span className="truncate">Google Veo (Profile)</span>
+                        <span className="truncate">Google Veo</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('flow_extension')}
+                        className={`min-h-[38px] flex items-center justify-center gap-1 px-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+                            engine === 'flow_extension'
+                                ? 'bg-white text-amber-600 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                        title="Tiện ích mở rộng vip-imagetools trên Chrome"
+                    >
+                        <span>🧩</span>
+                        <span className="truncate">Extension</span>
                     </button>
                     <button
                         type="button"
                         onClick={() => handleSwitchEngine('fal_ai')}
-                        className={`min-h-[40px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        className={`min-h-[38px] flex items-center justify-center gap-1 px-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                             isFalMode
                                 ? 'bg-white text-purple-700 shadow-xs ring-1 ring-slate-900/5'
                                 : 'text-slate-600 hover:text-slate-900'
                         }`}
+                        title="Tạo video siêu nhanh qua Fal.ai Cloud"
                     >
                         <span>🚀</span>
                         <span className="truncate">Fal.ai Cloud</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('flow_local')}
+                        className={`min-h-[38px] flex items-center justify-center gap-1 px-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+                            engine === 'flow_local'
+                                ? 'bg-white text-rose-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                        title="Chạy qua server flow-py-main port 8100"
+                    >
+                        <span>💻</span>
+                        <span className="truncate">Server PC</span>
                     </button>
                 </div>
             ) : (
@@ -497,15 +582,32 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 Hồ sơ Tài khoản Google ({profiles.length})
                             </span>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handleAddGoogleAccount}
-                            disabled={isLoggingInGoogle}
-                            className="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg ring-1 ring-indigo-500/20 flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                        >
-                            <span>➕</span>
-                            <span>{isLoggingInGoogle ? 'Đang mở đăng nhập...' : 'Thêm Gmail'}</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAddAccountTab('cookie');
+                                    handleOpenAddAccountModal();
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg ring-1 ring-amber-500/20 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                                title="Dán cookie tài khoản Google Flow nhanh 5s"
+                            >
+                                <span>📋</span>
+                                <span>Dán Cookie</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAddAccountTab('chrome');
+                                    handleOpenAddAccountModal();
+                                }}
+                                disabled={isLoggingInGoogle}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg ring-1 ring-indigo-500/20 flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                <span>➕</span>
+                                <span>{isLoggingInGoogle ? 'Đang mở đăng nhập...' : 'Thêm Gmail'}</span>
+                            </button>
+                        </div>
                     </div>
 
                     {profiles.length === 0 ? (
@@ -515,19 +617,35 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-bold text-amber-950">Chưa kết nối tài khoản Google</span>
                                     <span className="text-[11px] text-amber-800 leading-relaxed">
-                                        Đăng nhập 1 lần duy nhất trên máy. Ứng dụng tự động lưu hồ sơ độc lập và tạo video Veo 3.1 không lo chết cookie!
+                                        Đăng nhập an toàn qua Chrome hoặc dán Cookie 1 lần duy nhất. Ứng dụng tự động lưu hồ sơ độc lập để tạo video Veo 3.1!
                                     </span>
                                 </div>
                             </div>
-                            <button
-                                type="button"
-                                onClick={handleAddGoogleAccount}
-                                disabled={isLoggingInGoogle}
-                                className="w-full py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
-                            >
-                                <span>🔑</span>
-                                <span>{isLoggingInGoogle ? 'Đang mở cửa sổ đăng nhập...' : 'Bấm vào đây để đăng nhập tài khoản Google'}</span>
-                            </button>
+                            <div className="grid grid-cols-2 gap-2 mt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setAddAccountTab('chrome');
+                                        handleOpenAddAccountModal();
+                                    }}
+                                    disabled={isLoggingInGoogle}
+                                    className="py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-98"
+                                >
+                                    <span>🌐</span>
+                                    <span>Mở Chrome đăng nhập</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setAddAccountTab('cookie');
+                                        handleOpenAddAccountModal();
+                                    }}
+                                    className="py-2.5 bg-white hover:bg-slate-50 text-slate-800 ring-1 ring-slate-900/10 rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-98"
+                                >
+                                    <span>📋</span>
+                                    <span>Dán Cookie (Nhanh 5s)</span>
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-2">
@@ -1043,6 +1161,208 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </span>
                 )}
             </button>
+
+            {/* Modal: Thêm / Kết nối Tài khoản Google cho Veo 3.1 */}
+            {showAddAccountModal && (
+                <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div
+                        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl ring-1 ring-slate-900/10 overflow-hidden flex flex-col animate-scale-in"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-xl shadow-xs">
+                                    🔑
+                                </div>
+                                <div className="flex flex-col">
+                                    <h3 className="text-sm font-bold tracking-tight text-white">
+                                        Kết nối Tài khoản Google (Veo 3.1)
+                                    </h3>
+                                    <span className="text-[11px] text-slate-300">
+                                        Đăng nhập 1 lần để tạo video không giới hạn trên Google Flow
+                                    </span>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!isLoggingInGoogle && !isSubmittingCookie) {
+                                        setShowAddAccountModal(false);
+                                    }
+                                }}
+                                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-sm cursor-pointer transition-all"
+                                title="Đóng"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Modal Tabs */}
+                        <div className="grid grid-cols-2 p-1.5 bg-slate-100 border-b border-slate-200">
+                            <button
+                                type="button"
+                                onClick={() => setAddAccountTab('chrome')}
+                                className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                    addAccountTab === 'chrome'
+                                        ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                <span>🌐</span>
+                                <span>Mở Chrome (Khuyên dùng)</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAddAccountTab('cookie')}
+                                className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                    addAccountTab === 'cookie'
+                                        ? 'bg-white text-amber-700 shadow-xs ring-1 ring-slate-900/5'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                <span>📋</span>
+                                <span>Dán Cookie (Nhanh 5s)</span>
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-5 flex flex-col gap-4">
+                            {addAccountTab === 'chrome' ? (
+                                <div className="flex flex-col gap-3.5">
+                                    <div className="p-3.5 rounded-2xl bg-indigo-50/80 ring-1 ring-indigo-500/20 flex items-start gap-3">
+                                        <span className="text-2xl shrink-0 mt-0.5">💡</span>
+                                        <div className="flex flex-col gap-1 text-[11.5px] text-slate-700 leading-relaxed">
+                                            <span className="font-bold text-indigo-950 text-xs">
+                                                Đăng nhập trực tiếp qua trình duyệt Chrome thật
+                                            </span>
+                                            <p>
+                                                Trình duyệt Chrome trên máy tính của bạn sẽ tự động mở trang Google Flow. Bạn chỉ cần nhập mật khẩu Gmail bình thường (hỗ trợ 100% 2FA, Passkey, không bao giờ bị Google chặn bảo mật).
+                                            </p>
+                                            <p className="text-[10.5px] text-indigo-800 font-semibold mt-1">
+                                                * Sau khi đăng nhập thành công vào Google Flow, Tool sẽ tự động nhận diện và lưu hồ sơ ngay lập tức!
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {chromeAuthStatusText && (
+                                        <div className="p-3 rounded-xl bg-amber-50 ring-1 ring-amber-500/30 flex items-center gap-2.5 text-xs text-amber-900 animate-pulse">
+                                            <span className="text-base">⏳</span>
+                                            <span className="font-medium">{chromeAuthStatusText}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-col gap-2 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={handleStartChromeLogin}
+                                            disabled={isLoggingInGoogle}
+                                            className="w-full min-h-[46px] py-3 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-2xl text-xs font-bold shadow-md shadow-indigo-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 disabled:opacity-50"
+                                        >
+                                            {isLoggingInGoogle ? (
+                                                <>
+                                                    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                                    </svg>
+                                                    <span>Đang chờ bạn đăng nhập trên Chrome...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="text-base">🚀</span>
+                                                    <span>Mở trình duyệt Chrome để đăng nhập</span>
+                                                </>
+                                            )}
+                                        </button>
+
+                                        <p className="text-[10.5px] text-center text-slate-400 italic">
+                                            Nếu Chrome không tự bật hoặc bạn dùng trình duyệt khác, hãy chuyển sang tab "Dán Cookie" ở trên.
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-3.5">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-slate-800">
+                                            Dán chuỗi Cookie hoặc JSON Cookie-Editor:
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={openExternalFlowUrl}
+                                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                                        >
+                                            <span>🔗</span>
+                                            <span>Mở flow.google.com</span>
+                                        </button>
+                                    </div>
+
+                                    <textarea
+                                        value={cookieInputText}
+                                        onChange={(e) => setCookieInputText(e.target.value)}
+                                        placeholder="Dán Cookie tại đây... (Ví dụ: __Secure-1PSID=...; SID=... hoặc định dạng JSON từ tiện ích Cookie-Editor)"
+                                        rows={4}
+                                        className="w-full bg-slate-50 ring-1 ring-slate-900/10 rounded-2xl p-3 text-slate-900 text-xs font-mono leading-relaxed focus:bg-white focus:ring-2 focus:ring-amber-500/40 outline-none transition-all placeholder:text-slate-400"
+                                    />
+
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[11px] font-bold text-slate-700">
+                                            Email tài khoản (Tùy chọn, để dễ phân biệt):
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={cookieEmailText}
+                                            onChange={(e) => setCookieEmailText(e.target.value)}
+                                            placeholder="vidu@gmail.com"
+                                            className="w-full bg-slate-50 ring-1 ring-slate-900/10 rounded-xl px-3 py-2 text-slate-900 text-xs focus:bg-white focus:ring-2 focus:ring-amber-500/40 outline-none transition-all placeholder:text-slate-400"
+                                        />
+                                    </div>
+
+                                    <div className="p-3 rounded-xl bg-slate-50 ring-1 ring-slate-900/5 space-y-1 text-[11px] text-slate-600 leading-relaxed">
+                                        <div className="font-bold text-slate-800 text-xs mb-1">Cách lấy Cookie trong 5 giây:</div>
+                                        <div>1. Mở <code className="bg-slate-200 px-1 py-0.5 rounded text-indigo-700 font-mono">flow.google.com</code> trên Chrome đã đăng nhập.</div>
+                                        <div>2. Cài tiện ích <b>Cookie-Editor</b> trên Chrome, mở lên và bấm <b>Export ➔ JSON</b> (hoặc Copy Header).</div>
+                                        <div>3. Dán vào ô trên và bấm <b>Lưu và Kết nối</b>.</div>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleImportCookies}
+                                        disabled={isSubmittingCookie || !cookieInputText.trim()}
+                                        className="w-full min-h-[44px] py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white rounded-2xl text-xs font-bold shadow-md shadow-amber-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 disabled:opacity-50"
+                                    >
+                                        {isSubmittingCookie ? (
+                                            <>
+                                                <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                                </svg>
+                                                <span>Đang kiểm tra và lưu Cookie...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>💾</span>
+                                                <span>Xác nhận & Lưu tài khoản</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowAddAccountModal(false)}
+                                disabled={isLoggingInGoogle || isSubmittingCookie}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-200/60 cursor-pointer transition-all"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
