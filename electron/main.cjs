@@ -2,20 +2,97 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
+const http = require('http');
+const https = require('https');
+const { spawn } = require('child_process');
 const oauthHandler = require('./oauth-handler.cjs');
 const flowProfileManager = require('./flow-profile-manager.cjs');
+
+// Modern Chrome User-Agent to bypass Google OAuth "disallowed_useragent" / insecure browser check
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+app.userAgentFallback = CHROME_UA;
+
+app.on('web-contents-created', (_event, contents) => {
+    contents.setUserAgent(CHROME_UA);
+});
 
 // Store for user settings
 let downloadPath = app.getPath('downloads');
 
 // Keep a global reference of the window object
 let mainWindow;
+let localServer = null;
 
 // Auto-updater configuration
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 
-function createWindow() {
+/**
+ * Embedded Lightweight Local Server for Desktop App
+ * Solves Firebase Google Sign-In "file:// protocol unauthorized-domain" error
+ * by serving the app on authorized origin "http://localhost:<random-port>".
+ */
+function startLocalServer(distDir) {
+    const mimeTypes = {
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+        '.ttf': 'font/ttf',
+        '.webp': 'image/webp',
+        '.mp4': 'video/mp4'
+    };
+
+    return new Promise((resolve) => {
+        const server = http.createServer((req, res) => {
+            let reqUrl = req.url.split('?')[0];
+            if (reqUrl === '/') reqUrl = '/index.html';
+            let filePath = path.join(distDir, reqUrl);
+
+            if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+                filePath = path.join(distDir, 'index.html');
+            }
+
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+            fs.readFile(filePath, (err, content) => {
+                if (err) {
+                    res.writeHead(500);
+                    res.end('Server Error');
+                } else {
+                    res.writeHead(200, {
+                        'Content-Type': contentType,
+                        'Access-Control-Allow-Origin': '*'
+                    });
+                    res.end(content);
+                }
+            });
+        });
+
+        // 127.0.0.1 with port 0 binds to any available free port automatically
+        server.listen(0, '127.0.0.1', () => {
+            const port = server.address().port;
+            console.log(`[LocalServer] Serving dist at http://localhost:${port}`);
+            localServer = server;
+            resolve(port);
+        });
+
+        server.on('error', (err) => {
+            console.error('[LocalServer] Error:', err);
+            resolve(null);
+        });
+    });
+}
+
+async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
@@ -32,6 +109,30 @@ function createWindow() {
         backgroundColor: '#f8fafc'
     });
 
+    // Support Google OAuth Popups in Electron (Firebase Auth / Google Sign-In)
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (
+            url.includes('accounts.google.com') ||
+            url.includes('firebaseapp.com') ||
+            url.includes('/__/auth/')
+        ) {
+            return {
+                action: 'allow',
+                overrideBrowserWindowOptions: {
+                    width: 520,
+                    height: 680,
+                    autoHideMenuBar: true,
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true
+                    }
+                }
+            };
+        }
+        shell.openExternal(url);
+        return { action: 'deny' };
+    });
+
     // Initialize Flow Profile Manager
     try {
         flowProfileManager.initFlowProfileManager(mainWindow);
@@ -39,12 +140,22 @@ function createWindow() {
         console.error('[FlowProfileManager] Init error:', e);
     }
 
-    // Load the app
+    // Load the app: Always prefer HTTP origin so Firebase Google OAuth succeeds 100%
     if (process.env.NODE_ENV === 'development') {
         mainWindow.loadURL('http://localhost:3000');
         mainWindow.webContents.openDevTools();
     } else {
-        mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+        try {
+            const port = await startLocalServer(path.join(__dirname, '../dist'));
+            if (port) {
+                mainWindow.loadURL(`http://localhost:${port}`);
+            } else {
+                mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+            }
+        } catch (e) {
+            console.error('Failed to start local server, fallback to loadFile:', e);
+            mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+        }
     }
 
     // Show window when ready
@@ -172,14 +283,9 @@ ipcMain.handle('get-app-version', () => {
 });
 
 // ============ ANTIGRAVITY OPEN APP ============
-// Open Antigravity Tools executable (NOT the code editor!)
 ipcMain.handle('antigravity:open-app', async () => {
-    // Scan known installation paths for Antigravity Tools ONLY
-    // NOTE: Do NOT include Antigravity.exe - that is a CODE EDITOR, not the image generation tool
     const possiblePaths = [
-        // User's custom installation path (priority)
         'D:\\APP CÀI NGOÀI\\Antigravity Tools\\antigravity_tools.exe',
-        // Standard installation paths
         path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity Tools', 'antigravity_tools.exe'),
         path.join(process.env.PROGRAMFILES || '', 'Antigravity Tools', 'antigravity_tools.exe'),
         path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity Tools', 'antigravity_tools.exe'),
@@ -199,11 +305,6 @@ ipcMain.handle('antigravity:open-app', async () => {
 });
 
 // ============ ANTIGRAVITY AUTO-UPDATE ============
-const https = require('https');
-const http = require('http');
-const { spawn } = require('child_process');
-
-// Download file from URL to destination
 async function downloadFile(url, destPath, onProgress) {
     return new Promise((resolve, reject) => {
         const protocol = url.startsWith('https') ? https : http;
@@ -211,7 +312,6 @@ async function downloadFile(url, destPath, onProgress) {
         const request = protocol.get(url, {
             headers: { 'User-Agent': 'ImageTool' }
         }, (response) => {
-            // Handle redirects
             if (response.statusCode === 302 || response.statusCode === 301) {
                 downloadFile(response.headers.location, destPath, onProgress)
                     .then(resolve)
@@ -248,7 +348,7 @@ async function downloadFile(url, destPath, onProgress) {
             });
 
             file.on('error', (err) => {
-                fs.unlink(destPath, () => { }); // Delete partial file
+                fs.unlink(destPath, () => { });
                 reject(err);
             });
         });
@@ -261,16 +361,11 @@ async function downloadFile(url, destPath, onProgress) {
     });
 }
 
-// Download Antigravity installer from GitHub
 ipcMain.handle('antigravity:download-installer', async (event, downloadUrl) => {
     try {
         const tempDir = app.getPath('temp');
         const installerPath = path.join(tempDir, 'Antigravity-Tools-Setup.msi');
 
-        console.log('[Antigravity] Downloading from:', downloadUrl);
-        console.log('[Antigravity] Saving to:', installerPath);
-
-        // Delete old installer if exists
         if (fs.existsSync(installerPath)) {
             fs.unlinkSync(installerPath);
         }
@@ -279,26 +374,18 @@ ipcMain.handle('antigravity:download-installer', async (event, downloadUrl) => {
             mainWindow.webContents.send('antigravity:download-progress', progress);
         });
 
-        console.log('[Antigravity] Download complete');
         return { success: true, path: installerPath };
     } catch (error) {
-        console.error('[Antigravity] Download failed:', error);
         return { success: false, error: error.message };
     }
 });
 
-// Install Antigravity using MSI (passive mode = auto upgrade)
 ipcMain.handle('antigravity:install', async (event, installerPath) => {
     try {
-        console.log('[Antigravity] Installing from:', installerPath);
-
         if (!fs.existsSync(installerPath)) {
             return { success: false, error: 'Installer file not found' };
         }
 
-        // Run MSI installer in passive mode (shows progress, no user interaction)
-        // /passive = Passive mode, progress bar only
-        // /norestart = Don't restart after install
         return new Promise((resolve) => {
             const installer = spawn('msiexec', [
                 '/i', installerPath,
@@ -311,13 +398,9 @@ ipcMain.handle('antigravity:install', async (event, installerPath) => {
             });
 
             installer.on('close', (code) => {
-                console.log('[Antigravity] Installer exited with code:', code);
-                // Clean up installer file
-                try {
-                    fs.unlinkSync(installerPath);
-                } catch { }
+                try { fs.unlinkSync(installerPath); } catch { }
 
-                if (code === 0 || code === 3010) { // 3010 = success, restart required
+                if (code === 0 || code === 3010) {
                     resolve({ success: true, code });
                 } else {
                     resolve({ success: false, error: `Installation failed with code ${code}` });
@@ -325,19 +408,16 @@ ipcMain.handle('antigravity:install', async (event, installerPath) => {
             });
 
             installer.on('error', (err) => {
-                console.error('[Antigravity] Installer error:', err);
                 resolve({ success: false, error: err.message });
             });
 
             installer.unref();
         });
     } catch (error) {
-        console.error('[Antigravity] Install failed:', error);
         return { success: false, error: error.message };
     }
 });
 
-// One-click update: Download and Install
 ipcMain.handle('antigravity:auto-update', async (event, downloadUrl) => {
     try {
         mainWindow.webContents.send('antigravity:update-status', { status: 'downloading', message: 'Đang tải xuống...' });
@@ -345,19 +425,16 @@ ipcMain.handle('antigravity:auto-update', async (event, downloadUrl) => {
         const tempDir = app.getPath('temp');
         const installerPath = path.join(tempDir, 'Antigravity-Tools-Setup.msi');
 
-        // Delete old installer if exists
         if (fs.existsSync(installerPath)) {
             fs.unlinkSync(installerPath);
         }
 
-        // Download
         await downloadFile(downloadUrl, installerPath, (progress) => {
             mainWindow.webContents.send('antigravity:download-progress', progress);
         });
 
         mainWindow.webContents.send('antigravity:update-status', { status: 'installing', message: 'Đang cài đặt...' });
 
-        // Install
         return new Promise((resolve) => {
             const installer = spawn('msiexec', [
                 '/i', installerPath,
@@ -395,31 +472,25 @@ ipcMain.handle('antigravity:auto-update', async (event, downloadUrl) => {
 });
 
 // ============ GOOGLE OAUTH FOR GEMINI ============
-
-// Start Google OAuth login flow
 ipcMain.handle('google-oauth:start', async () => {
     try {
         const result = await oauthHandler.startOAuthFlow();
         return result;
     } catch (error) {
-        console.error('[OAuth IPC] Start failed:', error);
         return { success: false, error: error.message };
     }
 });
 
-// Get valid access token (auto-refresh)
 ipcMain.handle('google-oauth:get-token', async () => {
     try {
         const result = await oauthHandler.getAccessToken();
         if (!result) return { success: false, error: 'No tokens available' };
         return { success: true, ...result };
     } catch (error) {
-        console.error('[OAuth IPC] Get token failed:', error);
         return { success: false, error: error.message };
     }
 });
 
-// Get OAuth status
 ipcMain.handle('google-oauth:status', async () => {
     try {
         return oauthHandler.getOAuthStatus();
@@ -428,7 +499,6 @@ ipcMain.handle('google-oauth:status', async () => {
     }
 });
 
-// Logout (clear tokens)
 ipcMain.handle('google-oauth:logout', async () => {
     try {
         oauthHandler.clearTokens();
@@ -438,7 +508,6 @@ ipcMain.handle('google-oauth:logout', async () => {
     }
 });
 
-// Check if Gemini CLI is installed
 ipcMain.handle('google-oauth:check-cli', async () => {
     try {
         return oauthHandler.checkGeminiCliInstalled();
@@ -447,10 +516,8 @@ ipcMain.handle('google-oauth:check-cli', async () => {
     }
 });
 
-// Proxy OAuth API calls through Node.js (bypasses CORS)
 ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, body }) => {
     try {
-        console.log('[OAuth IPC Proxy] Calling:', url);
         const response = await fetch(url, {
             method: method || 'POST',
             headers: headers || {},
@@ -459,7 +526,7 @@ ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, b
 
         const responseText = await response.text();
         let responseJson = null;
-        try { responseJson = JSON.parse(responseText); } catch { /* not JSON */ }
+        try { responseJson = JSON.parse(responseText); } catch { }
 
         return {
             ok: response.ok,
@@ -469,7 +536,6 @@ ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, b
             json: responseJson,
         };
     } catch (error) {
-        console.error('[OAuth IPC Proxy] Error:', error.message);
         return { ok: false, status: 0, error: error.message };
     }
 });
@@ -478,6 +544,9 @@ ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, b
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
+    if (localServer) {
+        try { localServer.close(); } catch (e) { }
+    }
     if (process.platform !== 'darwin') {
         app.quit();
     }
