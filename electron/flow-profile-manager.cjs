@@ -4,8 +4,9 @@
  * Manages multiple isolated Google accounts using Electron persistent partitions (session.fromPartition).
  * Supports:
  * 1. Automatic Google Sign-In via external Chrome + CDP (100% bypasses "This browser or app may not be secure")
+ *    - Auto-closes Chrome window as soon as login is completed!
  * 2. Instant Cookie Import (JSON from Cookie-Editor or raw cookie string)
- * 3. Video generation execution on Google Flow Studio
+ * 3. Video generation execution via flow-py engine with real MP4 downloads (NEVER demo trailer reel)
  */
 
 const { app, BrowserWindow, session, ipcMain, shell } = require('electron');
@@ -17,6 +18,7 @@ const WebSocket = require('ws');
 
 const PROFILES_FILE = path.join(app.getPath('userData'), 'flow_profiles.json');
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const SERVER_URL = 'http://127.0.0.1:8100';
 
 let activeWindow = null;
 let activeChromeProcess = null;
@@ -56,7 +58,7 @@ function findChromeExe() {
     return null;
 }
 
-function httpGetJson(url, timeoutMs = 2000) {
+function httpGetJson(url, timeoutMs = 2500) {
     return new Promise((resolve, reject) => {
         const req = http.get(url, { timeout: timeoutMs }, (res) => {
             let data = '';
@@ -75,6 +77,86 @@ function httpGetJson(url, timeoutMs = 2000) {
         });
         req.on('error', reject);
     });
+}
+
+function httpPostJson(url, postData, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+        try {
+            const u = new URL(url);
+            const payload = JSON.stringify(postData);
+            const req = http.request({
+                hostname: u.hostname,
+                port: u.port || 80,
+                path: u.pathname + u.search,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload)
+                },
+                timeout: timeoutMs
+            }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        resolve({ status: res.statusCode, data: JSON.parse(data) });
+                    } catch (e) {
+                        resolve({ status: res.statusCode, data: data });
+                    }
+                });
+            });
+            req.on('timeout', () => {
+                req.destroy();
+                reject(new Error('Timeout'));
+            });
+            req.on('error', reject);
+            req.write(payload);
+            req.end();
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
+async function ensureVideoServerRunning() {
+    try {
+        const health = await httpGetJson(`${SERVER_URL}/health`, 1200);
+        if (health && health.status === 'ok') {
+            return true;
+        }
+    } catch (e) {}
+
+    // Not running: Start server.py in background
+    const serverDir = path.join(__dirname, '..', 'flow-py-main');
+    const pyScript = path.join(serverDir, 'server.py');
+
+    if (fs.existsSync(pyScript)) {
+        console.log('[FlowProfileManager] Auto-starting flow-py server on port 8100...');
+        try {
+            const pyProcess = spawn('python', ['-X', 'utf8', 'server.py'], {
+                cwd: serverDir,
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: true
+            });
+            pyProcess.unref();
+        } catch (err) {
+            console.error('[FlowProfileManager] Failed to spawn python server:', err);
+        }
+
+        // Wait up to 10 seconds for server to start
+        for (let i = 0; i < 15; i++) {
+            await new Promise(r => setTimeout(r, 700));
+            try {
+                const health = await httpGetJson(`${SERVER_URL}/health`, 1000);
+                if (health && health.status === 'ok') {
+                    console.log('[FlowProfileManager] Flow server is now ready on port 8100!');
+                    return true;
+                }
+            } catch (e) {}
+        }
+    }
+    return false;
 }
 
 function getCdpCookies(wsUrl) {
@@ -131,9 +213,7 @@ function evalOnTab(wsUrl, expression) {
                     try { ws.close(); } catch (e) {}
                     resolve(msg.result?.result?.value);
                 }
-            } catch (e) {
-                resolve(null);
-            }
+            } catch (e) {}
         });
 
         ws.on('error', () => {
@@ -459,6 +539,12 @@ function initFlowProfileManager(mainWindow) {
                             list.push(newProfile);
                             saveProfiles(list);
 
+                            // Automatically close Chrome window once auth is completed!
+                            if (activeChromeProcess) {
+                                try { activeChromeProcess.kill(); } catch (e) {}
+                                activeChromeProcess = null;
+                            }
+
                             if (activeWindow && !activeWindow.isDestroyed()) {
                                 activeWindow.webContents.send('flow-auth:status', {
                                     status: 'success',
@@ -493,7 +579,7 @@ function initFlowProfileManager(mainWindow) {
         }
     });
 
-    // 6. Generate Video via Selected Profile
+    // 6. Generate Video via Selected Profile (Using flow-py engine with real MP4 downloads)
     ipcMain.handle('flow-profile:generate-video', async (_event, params) => {
         const {
             accountId,
@@ -527,7 +613,7 @@ function initFlowProfileManager(mainWindow) {
         if (activeWindow && !activeWindow.isDestroyed()) {
             activeWindow.webContents.send('flow-video:progress', {
                 status: 'connecting',
-                progress: 15,
+                progress: 10,
                 message: `Đang kết nối tài khoản Google: ${selected.email}...`
             });
         }
@@ -546,151 +632,145 @@ function initFlowProfileManager(mainWindow) {
             };
         }
 
-        return new Promise(async (resolve) => {
-            let workerWin = null;
+        // 1. Ensure Python Flow Server is Running
+        if (activeWindow && !activeWindow.isDestroyed()) {
+            activeWindow.webContents.send('flow-video:progress', {
+                status: 'starting_server',
+                progress: 20,
+                message: 'Đang khởi động môi trường xử lý Google Flow Studio...'
+            });
+        }
+
+        const serverReady = await ensureVideoServerRunning();
+        if (!serverReady) {
+            return {
+                success: false,
+                error: 'Không thể khởi động bộ xử lý Google Flow (Server 8100). Vui lòng kiểm tra Python trên máy tính!'
+            };
+        }
+
+        // 2. Submit Job to Flow Server
+        if (activeWindow && !activeWindow.isDestroyed()) {
+            activeWindow.webContents.send('flow-video:progress', {
+                status: 'submitting',
+                progress: 35,
+                message: 'Đang tải ảnh nguồn và câu lệnh lên mô hình Veo 3.1...'
+            });
+        }
+
+        const mappedCookies = cookies.map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            httpOnly: c.httpOnly
+        }));
+
+        let jobSubmitRes;
+        try {
+            jobSubmitRes = await httpPostJson(`${SERVER_URL}/v1/videos/generations`, {
+                prompt: prompt,
+                aspect_ratio: aspectRatio,
+                images: inputImageBase64 ? [inputImageBase64] : [],
+                model: model,
+                count: outputCount,
+                cookies: mappedCookies
+            }, 25000);
+        } catch (postErr) {
+            return {
+                success: false,
+                error: `Lỗi kết nối tới Server Video: ${postErr.message}`
+            };
+        }
+
+        if (!jobSubmitRes || jobSubmitRes.status !== 202 || !jobSubmitRes.data?.id) {
+            const errDetail = jobSubmitRes?.data?.detail || jobSubmitRes?.data?.error || 'Không thể tạo tác vụ video';
+            return {
+                success: false,
+                error: `Google Flow từ chối yêu cầu: ${errDetail}`
+            };
+        }
+
+        const jobId = jobSubmitRes.data.id;
+
+        // 3. Poll Job Status until completed
+        const startTime = Date.now();
+        const MAX_POLL_MS = 600000; // 10 minutes timeout
+
+        return new Promise((resolve) => {
             let isDone = false;
 
-            const cleanup = () => {
-                if (workerWin && !workerWin.isDestroyed()) {
-                    workerWin.destroy();
-                    workerWin = null;
+            const pollTimer = setInterval(async () => {
+                if (isDone) {
+                    clearInterval(pollTimer);
+                    return;
                 }
-            };
 
-            const timeoutId = setTimeout(() => {
-                if (!isDone) {
+                if (Date.now() - startTime > MAX_POLL_MS) {
+                    clearInterval(pollTimer);
                     isDone = true;
-                    cleanup();
                     resolve({
                         success: false,
-                        error: 'Quá thời gian tạo video (Timeout). Hãy thử lại hoặc chuyển sang mô hình khác.'
+                        error: 'Quá thời gian tạo video (Timeout 10 phút). Vui lòng thử lại!'
                     });
-                }
-            }, 300000); // 5 minutes timeout
-
-            try {
-                // Launch background worker window with profile partition
-                workerWin = new BrowserWindow({
-                    width: 1280,
-                    height: 800,
-                    show: false, // Hidden background execution
-                    webPreferences: {
-                        partition: selected.partition,
-                        nodeIntegration: false,
-                        contextIsolation: true
-                    }
-                });
-
-                if (activeWindow && !activeWindow.isDestroyed()) {
-                    activeWindow.webContents.send('flow-video:progress', {
-                        status: 'launching',
-                        progress: 30,
-                        message: 'Đang mở môi trường Google Flow Studio...'
-                    });
+                    return;
                 }
 
-                // Load Flow App
-                await workerWin.loadURL('https://flow.google.com/');
+                try {
+                    const statusRes = await httpGetJson(`${SERVER_URL}/v1/videos/generations/${jobId}`, 3000);
+                    if (!statusRes) return;
 
-                if (activeWindow && !activeWindow.isDestroyed()) {
-                    activeWindow.webContents.send('flow-video:progress', {
-                        status: 'rendering',
-                        progress: 55,
-                        message: 'Đang gửi ảnh và câu lệnh tới mô hình Veo 3.1...'
-                    });
-                }
-
-                // Read content_flow.js automation if exists
-                const contentFlowPath = path.join(__dirname, '..', 'extension-flow-bridge', 'content_flow.js');
-                let contentFlowCode = '';
-                if (fs.existsSync(contentFlowPath)) {
-                    contentFlowCode = fs.readFileSync(contentFlowPath, 'utf-8');
-                }
-
-                // Automation execution inside Flow page
-                const scriptResult = await workerWin.webContents.executeJavaScript(`
-                    (async function() {
-                        try {
-                            var title = document.title || '';
-                            return { status: 'submitted', title: title };
-                        } catch(e) {
-                            return { error: e.message };
-                        }
-                    })()
-                `);
-
-                // Progress simulation while Veo renders
-                let currentProgress = 60;
-                const progressInterval = setInterval(() => {
-                    if (isDone) {
-                        clearInterval(progressInterval);
-                        return;
-                    }
-                    currentProgress = Math.min(currentProgress + 5, 95);
-                    if (activeWindow && !activeWindow.isDestroyed()) {
+                    // Forward progress text to renderer UI
+                    if (activeWindow && !activeWindow.isDestroyed() && statusRes.progress_text) {
+                        const elapsed = Math.round((Date.now() - startTime) / 1000);
                         activeWindow.webContents.send('flow-video:progress', {
-                            status: 'processing',
-                            progress: currentProgress,
-                            message: `AI Veo đang dựng chuyển động điện ảnh (${currentProgress}%)...`
+                            status: statusRes.status,
+                            progress: Math.min(40 + Math.floor(elapsed / 4), 95),
+                            message: `${statusRes.progress_text} (${elapsed}s)`
                         });
                     }
-                }, 4000);
 
-                // Check for video outputs
-                const checkInterval = setInterval(async () => {
-                    if (isDone) {
-                        clearInterval(checkInterval);
+                    if (statusRes.status === 'completed') {
+                        isDone = true;
+                        clearInterval(pollTimer);
+
+                        let finalUrl = statusRes.url || statusRes.urls?.[0] || '';
+                        if (finalUrl && finalUrl.startsWith('/')) {
+                            finalUrl = `${SERVER_URL}${finalUrl}`;
+                        }
+                        const finalUrls = (statusRes.urls || [finalUrl]).map(u => u.startsWith('/') ? `${SERVER_URL}${u}` : u);
+
+                        if (activeWindow && !activeWindow.isDestroyed()) {
+                            activeWindow.webContents.send('flow-video:progress', {
+                                status: 'completed',
+                                progress: 100,
+                                message: 'Đã tạo video hoàn tất!'
+                            });
+                        }
+
+                        resolve({
+                            success: true,
+                            url: finalUrl,
+                            urls: finalUrls,
+                            message: `Tạo video thành công bằng tài khoản ${selected.email}`
+                        });
                         return;
                     }
 
-                    try {
-                        const videoInfo = await workerWin.webContents.executeJavaScript(`
-                            (function() {
-                                var vids = document.querySelectorAll('video');
-                                for (var i = 0; i < vids.length; i++) {
-                                    var src = vids[i].currentSrc || vids[i].src;
-                                    if (src && (src.includes('googlevideo.com') || src.includes('.mp4') || src.startsWith('blob:'))) {
-                                        return { found: true, src: src };
-                                    }
-                                }
-                                return { found: false };
-                            })()
-                        `);
-
-                        if (videoInfo && videoInfo.found && videoInfo.src) {
-                            isDone = true;
-                            clearInterval(progressInterval);
-                            clearInterval(checkInterval);
-                            clearTimeout(timeoutId);
-
-                            if (activeWindow && !activeWindow.isDestroyed()) {
-                                activeWindow.webContents.send('flow-video:progress', {
-                                    status: 'completed',
-                                    progress: 100,
-                                    message: 'Đã tạo video hoàn tất!'
-                                });
-                            }
-
-                            cleanup();
-                            resolve({
-                                success: true,
-                                url: videoInfo.src,
-                                urls: [videoInfo.src],
-                                message: 'Tạo video thành công bằng tài khoản ' + selected.email
-                            });
-                        }
-                    } catch (e) {}
-                }, 3000);
-
-            } catch (err) {
-                clearTimeout(timeoutId);
-                isDone = true;
-                cleanup();
-                resolve({
-                    success: false,
-                    error: err.message || 'Lỗi khi khởi chạy tiến trình video'
-                });
-            }
+                    if (statusRes.status === 'failed') {
+                        isDone = true;
+                        clearInterval(pollTimer);
+                        resolve({
+                            success: false,
+                            error: statusRes.error || 'Quá trình tạo video trên Google Flow thất bại.'
+                        });
+                        return;
+                    }
+                } catch (e) {
+                    // Ignore transient network errors during poll
+                }
+            }, 2500);
         });
     });
 }

@@ -194,7 +194,9 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                         </div>
                         <div className="text-left">
                             <h3 className="text-base font-bold text-slate-900">Hoàn thành!</h3>
-                            <p className="text-slate-600 text-xs font-medium">Đã tạo thành công {outputImages.filter(i => i).length} ảnh chuẩn nét.</p>
+                            <p className="text-slate-600 text-xs font-medium">
+                                Đã tạo thành công {outputImages.filter(i => i).length} {outputImages.some(i => i && isVideoUrl(i)) ? 'video điện ảnh' : 'ảnh chuẩn nét'}.
+                            </p>
                         </div>
                     </div>
                 ) : (
