@@ -1,14 +1,13 @@
 /**
- * Background Service Worker for vip-imagetools Extension
+ * Background Service Worker for vip-imagetools Extension (v1.0.5)
  * 
  * Tối ưu hoá Phương án 2: Bắt trực tiếp tab Google Flow đang mở của người dùng,
  * giữ kết nối liên tục (heartbeat) để chống Chrome đóng băng ngầm (tab throttling),
- * tự động bắt link video trả thẳng về web ImageTool.
+ * tự động bắt link video trả thẳng về web vip-imagetools.
  */
 
-const CANONICAL_SHARED_TOOL_URL =
-  'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719';
-const DEFAULT_TOOL_URL = CANONICAL_SHARED_TOOL_URL;
+const DEFAULT_FALLBACK_PROJECT_ID = 'dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b';
+const DEFAULT_TOOL_URL = `https://flow.google.com/project/${DEFAULT_FALLBACK_PROJECT_ID}`;
 
 // 1. Check if user has active Google Flow cookies
 async function checkFlowAuth() {
@@ -146,53 +145,57 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// Helper to normalize a Flow URL to the project studio (removing /tools or /tool/...)
+function normalizeToStudioUrl(url) {
+  if (!url) return DEFAULT_TOOL_URL;
+  const match = url.match(/\/project\/([a-f0-9\-]{8,})/i);
+  if (match) {
+    return `https://flow.google.com/project/${match[1]}`;
+  }
+  return DEFAULT_TOOL_URL;
+}
+
 // 3. Execution Pipeline: Reuses Existing Flow Tab & Injects Interceptors
 async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
-  const targetUrl = payload?.toolUrl || DEFAULT_TOOL_URL;
+  let targetUrl = payload?.toolUrl || DEFAULT_TOOL_URL;
+  targetUrl = normalizeToStudioUrl(targetUrl);
 
   // Step A: Search for existing tabs on flow.google.com
   const existingTabs = await chrome.tabs.query({ url: '*://flow.google.com/*' });
   
-  // 1. Search for exact shared tool or project tool tab
-  let flowTab = existingTabs.find((t) =>
-    t.url && (
-      t.url.includes('c056b8dd') ||
-      t.url.includes('b18b72cc') ||
-      t.url.includes('/shared/tool/') ||
-      (t.url.includes('/tool/') && !t.url.includes('/tools'))
-    )
-  );
+  // 1. Search for existing project tab
+  let flowTab = existingTabs.find((t) => t.url && t.url.includes('/project/'));
 
   // 2. Search by tab title
   if (!flowTab) {
     flowTab = existingTabs.find(
-      (t) => t.title && (t.title.includes('ImageTool') || t.title.includes('VideoTool') || t.title.includes('Pro Studio'))
+      (t) => t.title && (t.title.includes('Google Flow') || t.title.includes('Flow') || t.title.includes('VideoTool') || t.title.includes('ImageTool'))
     );
   }
 
-  // 3. Fallback: Any Flow tab that is currently open -> navigate to the canonical shared tool
+  // 3. Fallback: Any Flow tab that is currently open
   if (!flowTab && existingTabs.length > 0) {
     flowTab = existingTabs[0];
-    console.log('[Background] Navigating existing Google Flow tab to shared tool:', targetUrl);
-    await chrome.tabs.update(flowTab.id, { url: targetUrl });
-    await new Promise((r) => setTimeout(r, 4500));
-  } else if (!flowTab) {
-    console.log('[Background] No Flow tab found, opening canonical shared tool tab');
+  }
+
+  if (flowTab) {
+    // If the tab is currently on /tools or a broken /tool/... view, normalize it to the project studio
+    const studioUrl = normalizeToStudioUrl(flowTab.url || targetUrl);
+    if (!flowTab.url || flowTab.url.includes('/tools') || (flowTab.url.includes('/tool/') && flowTab.url.includes('?mode=APP'))) {
+      console.log('[Background] Normalizing existing Flow tab to project studio:', studioUrl);
+      await chrome.tabs.update(flowTab.id, { url: studioUrl });
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+  } else {
+    console.log('[Background] No Flow tab found, opening project studio in background tab:', targetUrl);
     flowTab = await chrome.tabs.create({
       url: targetUrl,
       active: false,
     });
     await new Promise((r) => setTimeout(r, 4500));
-  } else {
-    // If tab URL accidentally moved to /tools explore catalog, restore shared tool URL
-    if (flowTab.url && flowTab.url.includes('/tools') && !flowTab.url.includes('/tool/')) {
-      console.log('[Background] Tab redirected to /tools catalog, restoring shared tool URL:', targetUrl);
-      await chrome.tabs.update(flowTab.id, { url: targetUrl });
-      await new Promise((r) => setTimeout(r, 4500));
-    }
   }
 
-  // Ensure caller tab stays focused
+  // Ensure caller tab stays focused so user experience is not disrupted
   if (callerTabId) {
     chrome.tabs.update(callerTabId, { active: true }).catch(() => {});
   }
@@ -325,4 +328,3 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
     // NEVER close the flow tab - keep it open for subsequent generations!
   }
 }
-

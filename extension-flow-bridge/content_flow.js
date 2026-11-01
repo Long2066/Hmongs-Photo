@@ -1,19 +1,19 @@
 /**
- * Content Script for Google Flow Tool App (flow.google.com)
+ * Content Script for Google Flow (flow.google.com) - Version 1.0.5
  * 
- * Specifically customized to automate "VIDEOTOOL PRO / ImageTool Pro" tool:
- * URL: https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP
+ * Tối ưu hoá tương tác trên Google Flow Studio (veo 3.1):
+ * - Tự động phát hiện và thoát khỏi trang danh mục /tools về thẳng Project Studio.
+ * - Hỗ trợ nạp ảnh vào khung Bắt đầu (Start Frame), cấu hình Model/Tỉ lệ, nhập Prompt và gửi lệnh Tạo.
+ * - Bắt trực tiếp link video từ video elements và Network Interceptor MAIN world.
  */
 
 (function () {
-  // Prevent duplicate script execution
   if (window.__FLOW_CONTENT_SCRIPT_INITIALIZED__) {
     console.log('[Flow Bridge] Content script already initialized in this tab.');
     return;
   }
   window.__FLOW_CONTENT_SCRIPT_INITIALIZED__ = true;
 
-  // Global store for intercepted video URLs from page MAIN world
   let latestCapturedVideoUrl = null;
 
   window.addEventListener('message', (event) => {
@@ -23,7 +23,7 @@
     }
   });
 
-  // Convert base64 (raw or data URL) to File object safely without crashing
+  // Base64 to File object converter
   function base64ToFile(rawOrDataUrl, filename = 'input_image.png', defaultMime = 'image/png') {
     if (!rawOrDataUrl) return null;
 
@@ -58,7 +58,7 @@
     }
   }
 
-  // Convert blob URL to base64 Data URL so it is cross-origin accessible
+  // Convert blob URL to cross-origin accessible base64 Data URL
   async function resolveVideoSrc(src) {
     if (!src) return null;
     if (src.startsWith('blob:')) {
@@ -80,7 +80,7 @@
     return src;
   }
 
-  // Helper to click an interactive element matching text
+  // Click element matching text
   function clickElementByText(matchers, container = document) {
     const elements = [
       ...container.querySelectorAll(
@@ -104,87 +104,206 @@
     return false;
   }
 
-  // Ensure the tool panel is expanded and not an empty grey canvas or catalog page
-  async function ensureToolPanelOpen() {
-    // If somehow on /tools catalog, redirect immediately to the canonical shared tool URL
-    if (window.location.href.includes('/tools') && !window.location.href.includes('/tool/')) {
-      console.log('[Flow Bridge] Tab is on /tools catalog page, redirecting to shared tool URL...');
-      window.location.href =
-        'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719';
-      await new Promise((r) => setTimeout(r, 4500));
-      return;
+  // Normalize current view: If stuck on /tools catalog, navigate to project studio
+  async function ensureProjectStudioView() {
+    const curUrl = window.location.href;
+
+    // If on /tools catalog or blank tool app canvas, move to project studio
+    if (curUrl.includes('/tools') || (curUrl.includes('/tool/') && curUrl.includes('?mode=APP'))) {
+      const match = curUrl.match(/\/project\/([a-f0-9\-]{8,})/i);
+      if (match) {
+        const studioUrl = `https://flow.google.com/project/${match[1]}`;
+        console.log('[Flow Bridge] Navigating from catalog/canvas to project studio:', studioUrl);
+        window.location.href = studioUrl;
+        await new Promise((r) => setTimeout(r, 4000));
+        return;
+      }
     }
 
-    // Check if on shared tool landing page with a "Sử dụng công cụ" or "Use tool" button
+    // If on shared tool landing page, click use tool if present
     const useToolBtn = [...document.querySelectorAll('button, div[role="button"], a')].find((el) => {
       const txt = (el.innerText || el.textContent || '').toLowerCase().trim();
-      return (
-        txt === 'sử dụng công cụ' ||
-        txt === 'use tool' ||
-        txt === 'dùng công cụ' ||
-        txt === 'mở công cụ' ||
-        txt === 'thử công cụ'
-      );
+      return txt === 'sử dụng công cụ' || txt === 'use tool' || txt === 'dùng công cụ';
     });
     if (useToolBtn) {
-      console.log('[Flow Bridge] Found "Use tool" button on shared tool landing page, clicking it...');
       useToolBtn.click();
       await new Promise((r) => setTimeout(r, 2000));
     }
+  }
 
-    // Wait up to 12s for the tool UI to paint
-    const t0 = Date.now();
-    while (Date.now() - t0 < 12000) {
-      const hasToolUi =
-        document.querySelector('textarea, input[type="file"]') ||
-        [...document.querySelectorAll('button, div')].some((el) => {
-          const txt = (el.innerText || '').toLowerCase();
-          return (
-            txt.includes('khởi tạo video') ||
-            txt.includes('model video') ||
-            txt.includes('media tham chiếu') ||
-            txt.includes('studio ảnh ai')
-          );
-        });
+  // Standard Google Flow Project Studio: Open settings panel (Veo/Aspect/Count)
+  async function openProjectSettingsPanel() {
+    // Check if settings popover is already visible
+    const isVisible = [...document.querySelectorAll('[role="tab"], button[role="radio"]')].some((el) => {
+      const txt = (el.textContent || '').toLowerCase();
+      return txt.includes('16:9') || txt.includes('9:16') || txt.includes('video') || txt.includes('khung hình');
+    });
+    if (isVisible) return true;
 
-      if (hasToolUi) {
-        console.log('[Flow Bridge] Tool UI confirmed visible on canvas.');
+    // Trigger settings by clicking model pill button (Nano Banana, Veo, Omni, x1, x2)
+    const triggerSels = [
+      'button[aria-label="Điều kiện kích hoạt cài đặt"]',
+      'button[aria-label*="kích hoạt cài đặt" i]',
+      'button[aria-label*="setting" i]',
+      'button:has([class*="tune"])',
+    ];
+
+    for (const sel of triggerSels) {
+      const el = document.querySelector(sel);
+      if (el) {
+        el.click();
+        await new Promise((r) => setTimeout(r, 600));
+        return true;
+      }
+    }
+
+    // Fallback: search by text fragments
+    const pillTexts = ['veo', 'omni', 'banana', 'imagen', 'video', 'x1', 'x2'];
+    const allBtns = [...document.querySelectorAll('button')];
+    const pill = allBtns.find((b) => {
+      const t = (b.textContent || '').toLowerCase();
+      return pillTexts.some((pt) => t.includes(pt));
+    });
+
+    if (pill) {
+      pill.click();
+      await new Promise((r) => setTimeout(r, 600));
+      return true;
+    }
+
+    return false;
+  }
+
+  // Standard Google Flow: Upload Start-Frame Image
+  async function uploadStartFrameImage(file) {
+    if (!file) return false;
+    const dt = new DataTransfer();
+    dt.items.add(file);
+
+    // 1. Click "Bắt đầu" (Start) picker button in the bottom input bar
+    const startBtns = [...document.querySelectorAll('button')].filter((b) => {
+      const txt = (b.textContent || '').trim().toLowerCase();
+      const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+      return (txt === 'bắt đầu' || txt === 'start' || txt.includes('thêm thành phần')) && !aria.includes('tạo');
+    });
+
+    if (startBtns.length > 0) {
+      startBtns[0].click();
+      await new Promise((r) => setTimeout(r, 800));
+    }
+
+    // 2. Look for file input or trigger "uploadTải nội dung nghe nhìn lên"
+    let fileInputs = [...document.querySelectorAll('input[type="file"]')];
+    if (fileInputs.length === 0) {
+      const uploadTrig = [...document.querySelectorAll('button, div[role="button"], label')].find((el) => {
+        const txt = (el.innerText || el.textContent || '').toLowerCase();
+        return txt.includes('tải nội dung') || txt.includes('upload media') || txt.includes('tải lên');
+      });
+      if (uploadTrig) {
+        uploadTrig.click();
+        await new Promise((r) => setTimeout(r, 600));
+        fileInputs = [...document.querySelectorAll('input[type="file"]')];
+      }
+    }
+
+    if (fileInputs.length > 0) {
+      for (const input of fileInputs) {
+        input.files = dt.files;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[Flow Bridge] Injected image into Google Flow file input');
+      }
+    }
+
+    // 3. Fallback: Drag and drop on dropzones
+    const dropZones = [...document.querySelectorAll('div, section, label')].filter((el) => {
+      const txt = (el.innerText || el.textContent || '').toLowerCase();
+      return txt.includes('bắt đầu') || txt.includes('thêm ảnh') || el.className?.includes?.('upload');
+    });
+    for (const dz of dropZones.slice(0, 2)) {
+      dz.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      dz.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      dz.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    }
+
+    // 4. Wait for upload to process and attach to prompt
+    await new Promise((r) => setTimeout(r, 2000));
+    const addPromptBtn = [...document.querySelectorAll('button')].find((b) => {
+      const txt = (b.textContent || '').toLowerCase();
+      return txt.includes('thêm vào câu lệnh') || txt.includes('add to prompt');
+    });
+    if (addPromptBtn && !addPromptBtn.disabled) {
+      addPromptBtn.click();
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    return true;
+  }
+
+  // Fill prompt text
+  async function fillPromptText(prompt) {
+    if (!prompt) return;
+
+    // Search for contenteditable div (Standard Studio)
+    const editables = [...document.querySelectorAll('div[contenteditable="true"]')];
+    for (const el of editables) {
+      if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+        el.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, prompt);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[Flow Bridge] Filled prompt into contenteditable div');
         return;
       }
+    }
 
-      // Try clicking pinned tool in sidebar if visible
-      const sidebarItems = [...document.querySelectorAll('[class*="pinned"], [role="button"], a, div')];
-      const pinnedTool = sidebarItems.find((el) => {
-        const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
-        return txt.includes('videotool') || txt.includes('imagetool') || txt.includes('pro studio');
+    // Fallback: textarea or text input
+    const textareas = [...document.querySelectorAll('textarea, input[type="text"]')];
+    if (textareas.length > 0) {
+      const ta = textareas[0];
+      ta.value = prompt;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log('[Flow Bridge] Filled prompt into textarea');
+    }
+  }
+
+  // Click Submit (Create) button
+  async function clickSubmitButton() {
+    const startWait = Date.now();
+    while (Date.now() - startWait < 20000) {
+      const allBtns = [...document.querySelectorAll('button, div[role="button"]')];
+
+      const submitBtn = allBtns.find((btn) => {
+        const txt = (btn.innerText || btn.textContent || '').toLowerCase().trim();
+        const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
+        if (txt.includes('tải tác phẩm') || txt.includes('download')) return false;
+
+        return (
+          aria.includes('bắt đầu tạo') ||
+          txt.includes('arrow_forward') ||
+          txt === 'tạo' ||
+          txt === 'create' ||
+          txt.includes('tạo chuyển động') ||
+          txt.includes('khởi tạo')
+        );
       });
-      if (pinnedTool) {
-        pinnedTool.click();
-        console.log('[Flow Bridge] Clicked pinned tool in sidebar');
+
+      if (submitBtn) {
+        submitBtn.click();
+        console.log('[Flow Bridge] Clicked submit button successfully!');
+        return true;
       }
 
       await new Promise((r) => setTimeout(r, 1000));
     }
+
+    return false;
   }
 
-  // Ensure the "KHỞI TẠO VIDEO" tab is selected
-  async function ensureVideoTabSelected() {
-    const allTabs = [
-      ...document.querySelectorAll('button, div[role="tab"], div[role="button"], div, a'),
-    ];
-    const videoTab = allTabs.find((el) => {
-      const txt = (el.innerText || el.textContent || '').toLowerCase().trim();
-      return txt.includes('khởi tạo video') || txt.includes('motion fidelity');
-    });
-
-    if (videoTab) {
-      videoTab.click();
-      console.log('[Flow Bridge] Switched to KHỞI TẠO VIDEO tab');
-      await new Promise((r) => setTimeout(r, 1200));
-    }
-  }
-
-  // Listen for execution and heartbeat commands from background script
+  // Listen for execution commands
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'FLOW_HEARTBEAT') {
       sendResponse({ ok: true, alive: true });
@@ -192,14 +311,14 @@
     }
 
     if (request.action === 'EXECUTE_TOOL') {
-      handleToolExecution(request.data)
+      handleExecution(request.data)
         .then((result) => sendResponse({ ok: true, result }))
         .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
-      return true; // Keep message channel open for async response
+      return true;
     }
   });
 
-  async function handleToolExecution(data) {
+  async function handleExecution(data) {
     const {
       prompt,
       model = 'Veo 3.1 - Lite',
@@ -212,258 +331,98 @@
       requestId,
     } = data;
 
-    latestCapturedVideoUrl = null; // Reset captured URL for new run
+    latestCapturedVideoUrl = null;
 
-    console.log('[Flow Bridge] Starting synced execution on VideoTool Pro:', {
+    console.log('[Flow Bridge 1.0.5] Starting generation execution:', {
       model,
-      preset,
       aspectRatio,
-      resolution,
-      duration,
-      variations,
       hasImage: !!imageBase64,
     });
 
-    // 1. Wait for page interactive
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 1200));
 
-    // 2. Ensure tool panel is open on the canvas
-    await ensureToolPanelOpen();
+    // 1. Ensure tab is on Project Studio, not catalog
+    await ensureProjectStudioView();
 
-    // 3. Ensure "KHỞI TẠO VIDEO" tab is active
-    await ensureVideoTabSelected();
+    // 2. Open Settings Panel
+    await openProjectSettingsPanel();
 
-    // 4. Select Model Video AI (Omni 1.1 Flash, Veo 3.1 - Lite, Veo 3.1 - Fast)
-    if (model) {
-      if (model.includes('Lite')) {
-        clickElementByText(['Veo 3.1 - Lite', 'Veo 3.1 Lite', 'Lite']);
-      } else if (model.includes('Fast')) {
-        clickElementByText(['Veo 3.1 - Fast', 'Veo 3.1 Fast', 'Fast']);
-      } else if (model.includes('Omni') || model.includes('Flash')) {
-        clickElementByText(['Omni 1.1 Flash', 'Omni']);
-      }
-      await new Promise((r) => setTimeout(r, 400));
+    // 3. Switch mode to Video / Frames
+    clickElementByText(['Khung hình', 'Frames', 'Video', 'videocam']);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 4. Set Aspect Ratio
+    if (aspectRatio === '9:16') {
+      clickElementByText(['9:16', 'Portrait', 'Dọc']);
+    } else {
+      clickElementByText(['16:9', 'Landscape', 'Ngang']);
     }
+    await new Promise((r) => setTimeout(r, 300));
 
-    // 5. Upload / Inject source photo into ẢNH NGUỒN TẠO VIDEO (I2V) / MEDIA THAM CHIẾU
-    if (imageBase64) {
-      try {
-        const file = base64ToFile(imageBase64, 'source_photo.png');
-        if (!file) {
-          throw new Error('Dữ liệu ảnh nguồn không hợp lệ hoặc không chuyển đổi được.');
-        }
-        console.log('[Flow Bridge] Prepared source image File:', file.name, file.size, 'bytes, type:', file.type);
-
-        const dt = new DataTransfer();
-        dt.items.add(file);
-
-        // Strategy A: Find all file inputs currently in DOM
-        let fileInputs = [...document.querySelectorAll('input[type="file"]')];
-
-        // Strategy B: Click upload trigger box if no file input found
-        if (fileInputs.length === 0) {
-          const uploadBox = [...document.querySelectorAll('button, div[role="button"], div, label')].find((el) => {
-            const txt = (el.innerText || el.textContent || '').toLowerCase();
-            return (
-              txt.includes('thêm ảnh nguồn') ||
-              txt.includes('media tham chiếu') ||
-              txt.includes('tải lên')
-            );
-          });
-          if (uploadBox) {
-            uploadBox.click();
-            await new Promise((r) => setTimeout(r, 600));
-            fileInputs = [...document.querySelectorAll('input[type="file"]')];
-          }
-        }
-
-        // Populate file inputs
-        if (fileInputs.length > 0) {
-          for (const input of fileInputs) {
-            input.files = dt.files;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[Flow Bridge] Injected image into file input element');
-          }
-        }
-
-        // Strategy C: Dispatch drag & drop on dropzones
-        const dropZones = [...document.querySelectorAll('div, section, label')].filter((el) => {
-          const txt = (el.innerText || el.textContent || '').toLowerCase();
-          return (
-            txt.includes('thêm ảnh nguồn') ||
-            txt.includes('media tham chiếu') ||
-            el.className?.includes?.('drop') ||
-            el.className?.includes?.('upload')
-          );
-        });
-        for (const target of dropZones.slice(0, 3)) {
-          target.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
-          target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-          target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
-          console.log('[Flow Bridge] Dispatched drop event on dropzone');
-        }
-
-        // Strategy D: Dispatch paste event
-        try {
-          const pasteEvent = new ClipboardEvent('paste', {
-            bubbles: true,
-            cancelable: true,
-            clipboardData: dt,
-          });
-          document.dispatchEvent(pasteEvent);
-        } catch (pe) {}
-
-        console.log('[Flow Bridge] Image injection routines executed');
-        await new Promise((r) => setTimeout(r, 2000));
-      } catch (err) {
-        console.warn('[Flow Bridge] Error uploading image:', err);
-      }
-    }
-
-    // 6. Select Preset Chuyển Động
-    if (preset) {
-      clickElementByText([
-        preset,
-        preset.replace('Chân dung tự nhiên', 'Chân dung'),
-        preset.replace('Camera Pan điện ảnh', 'Camera Pan'),
-        preset.replace('Bước đi Fashion Runway', 'Fashion Runway'),
-        preset.replace('Gió & Ngoại cảnh phiêu lãng', 'Gió & Ngoại cảnh'),
-        preset.replace('Slow Push-in (Tiến gần)', 'Slow Push-in'),
-      ]);
-      await new Promise((r) => setTimeout(r, 400));
-    }
-
-    // 7. Select Tỉ lệ khung hình (16:9 / 9:16)
-    if (aspectRatio) {
-      clickElementByText([aspectRatio, aspectRatio === '16:9' ? 'Ngang' : 'Dọc']);
-      await new Promise((r) => setTimeout(r, 300));
-    }
-
-    // 8. Select Độ phân giải (360p / 720p)
-    if (resolution) {
-      clickElementByText([resolution, resolution === '720p' ? 'Chuẩn sắc nét' : 'Xem trước']);
-      await new Promise((r) => setTimeout(r, 300));
-    }
-
-    // 9. Select Thời lượng (4s, 6s, 8s, 10s)
-    if (duration) {
-      const durStr = duration.endsWith('s') ? duration : `${duration}s`;
-      clickElementByText([durStr, `${duration} Giây`]);
-      await new Promise((r) => setTimeout(r, 300));
-    }
-
-    // 10. Select Số lượng biến thể (1 video, 2 video, 3 video)
+    // 5. Set Count
     if (variations) {
-      clickElementByText([`${variations} video`, `${variations}`]);
+      clickElementByText([`x${variations}`, `${variations} video`]);
       await new Promise((r) => setTimeout(r, 300));
     }
 
-    // 11. Input Prompt / Kịch bản bổ sung
-    if (prompt) {
-      const textareas = [
-        ...document.querySelectorAll('textarea, div[contenteditable="true"], input[type="text"]'),
-      ];
-      const promptArea =
-        textareas.find((el) => {
-          const placeholder = (el.placeholder || el.getAttribute('aria-label') || '').toLowerCase();
-          return (
-            placeholder.includes('chuyển động') ||
-            placeholder.includes('kịch bản') ||
-            placeholder.includes('prompt') ||
-            placeholder.includes('chi tiết')
-          );
-        }) || textareas[0];
+    // Close settings panel with Escape
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
 
-      if (promptArea) {
-        if (promptArea.tagName === 'TEXTAREA' || promptArea.tagName === 'INPUT') {
-          promptArea.value = prompt;
-          promptArea.dispatchEvent(new Event('input', { bubbles: true }));
-          promptArea.dispatchEvent(new Event('change', { bubbles: true }));
-        } else {
-          promptArea.textContent = prompt;
-          promptArea.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-        console.log('[Flow Bridge] Set prompt value');
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    }
-
-    // 12. Click Action Button (Tạo video / Khởi tạo)
-    // Wait up to 25s for uploaded image to process and enable button
-    let submitBtn = null;
-    const startWait = Date.now();
-    while (Date.now() - startWait < 25000) {
-      const allActionBtns = [...document.querySelectorAll('button, div[role="button"]')];
-
-      submitBtn = allActionBtns.find((btn) => {
-        const txt = (btn.innerText || btn.textContent || '').toLowerCase().trim();
-        if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
-        if (txt.includes('hãy tải') || txt.includes('ít nhất 1 ảnh') || txt.includes('chưa có ảnh')) return false;
-        if (txt.includes('tải tác phẩm') || txt.includes('download')) return false; // Exclude download button!
-        return (
-          txt.includes('tạo chuyển động') ||
-          txt.includes('khởi tạo') ||
-          txt.includes('tạo video') ||
-          txt.includes('bắt đầu') ||
-          txt.includes('generate')
-        );
+    // 6. Upload start-frame image if provided
+    if (imageBase64) {
+      chrome.runtime.sendMessage({
+        type: 'FLOW_PROGRESS_UPDATE',
+        requestId,
+        status: 'Đang nạp ảnh nguồn vào Google Flow...',
       });
-
-      if (submitBtn) break;
+      const file = base64ToFile(imageBase64, 'source_photo.png');
+      await uploadStartFrameImage(file);
       await new Promise((r) => setTimeout(r, 1200));
     }
 
-    if (!submitBtn) {
-      // Check if it's already generating
-      const isAlreadyGenerating = [...document.querySelectorAll('button, div, span')].some((el) => {
-        const txt = (el.innerText || el.textContent || '').toLowerCase();
-        return txt.includes('đang khởi tạo') || txt.includes('tạo chuyển động video');
-      });
+    // 7. Fill prompt
+    const finalPrompt = prompt || `${preset}: chuyển động mượt mà điện ảnh`;
+    await fillPromptText(finalPrompt);
+    await new Promise((r) => setTimeout(r, 600));
 
-      if (!isAlreadyGenerating) {
-        throw new Error('Nút Tạo Video đang bị khoá hoặc Google Flow chưa nhận ảnh nguồn. Hãy kiểm tra tab Google Flow.');
-      }
-      console.log('[Flow Bridge] Generation appears already started');
-    } else {
-      submitBtn.click();
-      console.log('[Flow Bridge] Clicked submit button successfully!');
+    // 8. Submit
+    chrome.runtime.sendMessage({
+      type: 'FLOW_PROGRESS_UPDATE',
+      requestId,
+      status: 'Đang gửi lệnh tạo video Veo 3.1...',
+    });
+
+    const submitted = await clickSubmitButton();
+    if (!submitted) {
+      throw new Error('Nút Tạo Video đang bị khoá hoặc Google Flow chưa nhận ảnh nguồn. Hãy kiểm tra tab Google Flow.');
     }
 
-    // 13. Monitor loop: send progress updates and detect completed video
+    // 9. Monitor progress and capture video
     const startTime = Date.now();
-    const MAX_WAIT_MS = 600000; // 10 minutes
+    const MAX_WAIT_MS = 600000; // 10 mins
 
     while (Date.now() - startTime < MAX_WAIT_MS) {
       await new Promise((r) => setTimeout(r, 2500));
       const elapsed = Math.round((Date.now() - startTime) / 1000);
 
-      // Check if interceptor caught video URL
+      // Check interceptor captured video URL
       if (latestCapturedVideoUrl) {
-        console.log('[Flow Bridge] Interceptor has captured video URL:', latestCapturedVideoUrl);
-        const resolvedUrl = await resolveVideoSrc(latestCapturedVideoUrl);
-        return { videoUrl: resolvedUrl };
+        console.log('[Flow Bridge] Video captured via network interceptor:', latestCapturedVideoUrl);
+        const resolved = await resolveVideoSrc(latestCapturedVideoUrl);
+        return { videoUrl: resolved };
       }
 
-      // Check progress status text from floating status pills or progress bars ("TẠO CHUYỂN ĐỘNG VIDEO 2/4...")
-      const progressEl = document.querySelector(
-        '[class*="progress"], [class*="status"], div:has(> svg):has([class*="bar"]), [role="progressbar"]'
-      );
-      let statusText = progressEl ? (progressEl.innerText || progressEl.textContent || '').trim() : '';
-
-      // Check if currently generating
-      const isGenerating = [...document.querySelectorAll('button, div, span')].some((el) => {
-        const txt = (el.innerText || el.textContent || '').toLowerCase();
-        return txt.includes('đang khởi tạo') || txt.includes('tạo chuyển động video');
-      });
-
-      if (statusText) {
+      // Check progress status text from DOM
+      const domText = document.body.innerText || '';
+      const pctMatch = domText.match(/(\d+)%/);
+      if (pctMatch) {
         chrome.runtime.sendMessage({
           type: 'FLOW_PROGRESS_UPDATE',
           requestId,
-          status: statusText,
+          status: `Veo 3.1 đang render (${pctMatch[1]}% • ${elapsed}s)...`,
         });
-      } else if (isGenerating) {
+      } else {
         chrome.runtime.sendMessage({
           type: 'FLOW_PROGRESS_UPDATE',
           requestId,
@@ -471,47 +430,35 @@
         });
       }
 
-      // Check for completed video element in DOM
-      const videoElements = [...document.querySelectorAll('video')];
-      for (const v of videoElements) {
-        const rawSrc = v.currentSrc || v.src || v.querySelector('source')?.src;
+      // Check for video elements in DOM
+      const videos = [...document.querySelectorAll('video')];
+      for (const v of videos) {
+        const src = v.currentSrc || v.src || v.querySelector('source')?.src;
         if (
-          rawSrc &&
-          (rawSrc.includes('googlevideo.com') ||
-            rawSrc.includes('storage.googleapis.com') ||
-            rawSrc.includes('flow-content') ||
-            rawSrc.includes('.mp4') ||
-            rawSrc.startsWith('blob:'))
+          src &&
+          (src.includes('googlevideo.com') ||
+            src.includes('flow-content') ||
+            src.includes('.mp4') ||
+            src.startsWith('blob:'))
         ) {
-          console.log('[Flow Bridge] Found finished video in DOM:', rawSrc);
-          const resolvedUrl = await resolveVideoSrc(rawSrc);
-          return { videoUrl: resolvedUrl };
+          console.log('[Flow Bridge] Found finished video element in DOM:', src);
+          const resolved = await resolveVideoSrc(src);
+          return { videoUrl: resolved };
         }
       }
 
-      // If rendering has finished (isGenerating is false and at least 10s elapsed)
-      if (!isGenerating && elapsed >= 10) {
-        // Find download button: "TẢI TÁC PHẨM ĐANG CHỌN"
-        const downloadBtn = [...document.querySelectorAll('button, div[role="button"], a')].find((el) => {
+      // If finished, click download button to trigger interceptor
+      if (elapsed >= 15 && !domText.includes('Đang tạo') && !domText.includes('Generating') && !pctMatch) {
+        const downloadBtn = [...document.querySelectorAll('button, a')].find((el) => {
           const txt = (el.innerText || el.textContent || '').toLowerCase();
           return txt.includes('tải tác phẩm') || txt.includes('download') || txt.includes('tải về');
         });
-
-        if (downloadBtn) {
-          const isDisabled =
-            downloadBtn.disabled ||
-            downloadBtn.getAttribute('aria-disabled') === 'true' ||
-            (window.getComputedStyle(downloadBtn).opacity && parseFloat(window.getComputedStyle(downloadBtn).opacity) < 0.7);
-
-          if (!isDisabled) {
-            console.log('[Flow Bridge] Video render finished! Clicking "TẢI TÁC PHẨM ĐANG CHỌN" to capture video...');
-            downloadBtn.click();
-            await new Promise((r) => setTimeout(r, 2500));
-
-            if (latestCapturedVideoUrl) {
-              const resolvedUrl = await resolveVideoSrc(latestCapturedVideoUrl);
-              return { videoUrl: resolvedUrl };
-            }
+        if (downloadBtn && !downloadBtn.disabled) {
+          downloadBtn.click();
+          await new Promise((r) => setTimeout(r, 2000));
+          if (latestCapturedVideoUrl) {
+            const resolved = await resolveVideoSrc(latestCapturedVideoUrl);
+            return { videoUrl: resolved };
           }
         }
       }
