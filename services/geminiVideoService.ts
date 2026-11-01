@@ -1,6 +1,18 @@
+import { generateSiliconVideo } from './siliconVideoService';
+
 /**
- * Service tích hợp Google Flow AI (Veo 3.1) từ local flow-py-main server (cổng 8100)
+ * Service tích hợp Google Flow AI (Veo 3.1) & SiliconFlow Cloud Video
  */
+
+export type VideoEngine = 'siliconflow' | 'flow_local';
+
+export const getVideoEngine = (): VideoEngine => {
+    return (localStorage.getItem('video_engine') as VideoEngine) || 'siliconflow';
+};
+
+export const setVideoEngine = (engine: VideoEngine): void => {
+    localStorage.setItem('video_engine', engine);
+};
 
 export interface VideoGenerationParams {
     prompt: string;
@@ -269,13 +281,32 @@ export const removeAccountFromFlowPool = async (accId: string): Promise<any> => 
 };
 
 /**
- * Khởi tạo tác vụ tạo video (Text->Video hoặc Image->Video) qua flow-py và thăm dò kết quả
+ * Khởi tạo tác vụ tạo video (Text->Video hoặc Image->Video)
+ * Hỗ trợ tự động chuyển đổi giữa Cloud SiliconFlow API (Mặc định) và Google Flow Local
  */
 export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; urls: string[]; bytes?: number }> => {
+    const engine = getVideoEngine();
+
+    // 1. Chế độ SiliconFlow Cloud API (Mặc định - 100% trên mây, không cần bật máy)
+    if (engine === 'siliconflow') {
+        const res = await generateSiliconVideo({
+            prompt: params.prompt,
+            aspectRatio: params.aspectRatio,
+            model: params.model,
+            outputCount: params.outputCount,
+            inputImageBase64: params.inputImageBase64,
+            onProgress: params.onProgress,
+        });
+        return {
+            url: res.url,
+            urls: res.urls,
+        };
+    }
+
+    // 2. Chế độ Google Flow Local Server (cổng 8100)
     const baseUrl = getVideoServerUrl();
     const { prompt, aspectRatio, model, outputCount, inputImageBase64, onProgress } = params;
 
-    // 1. Tạo request payload
     const bodyPayload: Record<string, any> = {
         prompt: prompt.trim(),
         aspect_ratio: aspectRatio,
@@ -285,7 +316,6 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
         bodyPayload.model = model;
     }
 
-    // Nếu user có lưu Cookie / Project ID riêng trên trình duyệt thì đính kèm theo request
     const savedRawCookies = getSavedUserFlowCookies();
     if (savedRawCookies) {
         try {
@@ -302,11 +332,10 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
         bodyPayload.project_id = savedPid;
     }
 
-    // Nếu có ảnh đầu vào (Image -> Video)
     if (inputImageBase64) {
         const formattedImage = inputImageBase64.startsWith('data:')
             ? inputImageBase64
-            : `data:image/png;base64,${inputImageBase64}`;
+            : `data:image/jpeg;base64,${inputImageBase64}`;
         bodyPayload.images = [formattedImage];
     }
 
@@ -341,10 +370,9 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
         throw new Error('Server không trả về Job ID hợp lệ.');
     }
 
-    // 2. Vòng lặp Polling kiểm tra trạng thái
     const startTime = Date.now();
-    const POLL_INTERVAL = 4000; // mỗi 4s check 1 lần
-    const MAX_WAIT_TIME = 650000; // tối đa ~10 phút
+    const POLL_INTERVAL = 4000;
+    const MAX_WAIT_TIME = 650000;
 
     while (Date.now() - startTime < MAX_WAIT_TIME) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
