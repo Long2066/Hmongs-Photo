@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { VideoCameraIcon, SparklesIcon, ImageIcon } from './Icons';
 import {
     getVideoEngine,
     setVideoEngine,
@@ -16,7 +15,6 @@ import {
 import {
     getFalApiKey,
     getSavedFalModel,
-    FAL_MODELS,
 } from '../services/falVideoService';
 
 export interface VideoPanelProps {
@@ -29,6 +27,7 @@ export interface VideoPanelProps {
         model: string,
         outputCount: number
     ) => void;
+    onImagesChange?: (images: { base64: string; mimeType: string; id: number; fileName?: string }[]) => void;
     isLoading: boolean;
     isDisabled: boolean;
     hasInputImage: boolean;
@@ -100,6 +99,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     subMode,
     onSubModeChange,
     onGenerate,
+    onImagesChange,
     isLoading,
     isDisabled,
     hasInputImage,
@@ -120,8 +120,17 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [duration, setDurationState] = useState<'4s' | '6s' | '8s' | '10s'>(() => getVideoDuration());
     const [outputCount, setOutputCount] = useState<number>(1);
     const [prompt, setPrompt] = useState('');
+    const [isDragging, setIsDragging] = useState(false);
 
+    // Direct hidden file input for 100% reliable image picking
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Ensure mode is synced to image_to_video
+    useEffect(() => {
+        if (subMode !== 'image_to_video') {
+            onSubModeChange('image_to_video');
+        }
+    }, [subMode, onSubModeChange]);
 
     const handleSwitchEngine = (newEngine: VideoEngine) => {
         setEngineState(newEngine);
@@ -184,18 +193,103 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         img.src = src;
     }, [inputImagePreview]);
 
+    // Handle File processing
+    const processFile = (file: File) => {
+        if (!file.type.startsWith('image/')) {
+            alert('Vui lòng chọn tệp hình ảnh (PNG, JPG, WEBP).');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const fullUrl = e.target?.result as string;
+            if (!fullUrl) return;
+            const base64 = fullUrl.includes(',') ? fullUrl.split(',')[1] : fullUrl;
+
+            if (onImagesChange) {
+                onImagesChange([
+                    {
+                        base64,
+                        mimeType: file.type || 'image/png',
+                        id: Date.now(),
+                        fileName: file.name,
+                    },
+                ]);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleDirectFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+        // Reset file input value so re-selecting same file triggers change
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const handleTriggerImageUpload = () => {
+        if (fileInputRef.current) {
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleRemoveImage = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (onImagesChange) {
+            onImagesChange([]);
+        }
+    };
+
+    // Drag & Drop
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+    };
+
+    // Global Paste (Ctrl+V) listener when on this panel
+    useEffect(() => {
+        const handlePaste = (e: ClipboardEvent) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith('image/')) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        processFile(file);
+                        break;
+                    }
+                }
+            }
+        };
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [onImagesChange]);
+
     const isExtensionMode = engine === 'flow_extension';
     const isFalMode = engine === 'fal_ai';
 
     const canSubmit = !isLoading && !isDisabled && hasInputImage;
-
-    const handleTriggerImageUpload = () => {
-        // Trigger the file input on the page
-        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
-        if (fileInput) {
-            fileInput.click();
-        }
-    };
 
     const handleExecuteGenerate = () => {
         const finalPrompt =
@@ -207,11 +301,20 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             : isFalMode
             ? getSavedFalModel()
             : selectedFlowModel;
-        onGenerate(finalPrompt, aspectRatio, subMode, activeModel, outputCount);
+        onGenerate(finalPrompt, aspectRatio, 'image_to_video', activeModel, outputCount);
     };
 
     return (
         <div className="flex flex-col gap-4 p-1 animate-fade-in select-none">
+            {/* Hidden native input for 100% reliable file selection */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                className="hidden"
+                onChange={handleDirectFileChange}
+            />
+
             {/* Header: VIDEOTOOL PRO (Matching Google Flow Screenshot 3) */}
             <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-sm flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
@@ -403,23 +506,39 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 </span>
                             </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                             <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-mono text-[11px] font-bold">
                                 {aspectRatio}
                             </span>
                             <button
                                 type="button"
                                 onClick={handleTriggerImageUpload}
-                                className="text-[10px] text-amber-600 hover:text-amber-700 font-semibold cursor-pointer underline"
+                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                                title="Chọn ảnh khác"
                             >
                                 Đổi ảnh
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleRemoveImage}
+                                className="w-7 h-7 flex items-center justify-center rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer text-xs"
+                                title="Xóa ảnh"
+                            >
+                                ✕
                             </button>
                         </div>
                     </div>
                 ) : (
                     <div
                         onClick={handleTriggerImageUpload}
-                        className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/60 p-4 text-center flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-100/70 hover:border-amber-400 transition-all group"
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        className={`rounded-2xl border-2 border-dashed p-4 text-center flex flex-col items-center justify-center gap-2 cursor-pointer transition-all group ${
+                            isDragging
+                                ? 'border-amber-500 bg-amber-50/70 scale-[1.01]'
+                                : 'border-slate-300 bg-slate-50/60 hover:bg-slate-100/70 hover:border-amber-400'
+                        }`}
                     >
                         <div className="bg-white p-3 rounded-xl ring-1 ring-slate-900/5 shadow-2xs flex flex-col items-center justify-center gap-1.5 w-full max-w-[200px]">
                             <span className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">
@@ -432,7 +551,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             </div>
                         </div>
                         <p className="text-[11px] text-slate-500 italic max-w-xs leading-relaxed">
-                            Mỗi ảnh tải lên sẽ làm khung hình gốc (First Frame) để AI biến thành video chuyển động sống động.
+                            Bấm để chọn ảnh từ máy, kéo thả ảnh vào đây, hoặc nhấn <b>Ctrl + V</b> để dán.
                         </p>
                     </div>
                 )}

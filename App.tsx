@@ -107,7 +107,7 @@ const App: React.FC = () => {
 
     // --- MODE MANAGEMENT ---
     const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video'>('creative');
-    const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('text_to_video');
+    const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('image_to_video');
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -966,21 +966,13 @@ const App: React.FC = () => {
                 </div>
             );
         } else if (mode === 'video') {
-            if (videoSubMode === 'image_to_video') {
-                return (
-                    <div className="p-3">
-                        <ImageUploader
-                            label="Ảnh đầu vào"
-                            onImagesChange={handleImagesChange}
-                            maxImages={1}
-                        />
-                    </div>
-                );
-            }
             return (
-                <div className="p-3 flex items-center justify-center gap-2 text-slate-600">
-                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                    <span className="text-xs font-semibold text-slate-800">Văn bản ➔ Video</span>
+                <div className="p-3">
+                    <ImageUploader
+                        label="Ảnh nguồn tạo video (I2V)"
+                        onImagesChange={handleImagesChange}
+                        maxImages={1}
+                    />
                 </div>
             );
         }
@@ -1013,6 +1005,7 @@ const App: React.FC = () => {
                     subMode={videoSubMode}
                     onSubModeChange={setVideoSubMode}
                     onGenerate={handleVideoGenerate}
+                    onImagesChange={handleImagesChange}
                     isLoading={isLoading}
                     isDisabled={!currentUser}
                     hasInputImage={mState.inputs.length > 0}
