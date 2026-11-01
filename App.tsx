@@ -643,7 +643,8 @@ const App: React.FC = () => {
                     if (autoDownload && base64) triggerDownload(base64, `${filenamePrefix}_${index + 1}.png`);
                 },
                 style,
-                shotType
+                shotType,
+                outputMode
             );
 
             const validImages = localResults.filter((img): img is string => img !== null);

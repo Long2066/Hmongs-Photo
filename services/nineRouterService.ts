@@ -5,7 +5,7 @@
  * a local/remote OpenAI-compatible routing gateway running at http://127.0.0.1:20128.
  */
 
-import { optimizeReferenceImages } from './imageOptimizer';
+import { optimizeReferenceImages, createCompositeReferenceImage } from './imageOptimizer';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'https://753c-158-178-235-87.ngrok-free.app/v1';
@@ -1284,6 +1284,11 @@ export const generateImageViaNineRouter = async (
     const rawRefImages = request.referenceImages || [];
     // Automatically downscale and compress reference images (saving ~90% bandwidth)
     const referenceImages = await optimizeReferenceImages(rawRefImages);
+    // For multi-reference requests (e.g. Couple mode), generate a side-by-side composite
+    // so that single-image gateways or legacy edits endpoints see ALL outfits simultaneously.
+    const compositeRef = referenceImages.length > 1
+        ? await createCompositeReferenceImage(referenceImages)
+        : null;
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json'
@@ -1389,10 +1394,10 @@ Generate a polished, centered, professional ID/profile portrait maintaining real
 *** MANDATORY COUPLE SCENE & STRICT DUAL-OUTFIT BINDING PROTOCOL ***
 - DUAL CHARACTER VISUAL: Depict BOTH a breathtakingly handsome Korean male K-Pop Idol AND an exquisitely gorgeous Korean female K-Pop Idol / Ulzzang together in the scene. Both have flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawlines, tall and graceful builds.
 - REFERENCE PHOTOS ROLE: Input reference images provide CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
-- STRICT GENDER-TO-OUTFIT BINDING (NON-NEGOTIABLE):
-  1. MALE IDOL: MUST wear 100% of the garments from "INPUT REFERENCE: MALE OUTFIT" (exact suit/jacket, trousers, embroidery trims, and colors).
-  2. FEMALE IDOL: MUST wear 100% of the garments from "INPUT REFERENCE: FEMALE OUTFIT" (exact dress, colors, patterns, bodice, sleeves, flared skirt, and headdress).
-  3. ZERO HALLUCINATION FOR FEMALE OUTFIT: Strictly FORBIDDEN to replace or alter the female outfit with generic black/indigo velvet or generic silver collars. If the female reference is red, pink, white, blue, etc., the female idol MUST wear that exact color palette and garment design!
+- STRICT GENDER-TO-OUTFIT 1-TO-1 MAPPING (NON-NEGOTIABLE):
+  1. MALE IDOL: MUST wear 100% of the garments from Image 1 / Left Panel ("INPUT REFERENCE: MALE OUTFIT" - exact suit/jacket/vest, trousers, embroidery trims, and colors).
+  2. FEMALE IDOL: MUST wear 100% of the garments from Image 2 / Right Panel ("INPUT REFERENCE: FEMALE OUTFIT" - exact dress, colors, patterns, bodice, sleeves, flared skirt, and headdress).
+  3. ZERO HALLUCINATION & ZERO CROSS-CONTAMINATION: Strictly FORBIDDEN to replace or alter the female outfit with generic black/indigo velvet, or borrow the male vest's geometric/diamond patterns for the female! The female idol MUST wear that exact color palette and garment design from Image 2 / Right Panel!
 - CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose both subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
 
         geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (COUPLE SCENE) ***
@@ -1531,47 +1536,9 @@ CRITICAL RULES:
 
             // PATH B: Reference-based image editing via /v1/images/edits
             if (referenceImages.length > 0) {
-                // Step B1: Try multipart/form-data with Binary Blobs
-                try {
-                    const formData = new FormData();
-                    formData.append('model', candidateModel);
-                    formData.append('prompt', combinedPrompt);
-                    formData.append('size', standardSize);
-                    formData.append('quality', 'high');
-                    formData.append('input_fidelity', 'high');
-                    formData.append('response_format', 'b64_json');
-                    formData.append('aspect_ratio', ratio);
-
-                    referenceImages.forEach((img, idx) => {
-                        const blob = base64ToBlob(img.data, img.mimeType || 'image/jpeg');
-                        if (idx === 0) {
-                            formData.append('image', blob, `ref_${idx + 1}.jpg`);
-                        }
-                        formData.append('images', blob, `ref_${idx + 1}.jpg`);
-                    });
-
-                    const formHeaders: Record<string, string> = {};
-                    if (apiKey) formHeaders['Authorization'] = `Bearer ${apiKey}`;
-
-                    const respMultipart = await fetchWithTimeout(`${baseUrl}/images/edits`, {
-                        method: 'POST',
-                        headers: formHeaders,
-                        body: formData
-                    }, 120000);
-
-                    if (respMultipart.ok) {
-                        const parsed = await parseNineRouterResponse(respMultipart);
-                        const image = await extractAnyImageFromResponse(parsed);
-                        if (image) {
-                            console.log(`[CLIProxyAPI] Successfully generated image via /images/edits (multipart: ${candidateModel})`);
-                            return image;
-                        }
-                    }
-                } catch (formErr) {
-                    console.warn('[CLIProxyAPI] Multipart /images/edits failed, trying JSON:', formErr);
-                }
-
-                // Step B2: Try application/json on /v1/images/edits
+                // Step B1: For multi-reference requests (referenceImages.length > 1), JSON is STRICTLY PRIORITIZED
+                // because the OpenAI multipart parser only reads a single 'image' file and ignores extra 'images',
+                // whereas JSON transmits all reference images simultaneously in the 'images' array.
                 try {
                     const editPayload: any = {
                         model: candidateModel,
@@ -1579,7 +1546,9 @@ CRITICAL RULES:
                         images: referenceImages.map(img => ({
                             image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
                         })),
-                        image: `data:${referenceImages[0].mimeType || 'image/jpeg'};base64,${referenceImages[0].data}`,
+                        image: compositeRef
+                            ? `data:${compositeRef.mimeType};base64,${compositeRef.data}`
+                            : `data:${referenceImages[0].mimeType || 'image/jpeg'};base64,${referenceImages[0].data}`,
                         size: standardSize,
                         quality: 'high',
                         input_fidelity: 'high',
@@ -1604,9 +1573,62 @@ CRITICAL RULES:
                             console.log(`[CLIProxyAPI] Successfully generated image via /images/edits (JSON: ${candidateModel})`);
                             return image;
                         }
+                    } else {
+                        const errText = await respJson.text();
+                        console.warn(`[CLIProxyAPI] Candidate ${candidateModel} JSON /images/edits returned HTTP ${respJson.status}: ${errText.slice(0, 160)}`);
                     }
                 } catch (jsonErr) {
-                    console.warn('[CLIProxyAPI] JSON /images/edits failed:', jsonErr);
+                    console.warn('[CLIProxyAPI] JSON /images/edits failed, trying multipart:', jsonErr);
+                }
+
+                // Step B2: Try multipart/form-data with Binary Blobs (with composite image fallback)
+                try {
+                    const formData = new FormData();
+                    formData.append('model', candidateModel);
+                    formData.append('prompt', combinedPrompt);
+                    formData.append('size', standardSize);
+                    formData.append('quality', 'high');
+                    formData.append('input_fidelity', 'high');
+                    formData.append('response_format', 'b64_json');
+                    formData.append('aspect_ratio', ratio);
+
+                    // Send composite image containing BOTH outfits as 'image'
+                    // so that single-file multipart endpoints still see both outfits!
+                    if (compositeRef) {
+                        const compBlob = base64ToBlob(compositeRef.data, compositeRef.mimeType);
+                        formData.append('image', compBlob, 'composite_ref.jpg');
+                    } else {
+                        const singleBlob = base64ToBlob(referenceImages[0].data, referenceImages[0].mimeType || 'image/jpeg');
+                        formData.append('image', singleBlob, 'ref_1.jpg');
+                    }
+
+                    referenceImages.forEach((img, idx) => {
+                        const blob = base64ToBlob(img.data, img.mimeType || 'image/jpeg');
+                        formData.append('images', blob, `ref_${idx + 1}.jpg`);
+                    });
+
+                    const formHeaders: Record<string, string> = {};
+                    if (apiKey) formHeaders['Authorization'] = `Bearer ${apiKey}`;
+
+                    const respMultipart = await fetchWithTimeout(`${baseUrl}/images/edits`, {
+                        method: 'POST',
+                        headers: formHeaders,
+                        body: formData
+                    }, 120000);
+
+                    if (respMultipart.ok) {
+                        const parsed = await parseNineRouterResponse(respMultipart);
+                        const image = await extractAnyImageFromResponse(parsed);
+                        if (image) {
+                            console.log(`[CLIProxyAPI] Successfully generated image via /images/edits (multipart: ${candidateModel})`);
+                            return image;
+                        }
+                    } else {
+                        const errText = await respMultipart.text();
+                        console.warn(`[CLIProxyAPI] Candidate ${candidateModel} multipart /images/edits returned HTTP ${respMultipart.status}: ${errText.slice(0, 160)}`);
+                    }
+                } catch (formErr) {
+                    console.warn('[CLIProxyAPI] Multipart /images/edits failed:', formErr);
                 }
             }
 

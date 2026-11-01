@@ -287,3 +287,70 @@ export const optimizeReferenceImages = async <T extends { data: string; mimeType
         })
     );
 };
+
+/**
+ * Creates a stitched composite image from multiple reference images (e.g. Male on Left, Female on Right).
+ * Ensures that even single-image endpoints (OpenAI /images/edits multipart or legacy APIs) receive ALL outfits simultaneously.
+ */
+export const createCompositeReferenceImage = async (
+    images: Array<{ data: string; mimeType: string; label?: string }>
+): Promise<{ data: string; mimeType: string } | null> => {
+    if (!images || images.length === 0) return null;
+    if (images.length === 1) return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
+
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
+    }
+
+    try {
+        const loadedBitmaps = await Promise.all(
+            images.map(img => {
+                const src = img.data.startsWith('data:') ? img.data : `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`;
+                return new Promise<HTMLImageElement>((resolve, reject) => {
+                    const el = new Image();
+                    el.onload = () => resolve(el);
+                    el.onerror = (e) => reject(e);
+                    el.src = src;
+                });
+            })
+        );
+
+        const targetHeight = 1024;
+        const panelWidths = loadedBitmaps.map(bm => Math.max(100, Math.round((bm.width * targetHeight) / (bm.height || targetHeight))));
+        const totalWidth = panelWidths.reduce((a, b) => a + b, 0);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = totalWidth;
+        canvas.height = targetHeight;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, totalWidth, targetHeight);
+
+        let curX = 0;
+        loadedBitmaps.forEach((bm, i) => {
+            const w = panelWidths[i];
+            ctx.drawImage(bm, curX, 0, w, targetHeight);
+
+            // Add divider line between panels if multiple images
+            if (i > 0) {
+                ctx.fillStyle = '#cbd5e1';
+                ctx.fillRect(curX - 2, 0, 4, targetHeight);
+            }
+            curX += w;
+        });
+
+        const outputFormat = 'image/jpeg';
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, outputFormat, 0.92));
+        if (!blob) return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
+
+        const base64 = await blobToBase64(blob);
+        console.log(`[ImageOptimizer] Created composite reference canvas (${totalWidth}x${targetHeight}) combining ${images.length} outfits`);
+        return { data: base64, mimeType: outputFormat };
+    } catch (e) {
+        console.warn('[ImageOptimizer] Failed to create composite reference image, fallback to first image:', e);
+        return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
+    }
+};

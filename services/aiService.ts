@@ -1271,7 +1271,8 @@ export const generateImagesFromPromptsList = async (
     onStatusUpdate: (status: string) => void,
     onImageGenerated: (index: number, base64: string | null) => void,
     style?: string,
-    shotType?: string
+    shotType?: string,
+    outputMode?: 'single' | 'couple'
 ): Promise<void> => {
     // Check if NineRouter mode is enabled
     const useNineRouterMode = nineRouterService.isNineRouterEnabled();
@@ -1375,7 +1376,7 @@ export const generateImagesFromPromptsList = async (
             // Dynamic person framing enforcement based on shotType
             const isPortrait = shotType?.toLowerCase().includes("chân dung") || shotType?.toLowerCase().includes("portrait");
             const isMacro = shotType?.toLowerCase().includes("cận cảnh") || shotType?.toLowerCase().includes("macro");
-            const isCouple = (refImages.male && refImages.male.length > 0) && (refImages.female && refImages.female.length > 0);
+            const isCouple = outputMode === 'couple' || ((refImages.male && refImages.male.length > 0) && (refImages.female && refImages.female.length > 0));
             const outfitTryOnDirective = isCouple
                 ? `*** COUPLE SCENE & STRICT DUAL-OUTFIT TRY-ON PROTOCOL (MANDATORY) ***
             - DUAL SUBJECT: Both a handsome Korean male K-Pop idol and an exquisitely beautiful Korean female idol appear together in the scene.
