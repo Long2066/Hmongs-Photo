@@ -285,24 +285,105 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
     return _bm
 
 
-async def _extract_or_create_project_id(page) -> Optional[str]:
-    """Extract project_id from URL, page data, or click 'New project' on Flow dashboard."""
-    # 1. Check current URL
+async def _ensure_in_project(page, target_pid: Optional[str] = None) -> Optional[str]:
+    """Ensure browser is inside an active Google Flow project editor view (flow.google.com/project/{pid}).
+    Returns valid project ID, or None if unauthenticated / sign-in required.
+    """
+    # 1. If current page already has a valid project in URL, return it immediately
     m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
     if m:
         pid = m.group(1)
-        set_active_project(pid, f"https://labs.google/fx/tools/flow/project/{pid}")
-        add_project(pid, "auto", f"https://labs.google/fx/tools/flow/project/{pid}")
+        if pid != "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444":
+            set_active_project(pid, f"https://flow.google.com/project/{pid}")
+            add_project(pid, "active", f"https://flow.google.com/project/{pid}")
+            return pid
+
+    # 2. Try candidate project if provided
+    candidate_pid = target_pid
+    if not candidate_pid or candidate_pid == "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444":
+        saved_pid, _ = get_active_project()
+        if saved_pid and saved_pid != "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444":
+            candidate_pid = saved_pid
+
+    if candidate_pid:
+        try:
+            await page.goto(f"https://flow.google.com/project/{candidate_pid}", wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(2.0)
+            m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+            if m:
+                pid = m.group(1)
+                set_active_project(pid, f"https://flow.google.com/project/{pid}")
+                return pid
+        except Exception as e:
+            log.debug("Candidate project navigation notice: %s", e)
+
+    # 3. If on /about landing page or root flow.google.com, enter workspace
+    if "accounts.google.com" in page.url or "signin" in page.url:
+        return None
+
+    if "/about" in page.url or "flow.google.com" in page.url:
+        try:
+            enter_btn = page.locator('button:has-text("Create with Google Flow"), a:has-text("Create with Google Flow"), button:has-text("Bắt đầu"), a:has-text("Bắt đầu")').first
+            if await enter_btn.count() > 0:
+                await enter_btn.click()
+                await asyncio.sleep(3.0)
+        except Exception:
+            pass
+
+    # 4. Check if redirected to Google sign-in
+    if "accounts.google.com" in page.url or "signin" in page.url:
+        return None
+
+    # 5. Check URL again for project
+    m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+    if m:
+        pid = m.group(1)
+        set_active_project(pid, f"https://flow.google.com/project/{pid}")
+        add_project(pid, "active", f"https://flow.google.com/project/{pid}")
         return pid
 
-    # 2. Check saved config
-    saved_pid, _ = get_active_project()
-    if saved_pid:
-        return saved_pid
+    # 6. If on dashboard, find project links or click "New project"
+    try:
+        links = await page.evaluate("""
+            () => [...document.querySelectorAll('a[href*="/project/"]')]
+                .map(a => a.href)
+                .filter(h => !h.includes('a589a2fc'))
+        """)
+        for link in (links or []):
+            m = re.search(r"/project/([a-f0-9\-]{8,})", link)
+            if m:
+                pid = m.group(1)
+                await page.goto(f"https://flow.google.com/project/{pid}", wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(2.0)
+                set_active_project(pid, f"https://flow.google.com/project/{pid}")
+                add_project(pid, "discovered", f"https://flow.google.com/project/{pid}")
+                return pid
 
-    default_pid = "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
-    set_active_project(default_pid, f"https://labs.google/fx/tools/flow/project/{default_pid}")
-    return default_pid
+        new_proj_btn = page.locator('button:has-text("Dự án mới"), button:has-text("New project"), button:has-text("Create project")').first
+        if await new_proj_btn.count() > 0:
+            await new_proj_btn.click()
+            await asyncio.sleep(3.0)
+            m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+            if m:
+                pid = m.group(1)
+                set_active_project(pid, f"https://flow.google.com/project/{pid}")
+                add_project(pid, "new", f"https://flow.google.com/project/{pid}")
+                return pid
+    except Exception as ex:
+        log.debug("Dashboard project discovery notice: %s", ex)
+
+    # 7. Fallback to known valid project if all else fails
+    fallback_pid = "ed864f7b-0d12-4ba0-8638-b4cb2565d847"
+    try:
+        await page.goto(f"https://flow.google.com/project/{fallback_pid}", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.0)
+        if "/about" not in page.url and "accounts.google.com" not in page.url:
+            set_active_project(fallback_pid, f"https://flow.google.com/project/{fallback_pid}")
+            return fallback_pid
+    except Exception:
+        pass
+
+    return None
 
 
 async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
@@ -313,22 +394,19 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
             bm = await _get_or_start_bm(headless=False)
             page = await bm.page()
 
-            if force_navigate or ("labs.google" not in page.url and "flow.google" not in page.url and "accounts.google" not in page.url):
-                saved_pid, _ = get_active_project()
-                pid_to_use = saved_pid or "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
-                target_url = f"https://labs.google/fx/tools/flow/project/{pid_to_use}"
-                try:
-                    await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
-                    await asyncio.sleep(3)
-                except Exception as nav_err:
-                    log.warning("Navigation warning: %s", nav_err)
+            saved_pid, _ = get_active_project()
+            if force_navigate or ("/project/" not in page.url):
+                pid = await _ensure_in_project(page, target_pid=saved_pid)
+            else:
+                m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+                pid = m.group(1) if m else await _ensure_in_project(page, target_pid=saved_pid)
 
             cur_url = page.url
-            if "accounts.google.com" in cur_url:
+            if "accounts.google.com" in cur_url or "signin" in cur_url or not pid:
                 _auth_state.update({
                     "authenticated": False,
                     "email": None,
-                    "error": "Vui lòng đăng nhập Google trên cửa sổ Chrome vừa mở",
+                    "error": "Vui lòng đăng nhập Google trên cửa sổ Chrome vừa mở hoặc cập nhật Cookie mới",
                     "last_checked": time.time(),
                 })
                 return _auth_state
@@ -340,7 +418,7 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                         const accLink = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
                         if (accLink) {
                             const aria = accLink.getAttribute('aria-label') || '';
-                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/);
+                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
                             if (m) return { email: m[1], token: null };
                         }
                         const nd = window.__NEXT_DATA__?.props?.pageProps?.session;
@@ -352,26 +430,11 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                 }
             """)
 
-            if not session_info or not session_info.get("email"):
-                # Check if we are on flow.google.com/project/... without being redirected to accounts.google.com
-                if ("flow.google.com/project/" in page.url or "labs.google/fx/tools/flow/project/" in page.url) and "accounts.google.com" not in page.url:
-                    session_info = {"email": "Google Flow Active", "token": None}
-                else:
-                    _auth_state.update({
-                        "authenticated": False,
-                        "email": None,
-                        "error": "Chưa đăng nhập Google Flow.",
-                        "last_checked": time.time(),
-                    })
-                    return _auth_state
-
-            email = session_info["email"]
-            pid = await _extract_or_create_project_id(page)
-
+            email = (session_info and session_info.get("email")) or _auth_state.get("email") or "Google Flow Active"
             api = FlowAPI(bm, project_id=pid or "")
             credits_val = None
             tier_val = None
-            if session_info.get("token"):
+            if session_info and session_info.get("token"):
                 api._bearer_token = session_info["token"]
                 api._bearer_token_ts = time.time()
                 try:
@@ -381,8 +444,7 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                 except Exception as cred_err:
                     log.debug("Could not fetch credits yet: %s", cred_err)
 
-            if pid:
-                _client = FlowClient(api, bm, pid)
+            _client = FlowClient(api, bm, pid)
 
             _auth_state.update({
                 "authenticated": True,
@@ -1013,7 +1075,6 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
     global _auth_state
     async with _browser_lock:
         bm = await _get_or_start_bm(headless=False)
-        # Clear any old mismatched cookies first!
         try:
             await bm.context.clear_cookies()
         except Exception:
@@ -1032,9 +1093,7 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                 cookie_names.append(f"{name}@{domain}")
                 if name.startswith("__Host-"):
                     target_url = (
-                        "https://labs.google/"
-                        if "labs.google" in domain
-                        else "https://flow.google.com/"
+                        "https://flow.google.com/"
                         if "flow.google" in domain
                         else "https://accounts.google.com/"
                     )
@@ -1075,40 +1134,39 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
         log.info("Cleared old cookies & injected %d/%d fresh cookies: %s", injected_count, len(pw_cookies), cookie_names)
 
         if req.project_id:
-            set_active_project(req.project_id, f"https://labs.google/fx/tools/flow/project/{req.project_id}")
-            add_project(req.project_id, "chrome-sync", f"https://labs.google/fx/tools/flow/project/{req.project_id}")
-        else:
-            saved_pid, _ = get_active_project()
-            if not saved_pid:
-                default_pid = "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
-                set_active_project(default_pid, f"https://labs.google/fx/tools/flow/project/{default_pid}")
-                add_project(default_pid, "default", f"https://labs.google/fx/tools/flow/project/{default_pid}")
+            set_active_project(req.project_id, f"https://flow.google.com/project/{req.project_id}")
+            add_project(req.project_id, "chrome-sync", f"https://flow.google.com/project/{req.project_id}")
 
-    # Mark authenticated immediately if valid Google/Flow cookies were injected
-    has_auth_ck = any(
-        k in str(cookie_names)
-        for k in ("SID", "PSID", "OSID", "SAPISID", "session-token", "__Host-")
-    )
-    pid = req.project_id or "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444"
-    if injected_count > 0 and has_auth_ck:
-        _auth_state.update({
-            "authenticated": True,
-            "email": "Google Flow Connected",
-            "project_id": pid,
-            "error": None,
-            "last_checked": time.time(),
-        })
-        asyncio.create_task(refresh_auth_state(force_navigate=True))
-    else:
-        await refresh_auth_state(force_navigate=True)
+        page = await bm.page()
+        pid = await _ensure_in_project(page, target_pid=req.project_id)
+        if pid:
+            _auth_state.update({
+                "authenticated": True,
+                "email": "Google Flow Connected",
+                "project_id": pid,
+                "error": None,
+                "last_checked": time.time(),
+            })
+            log.info("Cookie injection verified: active in project %s", pid)
+        else:
+            is_signin = "accounts.google.com" in page.url or "signin" in page.url
+            _auth_state.update({
+                "authenticated": False,
+                "email": None,
+                "project_id": None,
+                "error": "Cookie đã hết hạn hoặc Google từ chối." if is_signin else "Chưa đăng nhập Google Flow",
+                "last_checked": time.time(),
+            })
+            log.warning("Cookie injection check: not authenticated (url=%s)", page.url)
 
     return {
-        "status": "ok",
+        "status": "ok" if _auth_state.get("authenticated") else "unauthenticated",
         "injected": injected_count,
         "authenticated": _auth_state.get("authenticated"),
         "email": _auth_state.get("email"),
         "project_id": _auth_state.get("project_id"),
         "credits": _auth_state.get("credits"),
+        "error": _auth_state.get("error"),
     }
 
 
@@ -1121,7 +1179,7 @@ async def set_flow_project(req: SetProjectRequest):
     if not pid:
         raise HTTPException(status_code=400, detail="Project ID không hợp lệ.")
 
-    url = f"https://labs.google/fx/tools/flow/project/{pid}"
+    url = f"https://flow.google.com/project/{pid}"
     set_active_project(pid, url)
     add_project(pid, "manual", url)
     state = await refresh_auth_state(force_navigate=True)
@@ -1183,37 +1241,39 @@ async def add_account_to_pool(req: AccountPoolAddRequest):
 @app.post("/v1/auth/accounts-pool/snapshot")
 async def snapshot_current_browser_to_pool(label: Optional[str] = None):
     """Save the currently logged-in Chrome browser session into the rotation pool."""
-    state = await refresh_auth_state(force_navigate=False)
-    bm = await _get_or_start_bm(headless=False)
-    page = await bm.page()
-    if not state.get("authenticated") or "accounts.google.com" in page.url or "/about" in page.url:
-        raise HTTPException(
-            status_code=400,
-            detail="Trình duyệt Chrome chưa đăng nhập Google Flow! Vui lòng đăng nhập trên cửa sổ Chrome trước khi lưu nick."
-        )
-    cookies = await bm.context.cookies()
-    if not cookies:
-        raise HTTPException(status_code=400, detail="Không lấy được Cookie từ trình duyệt hiện tại.")
-    pool = _load_accounts_pool()
-    acc_id = f"acc_{uuid.uuid4().hex[:8]}"
-    acc_label = (label or state.get("email") or f"Tài khoản #{len(pool) + 1}").strip()
-    # Replace existing entry if same email/label already exists
-    pool = [a for a in pool if a.get("label") != acc_label]
-    pool.append({
-        "id": acc_id,
-        "label": acc_label,
-        "cookies": cookies,
-        "project_id": state.get("project_id"),
-        "enabled": True,
-        "added_at": time.time(),
-    })
-    _save_accounts_pool(pool)
-    return {
-        "status": "ok",
-        "id": acc_id,
-        "label": acc_label,
-        "count": len(pool),
-    }
+    async with _browser_lock:
+        bm = await _get_or_start_bm(headless=False)
+        page = await bm.page()
+        pid = await _ensure_in_project(page)
+        if not pid or "accounts.google.com" in page.url or "signin" in page.url or "/about" in page.url:
+            raise HTTPException(
+                status_code=400,
+                detail="Trình duyệt Chrome chưa đăng nhập Google Flow! Vui lòng đăng nhập trên cửa sổ Chrome trước khi lưu nick."
+            )
+        cookies = await bm.context.cookies()
+        if not cookies:
+            raise HTTPException(status_code=400, detail="Không lấy được Cookie từ trình duyệt hiện tại.")
+        pool = _load_accounts_pool()
+        acc_id = f"acc_{uuid.uuid4().hex[:8]}"
+        acc_label = (label or _auth_state.get("email") or f"Tài khoản #{len(pool) + 1}").strip()
+        # Replace existing entry if same email/label already exists
+        pool = [a for a in pool if a.get("label") != acc_label]
+        pool.append({
+            "id": acc_id,
+            "label": acc_label,
+            "cookies": cookies,
+            "project_id": pid,
+            "enabled": True,
+            "added_at": time.time(),
+        })
+        _save_accounts_pool(pool)
+        return {
+            "status": "ok",
+            "id": acc_id,
+            "label": acc_label,
+            "count": len(pool),
+            "project_id": pid,
+        }
 
 
 @app.delete("/v1/auth/accounts-pool/{acc_id}")

@@ -127,37 +127,107 @@ def cli(ctx: click.Context, debug: bool, verbose: bool, quiet: bool):
 def login():
     """Open browser for Google authentication."""
     async def _go():
+        from .._storage import set_active_project, add_project
+        import re, json
+        from pathlib import Path
+
         bm = BrowserManager(headless=False)
         await bm.start()
         page = await bm.page()
-        click.echo("Opening browser - sign in to Google Flow...")
-        await page.goto("https://flow.google.com", wait_until="domcontentloaded")
+        click.echo("Đang mở trình duyệt Chrome để bạn đăng nhập Google Flow...")
+        signin_url = "https://accounts.google.com/v3/signin/identifier?continue=https://flow.google.com/&flowName=GlifWebSignIn&flowEntry=ServiceLogin"
+        await page.goto(signin_url, wait_until="domcontentloaded")
 
-        # Wait for Google Flow to be loaded and authenticated
+        # Wait for user to complete Google Sign In and reach Flow workspace
+        active_pid = None
+        user_email = None
         while True:
             url = page.url
-            if ("flow.google.com" in url or "labs.google" in url) and "accounts.google.com" not in url:
-                if "/project/" in url:
-                    click.echo(f"Logged in successfully: {url}")
+            if "/about" in url and "flow.google.com" in url:
+                try:
+                    create_btn = page.locator('button:has-text("Create with Google Flow"), a:has-text("Create with Google Flow"), button:has-text("Bắt đầu")').first
+                    if await create_btn.count() > 0:
+                        await create_btn.click()
+                except Exception:
+                    pass
+
+            if "flow.google.com" in url and "accounts.google.com" not in url:
+                m = re.search(r"/project/([a-f0-9\-]{8,})", url)
+                if m:
+                    active_pid = m.group(1)
+                    click.echo(f"✅ Đã kết nối dự án Google Flow: {active_pid}")
                     break
-                logged_in = await page.evaluate("""
+
+                # Check account badge
+                user_email = await page.evaluate("""
                     () => {
                         const acc = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
-                        if (acc) return acc.getAttribute('aria-label') || '';
+                        if (acc) {
+                            const aria = acc.getAttribute('aria-label') || '';
+                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                            if (m) return m[1];
+                        }
                         return window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null;
                     }
                 """)
-                if logged_in:
-                    click.echo(f"Logged in as: {logged_in}")
+                if user_email and "/about" not in url:
+                    click.echo(f"✅ Đã đăng nhập tài khoản: {user_email}")
                     break
-            await asyncio.sleep(2)
-            click.echo("  (waiting for login on Google Flow...)", err=True)
 
-        await asyncio.sleep(2)
+            await asyncio.sleep(2)
+            click.echo("  (Đang chờ bạn hoàn tất đăng nhập trên cửa sổ Chrome...)", err=True)
+
+        if not active_pid:
+            await asyncio.sleep(2)
+            m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+            if m:
+                active_pid = m.group(1)
+
+        if active_pid:
+            set_active_project(active_pid, f"https://flow.google.com/project/{active_pid}")
+            add_project(active_pid, user_email or "chrome_login", f"https://flow.google.com/project/{active_pid}")
+
+        # Save cookies to accounts_pool.json so this account is automatically in the rotation pool!
+        try:
+            cookies = await bm.context.cookies()
+            pool_file = Path(__file__).resolve().parent.parent.parent / "accounts_pool.json"
+            existing_pool = []
+            if pool_file.exists():
+                try:
+                    existing_pool = json.loads(pool_file.read_text(encoding="utf-8"))
+                except Exception:
+                    existing_pool = []
+            
+            label = user_email or f"Nick Chrome #{len(existing_pool) + 1}"
+            updated = False
+            for acc in existing_pool:
+                if acc.get("label") == label or (active_pid and acc.get("project_id") == active_pid):
+                    acc["cookies"] = cookies
+                    acc["project_id"] = active_pid or acc.get("project_id")
+                    acc["enabled"] = True
+                    acc["error"] = None
+                    updated = True
+                    break
+            if not updated:
+                existing_pool.append({
+                    "id": f"acc_{int(asyncio.get_event_loop().time())}",
+                    "label": label,
+                    "cookies": cookies,
+                    "project_id": active_pid,
+                    "enabled": True,
+                    "error": None,
+                })
+            pool_file.write_text(json.dumps(existing_pool, ensure_ascii=False, indent=2), encoding="utf-8")
+            click.echo(f"✅ Đã lưu phiên '{label}' vào Hồ sơ xoay vòng trên Server!")
+        except Exception as ck_ex:
+            click.echo(f"Lưu hồ sơ: {ck_ex}")
+
+        await asyncio.sleep(1)
         await bm.stop()
-        click.echo("Session saved. You can now use Google Flow.")
+        click.echo("Hoàn tất! Bạn có thể vào Web để tạo video ngay.")
 
     run(_go())
+
 
 
 @cli.command()
