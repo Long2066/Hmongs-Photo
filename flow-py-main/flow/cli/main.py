@@ -309,8 +309,9 @@ def login():
             pass
 
         await asyncio.sleep(1)
-        await bm.stop()
-        click.echo("Hoàn tất! Bạn có thể vào Web để tạo video ngay.")
+        click.echo("✅ ĐÃ ĐĂNG NHẬP THÀNH CÔNG!
+Cửa sổ Chrome vẫn giữ mở để bạn tiếp tục sử dụng.
+Bạn có thể quay lại trang web ToolMedia để tạo video ngay.")
 
 
     run(_go())

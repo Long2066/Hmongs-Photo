@@ -81,6 +81,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [poolAccounts, setPoolAccounts] = useState<FlowPoolAccount[]>([]);
     const [isSyncingCookies, setIsSyncingCookies] = useState(false);
     const [configMessage, setConfigMessage] = useState<string | null>(null);
+    const [configMessageType, setConfigMessageType] = useState<'success' | 'error' | null>(null);
 
     const refreshPool = async () => {
         const list = await getFlowAccountsPool();
@@ -143,37 +144,50 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const handleSnapshotBrowserToPool = async () => {
         setIsSyncingCookies(true);
         setConfigMessage(null);
+        setConfigMessageType(null);
         try {
             const res = await snapshotCurrentBrowserToFlowPool(accountLabelInput);
             setAccountLabelInput('');
             await refreshPool();
-            setConfigMessage(`Đã lưu "${res.label}" vào Hồ sơ xoay vòng (${res.count} nick)!`);
+            setConfigMessageType('success');
+            setConfigMessage(`Đã lưu "${res.label}" vào Hồ sơ xoay vòng (${res.count} tài khoản)!`);
+            const health = await checkVideoServerHealth(true);
+            setServerHealth(health);
         } catch (err: any) {
-            setConfigMessage(err?.message || 'Không thể lưu nick hiện tại vào Hồ sơ');
+            setConfigMessageType('error');
+            setConfigMessage(err?.message || 'Trình duyệt Chrome chưa đăng nhập Google Flow hoặc phiên đã hết hạn.');
         } finally {
             setIsSyncingCookies(false);
         }
     };
+    };
 
     const handleAddCookieToPool = async () => {
         if (!cookieInput.trim()) {
-            setConfigMessage('Vui lòng dán Cookie JSON trước khi thêm vào Hồ sơ xoay vòng.');
+            setConfigMessageType('error');
+            setConfigMessage('Vui lòng dán Cookie JSON từ Cookie-Editor trước khi thêm vào Hồ sơ.');
             return;
         }
         setIsSyncingCookies(true);
         setConfigMessage(null);
+        setConfigMessageType(null);
         try {
             const label = accountLabelInput.trim() || `Nick Google #${poolAccounts.length + 1}`;
             const res = await addAccountToFlowPool(label, cookieInput, projectIdInput);
             setAccountLabelInput('');
             setCookieInput('');
             await refreshPool();
-            setConfigMessage(`Đã thêm "${res.label}" vào Hồ sơ xoay vòng (${res.count} nick)!`);
+            setConfigMessageType('success');
+            setConfigMessage(`Đã thêm "${res.label}" vào Hồ sơ xoay vòng (${res.count} tài khoản)!`);
+            const health = await checkVideoServerHealth(true);
+            setServerHealth(health);
         } catch (err: any) {
+            setConfigMessageType('error');
             setConfigMessage(err?.message || 'Lỗi khi thêm nick vào Hồ sơ');
         } finally {
             setIsSyncingCookies(false);
         }
+    };
     };
 
     const handleRemovePoolAccount = async (accId: string) => {
@@ -188,26 +202,39 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const handleSyncCookies = async () => {
         setIsSyncingCookies(true);
         setConfigMessage(null);
+        setConfigMessageType(null);
         try {
             if (serverUrlInput.trim()) {
                 setVideoServerUrl(serverUrlInput.trim());
             }
             if (cookieInput.trim()) {
-                await syncFlowCookiesRaw(cookieInput, projectIdInput);
-                setConfigMessage('Đã lưu Cookie & kết nối tài khoản Google Flow thành công!');
+                const res = await syncFlowCookiesRaw(cookieInput, projectIdInput);
+                if (res?.authenticated) {
+                    setConfigMessageType('success');
+                    setConfigMessage(`Đã kết nối tài khoản Google Flow (${res.email || 'Thành công'})!`);
+                } else {
+                    setConfigMessageType('error');
+                    setConfigMessage(
+                        res?.error ||
+                        'Google từ chối Cookie này (phiên hết hạn hoặc cần đăng nhập trực tiếp trên Chrome). Vui lòng dùng nút "Mở cửa sổ Chrome đăng nhập Google" ở trên!'
+                    );
+                }
             } else {
                 setSavedUserFlowCookies('');
                 setSavedUserFlowProjectId(projectIdInput);
+                setConfigMessageType('success');
                 setConfigMessage('Đã lưu cấu hình kết nối!');
             }
             const health = await checkVideoServerHealth(true);
             setServerHealth(health);
         } catch (err: any) {
             console.error('[Cookie Sync Error]:', err);
+            setConfigMessageType('error');
             setConfigMessage(err?.message || 'Lỗi khi đồng bộ Cookie');
         } finally {
             setIsSyncingCookies(false);
         }
+    };
     };
 
     const handleClearUserCookies = async () => {
@@ -447,7 +474,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 type="button"
                                 onClick={handleAddCookieToPool}
                                 disabled={isSyncingCookies}
-                                className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60"
+                                className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
                             >
                                 ➕ Thêm vào Hồ sơ xoay vòng
                             </button>
@@ -455,9 +482,9 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 type="button"
                                 onClick={handleSyncCookies}
                                 disabled={isSyncingCookies}
-                                className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60"
+                                className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
                             >
-                                Lưu dùng trực tiếp
+                                Thử dùng riêng Cookie này
                             </button>
                         </div>
 
@@ -479,8 +506,15 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         </div>
 
                         {configMessage && (
-                            <div className="text-[11px] font-medium text-emerald-700 bg-emerald-50 ring-1 ring-emerald-500/20 rounded-lg px-2.5 py-1.5">
-                                {configMessage}
+                            <div
+                                className={`text-[11px] font-medium rounded-lg px-2.5 py-2 flex items-start gap-1.5 animate-fade-in ${
+                                    configMessageType === 'error'
+                                        ? 'bg-rose-50 text-rose-800 ring-1 ring-rose-500/20'
+                                        : 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500/20'
+                                }`}
+                            >
+                                <span className="shrink-0">{configMessageType === 'error' ? '⚠️' : '✅'}</span>
+                                <span className="leading-snug">{configMessage}</span>
                             </div>
                         )}
                     </div>

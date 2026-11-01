@@ -400,6 +400,9 @@ async def _ensure_in_project(page, target_pid: Optional[str] = None) -> Optional
 async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
     """Check if the browser profile is logged in to Google Flow and refresh credits/project."""
     global _auth_state, _client, _bm
+    if _login_in_progress and not force_navigate:
+        # Never navigate away or interfere while user is typing in Chrome
+        return _auth_state
     async with _browser_lock:
         try:
             bm = await _get_or_start_bm(headless=False)
@@ -1079,7 +1082,7 @@ async def health_check(refresh: bool = False):
 
 @app.post("/v1/auth/login")
 async def trigger_flow_login():
-    """Launch visible Chrome login on the user's real desktop."""
+    """Launch visible Chrome login on the user's real desktop without closing while user is typing."""
     global _login_in_progress, _bm
     _login_in_progress = True
 
@@ -1092,28 +1095,46 @@ async def trigger_flow_login():
                 pass
             _bm = None
 
-    # 1. Ensure Chrome is running on port 9222 with the Google Sign In URL
-    await _ensure_cdp_chrome_running(signin=True)
+    # 1. Ensure Chrome is running on port 9222 with Google Flow / Sign In
+    launched = await _ensure_cdp_chrome_running(signin=True)
+    log.info("Chrome sign-in launched on port 9222 (success=%s)", launched)
 
-    # 2. Also trigger login.bat for terminal monitoring & feedback
-    bat_path = Path(__file__).parent / "login.bat"
-    try:
-        import os
-        os.startfile(str(bat_path))
-        log.info("Launched %s via Windows Shell (os.startfile)", bat_path)
-    except Exception as e:
-        log.warning("Could not launch login.bat: %s", e)
-
-    async def _safety_reset():
-        await asyncio.sleep(600)
-        global _login_in_progress
+    # 2. Start gentle background watcher to detect when user finishes login on Chrome
+    async def _watch_chrome_login():
+        global _login_in_progress, _auth_state
+        import urllib.request
+        import json as _json
+        log.info("Started background login watcher for port 9222...")
+        for _ in range(300):  # Watch up to 10 minutes
+            await asyncio.sleep(2.0)
+            try:
+                req = urllib.request.Request("http://127.0.0.1:9222/json", headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    if resp.status == 200:
+                        tabs = _json.loads(resp.read().decode())
+                        for t in tabs:
+                            url = t.get("url", "")
+                            if "flow.google.com" in url and "accounts.google.com" not in url and "signin" not in url and "/about" not in url:
+                                log.info("Google Flow login detected in tab: %s", url)
+                                _login_in_progress = False
+                                await asyncio.sleep(1.5)
+                                state = await refresh_auth_state(force_navigate=False)
+                                if state.get("authenticated"):
+                                    try:
+                                        await snapshot_current_browser_to_pool()
+                                        log.info("Auto-saved newly logged-in account to pool!")
+                                    except Exception as snap_err:
+                                        log.debug("Auto-save to pool notice: %s", snap_err)
+                                return
+            except Exception:
+                pass
         _login_in_progress = False
 
-    asyncio.create_task(_safety_reset())
+    asyncio.create_task(_watch_chrome_login())
 
     return {
         "status": "opening_browser",
-        "message": "Đã mở cửa sổ đăng nhập Google Flow trên màn hình của bạn!",
+        "message": "Đã mở cửa sổ Chrome. Vui lòng đăng nhập Google Flow, web sẽ tự động kết nối ngay khi bạn đăng nhập xong!",
     }
 
 
@@ -1219,21 +1240,38 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
 
         pid = await _ensure_in_project(page, target_pid=req.project_id)
         if pid:
+            email_val = "Google Flow Connected"
+            try:
+                acc_link = await page.evaluate("""
+                    () => {
+                        const acc = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
+                        if (acc) {
+                            const aria = acc.getAttribute('aria-label') || '';
+                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                            if (m) return m[1];
+                        }
+                        return window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null;
+                    }
+                """)
+                if acc_link:
+                    email_val = acc_link
+            except Exception:
+                pass
             _auth_state.update({
                 "authenticated": True,
-                "email": "Google Flow Connected",
+                "email": email_val,
                 "project_id": pid,
                 "error": None,
                 "last_checked": time.time(),
             })
-            log.info("Cookie injection verified: active in project %s", pid)
+            log.info("Cookie injection verified: active in project %s (%s)", pid, email_val)
         else:
-            is_signin = "accounts.google.com" in page.url or "signin" in page.url
+            is_signin = "accounts.google.com" in page.url or "signin" in page.url or "/about" in page.url
             _auth_state.update({
                 "authenticated": False,
                 "email": None,
                 "project_id": None,
-                "error": "Cookie này đã hết hạn hoặc Google yêu cầu đăng nhập trực tiếp trên trình duyệt máy bạn." if is_signin else "Chưa đăng nhập Google Flow",
+                "error": "Google từ chối Cookie này (phiên hết hạn hoặc Google yêu cầu đăng nhập trực tiếp trên Chrome). Vui lòng bấm 'Mở cửa sổ Chrome đăng nhập Google' để đăng nhập!",
                 "last_checked": time.time(),
             })
             log.warning("Cookie injection check: not authenticated (url=%s)", page.url)
