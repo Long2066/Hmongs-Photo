@@ -234,24 +234,12 @@ async def _ensure_cdp_chrome_running(signin: bool = False) -> bool:
 
 
 async def _bring_chrome_to_front(bm: BrowserManager) -> None:
-    """Use Chrome DevTools Protocol to bring Chrome window to front on the desktop."""
-    try:
-        p = await bm.page()
-        cdp = await bm.context.new_cdp_session(p)
-        win_info = await cdp.send("Browser.getWindowForTarget")
-        wid = win_info.get("windowId")
-        if wid:
-            await cdp.send("Browser.setWindowBounds", {
-                "windowId": wid,
-                "bounds": {"left": 100, "top": 100, "width": 1280, "height": 900, "windowState": "normal"}
-            })
-            log.info("Brought CDP Chrome window to front (windowId=%s)", wid)
-    except Exception as e:
-        log.debug("Bring chrome to front notice: %s", e)
+    """Never force Chrome window to front on desktop during background video work."""
+    return
 
 
-async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
-    """Return the singleton BrowserManager."""
+async def _get_or_start_bm(headless: bool = True) -> BrowserManager:
+    """Return the singleton BrowserManager in 100% background mode."""
     global _bm
     if _bm is not None and _bm._ctx is not None:
         try:
@@ -272,7 +260,7 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
             _bm = None
 
     ensure_dirs()
-    # 1. Prefer live CDP Chrome on port 9222
+    # 1. Connect to live CDP Chrome on port 9222 ONLY IF user currently has it open for login
     try:
         import urllib.request
         with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=0.8) as resp:
@@ -284,18 +272,8 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
     except Exception:
         pass
 
-    # 2. Try starting native Chrome on 9222
-    try:
-        running = await _ensure_cdp_chrome_running(signin=False)
-        if running:
-            bm = BrowserManager.from_cdp("http://127.0.0.1:9222")
-            await bm.start()
-            _bm = bm
-            return _bm
-    except Exception as cdp_err:
-        log.debug("CDP start notice: %s", cdp_err)
-
-    # 3. Fallback to normal persistent context
+    # 2. DO NOT launch native visible Chrome for background jobs.
+    # Launch persistent profile in headless mode (zero desktop windows, zero mouse stealing)!
     bm = BrowserManager(headless=headless)
     await bm.start()
     _bm = bm
@@ -411,7 +389,7 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
         return _auth_state
     async with _browser_lock:
         try:
-            bm = await _get_or_start_bm(headless=False)
+            bm = await _get_or_start_bm(headless=True)
             page = await bm.page()
 
             saved_pid, _ = get_active_project()
@@ -612,7 +590,7 @@ async def _run_video_generation_job(
             return
 
         async with _browser_lock:
-            bm = await _get_or_start_bm(headless=False)
+            bm = await _get_or_start_bm(headless=True)
             page = await bm.page()
             pid = active_pid or state.get("project_id") or await _extract_or_create_project_id(page)
 
@@ -698,6 +676,118 @@ async def _run_video_generation_job(
                     )
                 if "giữ nguyên" not in final_prompt.lower() and "giữ trọn" not in final_prompt.lower() and "keep all" not in final_prompt.lower():
                     final_prompt = f"{prompt.rstrip('. ')};{enhancement}"
+
+            # ─────────────────────────────────────────────────────────────────
+            # BÀI 3: DIRECT INTERNAL REST API (Veo 3.1) - ZERO UI / 100% HEADLESS
+            # ─────────────────────────────────────────────────────────────────
+            api = FlowAPI(bm, project_id=pid)
+            try:
+                start_media_id = None
+                if start_image_path:
+                    job_entry["progress_text"] = "Đang đồng bộ ảnh nguồn vào kho lưu trữ Veo 3.1..."
+                    log.info("[%s] [Bài 3] Uploading start frame image via FlowAPI...", job_id)
+                    start_media_id = await api.upload_image(start_image_path)
+                    log.info("[%s] [Bài 3] Image uploaded successfully -> media_id: %s", job_id, start_media_id)
+
+                ar_enum = VIDEO_AR_PORTRAIT if aspect_mode == "portrait" else VIDEO_AR_LANDSCAPE
+                if start_media_id:
+                    model_key = VIDEO_MODEL_VEO31_I2V_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_I2V
+                else:
+                    model_key = VIDEO_MODEL_VEO31_FAST_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_FAST
+
+                job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video qua Veo 3.1 REST API..."
+                requests = []
+                base_seed = random.randint(0, 2**31)
+                for i in range(output_count):
+                    req_item = {
+                        "aspectRatio": ar_enum,
+                        "seed": base_seed + i,
+                        "textInput": {"structuredPrompt": {"parts": [{"text": final_prompt}]}},
+                        "videoModelKey": model_key,
+                        "metadata": {},
+                    }
+                    if start_media_id:
+                        req_item["imageInputs"] = [{"mediaName": start_media_id, "role": "START_IMAGE"}]
+                    requests.append(req_item)
+
+                log.info("[%s] [Bài 3] Calling batchAsyncGenerateVideoText (%d requests, model=%s)", job_id, len(requests), model_key)
+                video_job = await api._video_call("video:batchAsyncGenerateVideoText", requests)
+
+                media_list = video_job._raw.get("media", [])
+                if not media_list and "workflows" in video_job._raw:
+                    media_list = [{"name": wf.get("metadata", {}).get("primaryMediaId")} for wf in video_job._raw.get("workflows", [])]
+                media_names = [m.get("name") for m in media_list if m.get("name")]
+                if not media_names and video_job.media_name:
+                    media_names = [video_job.media_name]
+
+                log.info("[%s] [Bài 3] VideoJob submitted: tracking media %s", job_id, media_names)
+
+                t0 = time.monotonic()
+                max_wait = 320
+                completed_media = {}
+
+                while time.monotonic() - t0 < max_wait:
+                    await asyncio.sleep(4.0)
+                    elapsed = int(time.monotonic() - t0)
+
+                    pending = [m for m in media_names if m not in completed_media]
+                    if not pending:
+                        break
+
+                    status_payload = {"media": [{"name": mn, "projectId": pid} for mn in pending]}
+                    try:
+                        status_data = await api._fetch("POST", "video:batchCheckAsyncVideoGenerationStatus", status_payload)
+                        items = status_data.get("media", [])
+                        for itm in items:
+                            m_name = itm.get("name")
+                            meta = itm.get("mediaMetadata", {})
+                            gen_status = meta.get("mediaStatus", {}).get("mediaGenerationStatus", "")
+                            vid = itm.get("video", {}).get("generatedVideo", {})
+                            fife = vid.get("fifeUrl") or itm.get("fifeUrl") or ""
+
+                            if gen_status in ("MEDIA_GENERATION_STATUS_COMPLETE", "MEDIA_GENERATION_STATUS_SUCCESS", "MEDIA_GENERATION_STATUS_SUCCESSFUL") or fife:
+                                if fife and m_name not in completed_media:
+                                    completed_media[m_name] = fife
+                                    log.info("[%s] [Bài 3] Media %s complete! fifeUrl: %s", job_id, m_name[:8], fife[:60])
+                            elif gen_status in ("MEDIA_GENERATION_STATUS_FAILED", "MEDIA_GENERATION_STATUS_REJECTED"):
+                                log.error("[%s] [Bài 3] Media %s failed with status: %s", job_id, m_name[:8], gen_status)
+                    except Exception as poll_err:
+                        log.debug("[%s] [Bài 3] Poll notice: %s", job_id, poll_err)
+
+                    cur_done = len(completed_media)
+                    job_entry["progress_text"] = f"Veo 3.1 đang render ngầm ({cur_done}/{len(media_names)} video • {elapsed}s)..."
+
+                    if cur_done >= len(media_names):
+                        break
+
+                if completed_media:
+                    saved_urls = []
+                    total_bytes = 0
+                    for idx, (m_name, fife_url) in enumerate(completed_media.items()):
+                        suffix = "" if idx == 0 else f"_{idx + 1}"
+                        out_file = OUTPUT_DIR / f"{job_id}{suffix}.mp4"
+                        job_entry["progress_text"] = f"Đang tải video MP4 gốc ({idx + 1}/{len(completed_media)})..."
+                        try:
+                            await api.download(fife_url, out_file)
+                            if out_file.exists() and out_file.stat().st_size > 0:
+                                file_url = f"http://localhost:8100/files/{out_file.name}"
+                                saved_urls.append(file_url)
+                                total_bytes += out_file.stat().st_size
+                                log.info("[%s] [Bài 3] Downloaded MP4 #%d: %s (%d bytes)", job_id, idx + 1, out_file.name, out_file.stat().st_size)
+                        except Exception as dl_err:
+                            log.warning("[%s] [Bài 3] Download error for %s: %s", job_id, m_name, dl_err)
+
+                    if saved_urls:
+                        job_entry["status"] = "completed"
+                        job_entry["url"] = saved_urls[0]
+                        job_entry["urls"] = saved_urls
+                        job_entry["download_url"] = saved_urls[0]
+                        job_entry["bytes"] = total_bytes
+                        job_entry["progress_text"] = "Hoàn tất!"
+                        log.info("[%s] [Bài 3] Successfully completed all %d video(s) via REST API!", job_id, len(saved_urls))
+                        return
+            except Exception as api_exc:
+                log.warning("[%s] [Bài 3] Direct REST API attempt failed: %s. Falling back to Headless UI...", job_id, api_exc)
 
             await ui.fill_prompt(page, final_prompt)
 
@@ -918,7 +1008,7 @@ async def extension_pending_reload():
 @app.get("/v1/debug/page")
 async def debug_page(goto: Optional[str] = None, test_dl: bool = False, inspect_add: bool = False):
     """Inspect current Playwright page state and cookies."""
-    bm = await _get_or_start_bm(headless=False)
+    bm = await _get_or_start_bm(headless=True)
     page = await bm.page()
     if inspect_add:
         info = await page.evaluate("""
@@ -1164,7 +1254,7 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
     """Receive Google & Flow cookies from the user's normal Chrome and inject into Playwright."""
     global _auth_state
     async with _browser_lock:
-        bm = await _get_or_start_bm(headless=False)
+        bm = await _get_or_start_bm(headless=True)
         try:
             await bm.context.clear_cookies()
         except Exception:
@@ -1365,7 +1455,7 @@ async def add_account_to_pool(req: AccountPoolAddRequest):
 async def snapshot_current_browser_to_pool(label: Optional[str] = None):
     """Save the currently logged-in Chrome browser session into the rotation pool."""
     async with _browser_lock:
-        bm = await _get_or_start_bm(headless=False)
+        bm = await _get_or_start_bm(headless=True)
         page = await bm.page()
         pid = await _ensure_in_project(page)
         if not pid or "accounts.google.com" in page.url or "signin" in page.url or "/about" in page.url:

@@ -367,22 +367,51 @@ class FlowUI:
                 log.warning("Could not find upload button or file input")
                 return False
 
-        # 3. Wait for the image upload to finish ("Đang tải lên" disappears)
+        # 3. Wait for the image upload to register and finish ("Đang tải lên" disappears)
+        await asyncio.sleep(2.0)
         for _ in range(30):
-            await asyncio.sleep(1.0)
             uploading = await page.evaluate("""
                 () => document.body.innerText.includes('Đang tải lên') ||
                       document.body.innerText.includes('Uploading')
             """)
             if not uploading:
                 break
+            await asyncio.sleep(1.0)
 
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.5)
 
-        # 4. Ensure the uploaded image is attached into the Start-frame ("Bắt đầu") slot!
-        attached = await page.locator('button[aria-label*="Thành phần tạo hình ảnh" i]').count() > 0
-        if not attached:
-            # Re-open "Bắt đầu" if the upload closed the popover
+        # 4. Ensure the uploaded image is firmly attached into the Start-frame ("Bắt đầu") slot!
+        attached = False
+        for attempt in range(12):
+            # Check if start-frame thumbnail is already attached
+            attached = await page.evaluate("""
+                () => {
+                    const btn = document.querySelector('button[aria-label*="Thành phần tạo hình ảnh" i]');
+                    if (btn) return true;
+                    // Check if there is an image inside the prompt start-frame area
+                    const startSlot = document.querySelector('[class*="start-frame"], [class*="startFrame"], [data-testid*="start-frame"]');
+                    if (startSlot && startSlot.querySelector('img')) return true;
+                    // Check any img with preview in the bottom dock/prompt
+                    const dockImgs = document.querySelectorAll('footer img, div[class*="prompt"] img, div[class*="dock"] img, div[class*="input"] img');
+                    return dockImgs.length > 0;
+                }
+            """)
+            if attached:
+                log.info("Image attachment confirmed in prompt bar on attempt %d", attempt)
+                break
+
+            # If not attached, look for "Thêm vào câu lệnh" / "Add to prompt" button
+            add_to_prompt = page.locator('button:has-text("Thêm vào câu lệnh"), button:has-text("Add to prompt")').last
+            if await add_to_prompt.count() > 0:
+                try:
+                    if not await add_to_prompt.is_disabled():
+                        await add_to_prompt.click(timeout=2000)
+                        await asyncio.sleep(1.5)
+                        continue
+                except Exception:
+                    pass
+
+            # Or re-open "Bắt đầu" if popover closed
             if await page.locator('[role="option"]').count() == 0:
                 start_btn = page.locator('button:has-text("Bắt đầu"):not([aria-label*="tạo"]), button:has-text("Start")').first
                 if await start_btn.count() > 0:
@@ -392,27 +421,32 @@ class FlowUI:
                     except Exception:
                         pass
 
-            # Click the option matching our filename, or the first [role="option"]
+            # Click option matching filename or first option
             target_opt = page.locator(f'[role="option"]:has-text("{filename}")').first
             if await target_opt.count() == 0:
                 target_opt = page.locator('[role="option"]').first
             if await target_opt.count() > 0:
                 try:
                     await target_opt.click(timeout=2500)
-                    await asyncio.sleep(0.8)
+                    await asyncio.sleep(1.0)
                 except Exception:
                     pass
 
-            add_to_prompt = page.locator('button:has-text("Thêm vào câu lệnh"), button:has-text("Add to prompt")').last
-            if await add_to_prompt.count() > 0:
+            # Try clicking add to prompt again
+            add_btn = page.locator('button:has-text("Thêm vào câu lệnh"), button:has-text("Add to prompt")').last
+            if await add_btn.count() > 0:
                 try:
-                    if not await add_to_prompt.is_disabled():
-                        await add_to_prompt.click(timeout=2000)
-                        await asyncio.sleep(0.8)
+                    if not await add_btn.is_disabled():
+                        await add_btn.click(timeout=2000)
+                        await asyncio.sleep(1.5)
                 except Exception:
                     pass
 
-        log.info("Uploaded & attached start-frame image successfully: %s", image_path)
+            await asyncio.sleep(1.0)
+
+        # Settle wait to ensure Angular finishes binding
+        await asyncio.sleep(2.0)
+        log.info("Uploaded & attached start-frame image (attached=%s): %s", attached, image_path)
         return True
 
     # ------------------------------------------------------------------
