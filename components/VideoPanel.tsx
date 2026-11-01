@@ -22,6 +22,16 @@ import {
 } from '../services/geminiVideoService';
 
 import {
+    getFalApiKey,
+    setFalApiKey,
+    getSavedFalModel,
+    setSavedFalModel,
+    checkFalUser,
+    FAL_MODELS,
+    FalUserInfo,
+} from '../services/falVideoService';
+
+import {
     getSiliconFlowApiKey,
     setSiliconFlowApiKey,
     getSavedSiliconModel,
@@ -78,7 +88,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     hasInputImage,
     inputImagePreview,
 }) => {
-    // Engine State: 'siliconflow' (Default Cloud) vs 'flow_local' (Local Google Flow)
+    // Engine State: 'fal_ai' (Default Global Cloud) vs 'siliconflow' vs 'flow_local' (Local Google Flow)
     const [engine, setEngineState] = useState<VideoEngine>(() => getVideoEngine());
 
     // Common Video States
@@ -90,12 +100,19 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [configMessage, setConfigMessage] = useState<string | null>(null);
     const [configMessageType, setConfigMessageType] = useState<'success' | 'error' | null>(null);
 
+    // Fal.ai Specific State (Default Cloud Provider)
+    const [falApiKey, setFalApiKeyState] = useState(() => getFalApiKey());
+    const [falModel, setFalModelState] = useState(() => getSavedFalModel());
+    const [falUserInfo, setFalUserInfo] = useState<FalUserInfo | null>(null);
+    const [isCheckingFal, setIsCheckingFal] = useState(false);
+    const [showFalKeyText, setShowFalKeyText] = useState(false);
+
     // SiliconFlow Specific State
     const [siliconApiKey, setSiliconApiKeyState] = useState(() => getSiliconFlowApiKey());
     const [siliconModel, setSiliconModelState] = useState(() => getSavedSiliconModel());
     const [siliconUserInfo, setSiliconUserInfo] = useState<SiliconUserInfo | null>(null);
     const [isCheckingSilicon, setIsCheckingSilicon] = useState(false);
-    const [showApiKeyText, setShowApiKeyText] = useState(false);
+    const [showSiliconKeyText, setShowSiliconKeyText] = useState(false);
 
     // Google Flow Specific State
     const [selectedFlowModel, setSelectedFlowModel] = useState<string>('Omni 1.1 Flash');
@@ -116,6 +133,14 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         setConfigMessageType(null);
     };
 
+    // Refresh Fal.ai status
+    const refreshFalStatus = async (keyOverride?: string) => {
+        setIsCheckingFal(true);
+        const res = await checkFalUser(keyOverride);
+        setFalUserInfo(res);
+        setIsCheckingFal(false);
+    };
+
     // Refresh SiliconFlow user status
     const refreshSiliconStatus = async (keyOverride?: string) => {
         setIsCheckingSilicon(true);
@@ -126,10 +151,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     // Initial check on mount
     useEffect(() => {
-        if (getSiliconFlowApiKey()) {
+        if (engine === 'fal_ai' && getFalApiKey()) {
+            refreshFalStatus();
+        } else if (engine === 'siliconflow' && getSiliconFlowApiKey()) {
             refreshSiliconStatus();
-        }
-        if (engine === 'flow_local') {
+        } else if (engine === 'flow_local') {
             checkLocalServer();
             refreshPool();
         }
@@ -169,6 +195,29 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         img.src = src;
     }, [inputImagePreview]);
 
+    // Handle saving Fal.ai API Key
+    const handleSaveFalApiKey = async () => {
+        if (!falApiKey.trim()) {
+            setFalApiKey('');
+            setFalUserInfo(null);
+            setConfigMessageType('error');
+            setConfigMessage('Đã xoá API Key Fal.ai.');
+            return;
+        }
+        setFalApiKey(falApiKey.trim());
+        setIsCheckingFal(true);
+        const info = await checkFalUser(falApiKey.trim());
+        setFalUserInfo(info);
+        setIsCheckingFal(false);
+        if (info.ok) {
+            setConfigMessageType('success');
+            setConfigMessage('Đã kết nối tài khoản Fal.ai Cloud thành công! Sẵn sàng tạo video.');
+        } else {
+            setConfigMessageType('error');
+            setConfigMessage(info.error || 'API Key Fal.ai không hợp lệ. Vui lòng kiểm tra lại!');
+        }
+    };
+
     // Handle saving SiliconFlow API Key
     const handleSaveSiliconApiKey = async () => {
         if (!siliconApiKey.trim()) {
@@ -190,6 +239,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             setConfigMessageType('error');
             setConfigMessage(info.error || 'API Key không hợp lệ. Vui lòng kiểm tra lại!');
         }
+    };
+
+    const handleSelectFalModel = (modelId: string) => {
+        setFalModelState(modelId);
+        setSavedFalModel(modelId);
     };
 
     const handleSelectSiliconModel = (modelId: string) => {
@@ -295,67 +349,79 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         }
     };
 
-    const handleRemovePoolAccount = async (accId: string) => {
-        try {
-            await removeAccountFromFlowPool(accId);
-            await refreshPool();
-        } catch (err) {
-            console.error(err);
-        }
-    };
-
     const isImageMode = subMode === 'image_to_video';
+    const isFalMode = engine === 'fal_ai';
     const isSiliconMode = engine === 'siliconflow';
 
     const canSubmit = !isLoading && !isDisabled && prompt.trim().length > 0 && (!isImageMode || hasInputImage);
 
     const handleExecuteGenerate = () => {
-        const activeModel = isSiliconMode ? siliconModel : selectedFlowModel;
+        const activeModel = isFalMode
+            ? falModel
+            : isSiliconMode
+            ? siliconModel
+            : selectedFlowModel;
         onGenerate(prompt, aspectRatio, subMode, activeModel, outputCount);
     };
 
     return (
         <div className="flex flex-col gap-4 p-1 animate-fade-in">
-            {/* Engine Segmented Bar: SiliconFlow Cloud (Default) vs Google Flow (Local) */}
+            {/* Engine Segmented Bar: Fal.ai Cloud (Default) vs Google Flow (Local) vs SiliconFlow */}
             <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                         Động cơ tạo video
                     </span>
                     <span className="text-[10px] text-slate-400 font-medium">
-                        {isSiliconMode ? 'Mở web là dùng ngay • Không cần bật máy' : 'Chạy qua Server máy tính'}
+                        {isFalMode
+                            ? 'Google 1-click • Không cần giấy tờ'
+                            : isSiliconMode
+                            ? 'SiliconFlow Cloud API'
+                            : 'Chạy qua Server máy tính'}
                     </span>
                 </div>
-                <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
+                <div className="grid grid-cols-3 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
                     <button
                         type="button"
-                        onClick={() => handleSwitchEngine('siliconflow')}
-                        className={`min-h-[42px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            isSiliconMode
+                        onClick={() => handleSwitchEngine('fal_ai')}
+                        className={`min-h-[42px] flex items-center justify-center gap-1 px-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            isFalMode
                                 ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
                                 : 'text-slate-600 hover:text-slate-900'
                         }`}
                     >
                         <span>🚀</span>
-                        <span>SiliconFlow (Cloud API)</span>
+                        <span className="truncate">Fal.ai (Khuyên dùng)</span>
                     </button>
                     <button
                         type="button"
                         onClick={() => handleSwitchEngine('flow_local')}
-                        className={`min-h-[42px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            !isSiliconMode
+                        className={`min-h-[42px] flex items-center justify-center gap-1 px-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            engine === 'flow_local'
                                 ? 'bg-white text-rose-700 shadow-xs ring-1 ring-slate-900/5'
                                 : 'text-slate-600 hover:text-slate-900'
                         }`}
                     >
                         <span>🌐</span>
-                        <span>Google Flow (Veo 3.1)</span>
+                        <span className="truncate">Google Flow</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('siliconflow')}
+                        className={`min-h-[42px] flex items-center justify-center gap-1 px-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            isSiliconMode
+                                ? 'bg-white text-purple-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>⚡</span>
+                        <span className="truncate">SiliconFlow</span>
                     </button>
                 </div>
             </div>
 
-            {/* SILICONFLOW CLOUD CARD */}
-            {isSiliconMode && (
+            {/* FAL.AI CLOUD CARD (DEFAULT RECOMMENDED) */}
+            {isFalMode && (
                 <div className="bg-gradient-to-br from-indigo-50/70 via-slate-50 to-purple-50/50 p-3 rounded-xl ring-1 ring-indigo-500/15 flex flex-col gap-2.5 shadow-2xs">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5">
@@ -364,15 +430,121 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             </div>
                             <div className="flex flex-col">
                                 <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-semibold text-slate-900">SiliconFlow Cloud</span>
+                                    <span className="text-xs font-semibold text-slate-900">Fal.ai Cloud</span>
                                     <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-indigo-600 text-white">
+                                        Google 1-Click
+                                    </span>
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                    Không cần xác minh danh tính • LTX-Video siêu tốc 5s
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => setShowConfigPanel(!showConfigPanel)}
+                                title="Bấm để cấu hình API Key Fal.ai"
+                                className="min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer"
+                            >
+                                <span
+                                    className={`w-2 h-2 rounded-full ${
+                                        isCheckingFal
+                                            ? 'bg-amber-400 animate-pulse'
+                                            : falUserInfo?.ok
+                                            ? 'bg-emerald-500'
+                                            : falApiKey.trim()
+                                            ? 'bg-indigo-500'
+                                            : 'bg-amber-500'
+                                    }`}
+                                />
+                                <span className="text-[11px] font-semibold text-slate-700 tabular-nums">
+                                    {isCheckingFal
+                                        ? 'Kiểm tra...'
+                                        : falUserInfo?.ok
+                                        ? 'Đã kết nối'
+                                        : falApiKey.trim()
+                                        ? 'Đã có Key'
+                                        : 'Nhập Key'}
+                                </span>
+                                <span className="text-[10px] text-slate-400 ml-0.5">{showConfigPanel ? '▲' : '⚙️'}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Fal.ai Config Dropdown */}
+                    {showConfigPanel && (
+                        <div className="pt-2 border-t border-indigo-200/50 flex flex-col gap-2 animate-fade-in">
+                            <div className="p-2.5 rounded-xl bg-white ring-1 ring-slate-900/5 flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[11px] font-semibold text-slate-800">
+                                        API Key Fal.ai
+                                    </label>
+                                    <a
+                                        href="https://fal.ai/dashboard/keys"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold underline"
+                                    >
+                                        Lấy Key qua Google (1-Click) ↗
+                                    </a>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <input
+                                        type={showFalKeyText ? 'text' : 'password'}
+                                        value={falApiKey}
+                                        onChange={(e) => setFalApiKeyState(e.target.value)}
+                                        placeholder="Dán Key từ fal.ai/dashboard/keys..."
+                                        className="flex-1 bg-slate-50 ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500/30 outline-none"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowFalKeyText(!showFalKeyText)}
+                                        className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] cursor-pointer"
+                                    >
+                                        {showFalKeyText ? 'Ẩn' : 'Hiện'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveFalApiKey}
+                                        disabled={isCheckingFal}
+                                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
+                                    >
+                                        {isCheckingFal ? 'Đang lưu...' : 'Lưu Key'}
+                                    </button>
+                                </div>
+                                <div className="p-2 rounded-lg bg-indigo-50/60 ring-1 ring-indigo-500/10 text-[10.5px] text-indigo-950 flex flex-col gap-1 leading-relaxed">
+                                    <div><b>💡 Hướng dẫn 3 bước lấy Key (hoàn toàn miễn phí):</b></div>
+                                    <div>1. Bấm vào link <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener noreferrer" className="font-semibold underline text-indigo-700">fal.ai/dashboard/keys</a>.</div>
+                                    <div>2. Chọn <b>Sign in with Google</b> (hoặc GitHub) để đăng nhập 1 click.</div>
+                                    <div>3. Bấm <b>Add Key</b>, copy chuỗi Key dán vào ô trên rồi bấm <b>Lưu Key</b>.</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* SILICONFLOW CLOUD CARD */}
+            {isSiliconMode && (
+                <div className="bg-gradient-to-br from-purple-50/70 via-slate-50 to-indigo-50/50 p-3 rounded-xl ring-1 ring-purple-500/15 flex flex-col gap-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-xs">
+                                <span>⚡</span>
+                            </div>
+                            <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-slate-900">SiliconFlow Cloud</span>
+                                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-purple-600 text-white">
                                         REST API
                                     </span>
                                 </div>
                                 <span className="text-[10px] text-slate-500 font-medium">
                                     {siliconUserInfo?.name
                                         ? `${siliconUserInfo.name} • ${siliconUserInfo.balance || 'Khả dụng'}`
-                                        : 'Chạy trực tiếp trên đám mây 24/7'}
+                                        : 'Dành cho ai đã có tài khoản sẵn'}
                                 </span>
                             </div>
                         </div>
@@ -391,7 +563,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                             : siliconUserInfo?.ok
                                             ? 'bg-emerald-500'
                                             : siliconApiKey.trim()
-                                            ? 'bg-indigo-500'
+                                            ? 'bg-purple-500'
                                             : 'bg-amber-500'
                                     }`}
                                 />
@@ -409,50 +581,36 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         </div>
                     </div>
 
-                    {/* SiliconFlow Config Dropdown */}
                     {showConfigPanel && (
-                        <div className="pt-2 border-t border-indigo-200/50 flex flex-col gap-2 animate-fade-in">
+                        <div className="pt-2 border-t border-purple-200/50 flex flex-col gap-2 animate-fade-in">
                             <div className="p-2.5 rounded-xl bg-white ring-1 ring-slate-900/5 flex flex-col gap-2">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-[11px] font-semibold text-slate-800">
-                                        API Key SiliconFlow (sk-...)
-                                    </label>
-                                    <a
-                                        href="https://cloud.siliconflow.cn/account/ak"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold underline"
-                                    >
-                                        Lấy Key miễn phí (Tặng 14 triệu token) ↗
-                                    </a>
-                                </div>
+                                <label className="text-[11px] font-semibold text-slate-800">
+                                    API Key SiliconFlow (sk-...)
+                                </label>
                                 <div className="flex items-center gap-1.5">
                                     <input
-                                        type={showApiKeyText ? 'text' : 'password'}
+                                        type={showSiliconKeyText ? 'text' : 'password'}
                                         value={siliconApiKey}
                                         onChange={(e) => setSiliconApiKeyState(e.target.value)}
                                         placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                        className="flex-1 bg-slate-50 ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500/30 outline-none"
+                                        className="flex-1 bg-slate-50 ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:bg-white focus:ring-2 focus:ring-purple-500/30 outline-none"
                                     />
                                     <button
                                         type="button"
-                                        onClick={() => setShowApiKeyText(!showApiKeyText)}
+                                        onClick={() => setShowSiliconKeyText(!showSiliconKeyText)}
                                         className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] cursor-pointer"
                                     >
-                                        {showApiKeyText ? 'Ẩn' : 'Hiện'}
+                                        {showSiliconKeyText ? 'Ẩn' : 'Hiện'}
                                     </button>
                                     <button
                                         type="button"
                                         onClick={handleSaveSiliconApiKey}
                                         disabled={isCheckingSilicon}
-                                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
+                                        className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
                                     >
                                         {isCheckingSilicon ? 'Đang lưu...' : 'Lưu Key'}
                                     </button>
                                 </div>
-                                <span className="text-[10px] text-slate-500 leading-relaxed">
-                                    💡 Key được lưu an toàn trực tiếp trên trình duyệt máy bạn (localStorage). Không cần chạy server máy tính.
-                                </span>
                             </div>
                         </div>
                     )}
@@ -460,7 +618,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             )}
 
             {/* GOOGLE FLOW (VEO 3.1) LOCAL CARD */}
-            {!isSiliconMode && (
+            {engine === 'flow_local' && (
                 <div className="bg-slate-50 p-3 rounded-xl ring-1 ring-slate-900/5 flex flex-col gap-2.5">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5">
@@ -696,24 +854,22 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             <div>
                 <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                        {isSiliconMode ? 'Mô hình SiliconFlow Cloud' : 'Mô hình Google Flow'}
+                        {isFalMode ? 'Mô hình Fal.ai Cloud' : isSiliconMode ? 'Mô hình SiliconFlow Cloud' : 'Mô hình Google Flow'}
                     </label>
-                    {isSiliconMode && (
-                        <span className="text-[10px] text-emerald-600 font-medium">
-                            Tốc độ cao • Không cần chờ
-                        </span>
-                    )}
+                    <span className="text-[10px] text-emerald-600 font-medium">
+                        Tốc độ cao • Không cần chờ
+                    </span>
                 </div>
 
-                {isSiliconMode ? (
+                {isFalMode ? (
                     <div className="flex flex-col gap-2">
-                        {SILICON_MODELS.map((m) => (
+                        {FAL_MODELS.map((m) => (
                             <button
                                 key={m.id}
                                 type="button"
-                                onClick={() => handleSelectSiliconModel(m.id)}
+                                onClick={() => handleSelectFalModel(m.id)}
                                 className={`p-2.5 rounded-xl text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 ${
-                                    siliconModel === m.id
+                                    falModel === m.id
                                         ? 'bg-indigo-50/80 text-indigo-900 ring-2 ring-indigo-500/40 shadow-xs'
                                         : 'bg-slate-50 text-slate-700 ring-1 ring-slate-900/5 hover:bg-slate-100'
                                 }`}
@@ -729,7 +885,37 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                         {m.desc}
                                     </span>
                                 </div>
-                                <span className={`text-base shrink-0 ${siliconModel === m.id ? 'text-indigo-600' : 'text-slate-300'}`}>
+                                <span className={`text-base shrink-0 ${falModel === m.id ? 'text-indigo-600' : 'text-slate-300'}`}>
+                                    {falModel === m.id ? '●' : '○'}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                ) : isSiliconMode ? (
+                    <div className="flex flex-col gap-2">
+                        {SILICON_MODELS.map((m) => (
+                            <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => handleSelectSiliconModel(m.id)}
+                                className={`p-2.5 rounded-xl text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 ${
+                                    siliconModel === m.id
+                                        ? 'bg-purple-50/80 text-purple-900 ring-2 ring-purple-500/40 shadow-xs'
+                                        : 'bg-slate-50 text-slate-700 ring-1 ring-slate-900/5 hover:bg-slate-100'
+                                }`}
+                            >
+                                <div className="flex flex-col min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-semibold truncate">{m.name}</span>
+                                        <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-white font-semibold text-purple-700 shadow-2xs shrink-0">
+                                            {m.badge}
+                                        </span>
+                                    </div>
+                                    <span className="text-[10.5px] text-slate-500 line-clamp-1 mt-0.5">
+                                        {m.desc}
+                                    </span>
+                                </div>
+                                <span className={`text-base shrink-0 ${siliconModel === m.id ? 'text-purple-600' : 'text-slate-300'}`}>
                                     {siliconModel === m.id ? '●' : '○'}
                                 </span>
                             </button>
@@ -793,10 +979,10 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
                     <div>
                         <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                            Số lượng video
+                            Số lượng
                         </label>
-                        <div className="grid grid-cols-4 gap-1">
-                            {[1, 2, 3, 4].map((cnt) => (
+                        <div className="grid grid-cols-2 gap-1.5">
+                            {[1, 2].map((cnt) => (
                                 <button
                                     key={cnt}
                                     type="button"
@@ -844,8 +1030,10 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 onClick={handleExecuteGenerate}
                 disabled={!canSubmit}
                 className={`w-full min-h-[48px] mt-1 px-6 py-3.5 text-white font-semibold text-sm tracking-wide rounded-xl shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] cursor-pointer ${
-                    isSiliconMode
+                    isFalMode
                         ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-indigo-500/20 hover:shadow-indigo-500/30 focus:ring-2 focus:ring-indigo-500/40'
+                        : isSiliconMode
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-500/20 hover:shadow-purple-500/30 focus:ring-2 focus:ring-purple-500/40'
                         : 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 shadow-rose-500/20 hover:shadow-rose-500/30 focus:ring-2 focus:ring-rose-500/40'
                 }`}
             >
@@ -859,9 +1047,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </span>
                 ) : (
                     <span className="flex items-center justify-center gap-2">
-                        {isSiliconMode ? <span>🚀</span> : <VideoCameraIcon className="w-5 h-5" />}
+                        {isFalMode ? <span>🚀</span> : isSiliconMode ? <span>⚡</span> : <VideoCameraIcon className="w-5 h-5" />}
                         <span>
-                            {isSiliconMode
+                            {isFalMode
+                                ? `TẠO VIDEO FAL.AI (${falModel.split('/').pop()?.toUpperCase()})`
+                                : isSiliconMode
                                 ? `TẠO VIDEO CLOUD (${siliconModel.split('/').pop()})`
                                 : `TẠO VIDEO VEO 3.1 (${selectedFlowModel.replace(' - ', ' ')})`}
                         </span>

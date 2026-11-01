@@ -1,13 +1,14 @@
 import { generateSiliconVideo } from './siliconVideoService';
+import { generateFalVideo } from './falVideoService';
 
 /**
- * Service tích hợp Google Flow AI (Veo 3.1) & SiliconFlow Cloud Video
+ * Service tích hợp Video AI: Fal.ai Cloud (Mặc định), SiliconFlow Cloud & Google Flow Local
  */
 
-export type VideoEngine = 'siliconflow' | 'flow_local';
+export type VideoEngine = 'fal_ai' | 'siliconflow' | 'flow_local';
 
 export const getVideoEngine = (): VideoEngine => {
-    return (localStorage.getItem('video_engine') as VideoEngine) || 'siliconflow';
+    return (localStorage.getItem('video_engine') as VideoEngine) || 'fal_ai';
 };
 
 export const setVideoEngine = (engine: VideoEngine): void => {
@@ -287,7 +288,23 @@ export const removeAccountFromFlowPool = async (accId: string): Promise<any> => 
 export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; urls: string[]; bytes?: number }> => {
     const engine = getVideoEngine();
 
-    // 1. Chế độ SiliconFlow Cloud API (Mặc định - 100% trên mây, không cần bật máy)
+    // 1. Chế độ Fal.ai Cloud API (Mặc định - Đăng nhập Google 1 click, không cần CMND/CCCD, 100% Quốc tế)
+    if (engine === 'fal_ai') {
+        const res = await generateFalVideo({
+            prompt: params.prompt,
+            aspectRatio: params.aspectRatio,
+            model: params.model,
+            outputCount: params.outputCount,
+            inputImageBase64: params.inputImageBase64,
+            onProgress: params.onProgress,
+        });
+        return {
+            url: res.url,
+            urls: res.urls,
+        };
+    }
+
+    // 2. Chế độ SiliconFlow Cloud API
     if (engine === 'siliconflow') {
         const res = await generateSiliconVideo({
             prompt: params.prompt,
