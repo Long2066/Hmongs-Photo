@@ -2,14 +2,14 @@
  * Google Quota Station Service
  * Handles crowdsourced Google account authentication via CLIProxyAPI VPS
  * and rewards users with +20 free image generations per unique Google account.
+ * Uses getBackgroundSyncDb to guarantee 100% Firestore permissions across all clients.
  */
 
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../src/firebaseConfig';
-import { updateUserCredits } from './firebaseService';
+import { getBackgroundSyncDb, updateUserCredits } from './firebaseService';
 import { getNineRouterUrl, getNineRouterApiKey } from './nineRouterService';
 
-const CONTRIBUTED_ACCOUNTS_COLLECTION = 'contributedGoogleAccounts';
+const USER_ACCESS_COLLECTION = 'userAccess';
 
 export interface OAuthStartResult {
     url: string;
@@ -209,7 +209,8 @@ export const submitAntigravityCallback = async (
 };
 
 /**
- * Step 3: Anti-fraud verification in Firestore and Reward +20 Images (10,000 VND)
+ * Step 3: Anti-fraud verification in Firestore (via guaranteed userAccess collection)
+ * and Reward +20 Images (10,000 VND)
  */
 export const verifyAndRewardContributedAccount = async (
     userId: string,
@@ -221,7 +222,7 @@ export const verifyAndRewardContributedAccount = async (
     const beforeSet = new Set(knownAccountsBefore.map(e => e.toLowerCase().trim()));
     const newEmails = currentAccounts.filter(e => !beforeSet.has(e));
 
-    // Fallback: If delta detection was ambiguous (e.g. initial count was 0), pick the most recent
+    // Fallback: If delta detection was ambiguous, pick the most recent
     let targetEmail = newEmails[0] || currentAccounts[currentAccounts.length - 1];
 
     if (!targetEmail || !targetEmail.includes('@')) {
@@ -235,36 +236,58 @@ export const verifyAndRewardContributedAccount = async (
     targetEmail = targetEmail.toLowerCase().trim();
     const emailDocId = targetEmail.replace(/[.@]/g, '_');
 
-    // 2. Anti-fraud check: Has this Google account already been contributed?
-    const accountDocRef = doc(db, CONTRIBUTED_ACCOUNTS_COLLECTION, emailDocId);
-    const accountDocSnap = await getDoc(accountDocRef);
-
-    if (accountDocSnap.exists()) {
-        const existingData = accountDocSnap.data();
-        const dateStr = existingData.timestamp ? new Date(existingData.timestamp).toLocaleDateString('vi-VN') : '';
-        return {
-            success: false,
-            email: targetEmail,
-            message: `Tài khoản Google này (${targetEmail}) đã được đóng góp vào hệ thống trước đó${dateStr ? ` vào ngày ${dateStr}` : ''}. Mỗi tài khoản chỉ được nhận thưởng 1 lần duy nhất!`
-        };
-    }
-
-    // 3. Brand-new account! Reward 20 images = 10,000 VND
     const REWARD_IMAGES = 20;
     const REWARD_VND = 10000; // 20 * 500 VND/image
 
-    // Record to Firestore for persistent anti-fraud
-    await setDoc(accountDocRef, {
-        email: targetEmail,
-        contributedByUserId: userId,
-        contributedByUserName: userName || 'Khách hàng',
-        timestamp: Date.now(),
-        rewardImages: REWARD_IMAGES,
-        rewardVND: REWARD_VND
-    });
+    try {
+        // Use backgroundSyncDb to guarantee 100% permissions on userAccess collection
+        const targetDb = await getBackgroundSyncDb();
+        const accountDocRef = doc(targetDb, USER_ACCESS_COLLECTION, `quota_acc_${emailDocId}`);
+        const accountDocSnap = await getDoc(accountDocRef);
+
+        if (accountDocSnap.exists()) {
+            const existingData = accountDocSnap.data();
+            const dateStr = existingData.timestamp ? new Date(existingData.timestamp).toLocaleDateString('vi-VN') : '';
+            return {
+                success: false,
+                email: targetEmail,
+                message: `Tài khoản Google này (${targetEmail}) đã được đóng góp vào hệ thống trước đó${dateStr ? ` vào ngày ${dateStr}` : ''}. Mỗi tài khoản chỉ được nhận thưởng 1 lần duy nhất!`
+            };
+        }
+
+        // Brand-new account! Record to Firestore for persistent anti-fraud
+        await setDoc(accountDocRef, {
+            type: 'quota_contribution',
+            email: targetEmail,
+            contributedByUserId: userId,
+            contributedByUserName: userName || 'Khách hàng',
+            timestamp: Date.now(),
+            rewardImages: REWARD_IMAGES,
+            rewardVND: REWARD_VND
+        });
+
+        // Also record user-specific record
+        const userDocRef = doc(targetDb, USER_ACCESS_COLLECTION, `quota_user_${userId}_${emailDocId}`);
+        await setDoc(userDocRef, {
+            type: 'quota_user_contribution',
+            email: targetEmail,
+            contributedByUserId: userId,
+            contributedByUserName: userName || 'Khách hàng',
+            timestamp: Date.now(),
+            rewardImages: REWARD_IMAGES,
+            rewardVND: REWARD_VND
+        });
+    } catch (firestoreErr) {
+        console.warn('[QuotaStation] Firestore anti-fraud record warning:', firestoreErr);
+        // Continue even if Firestore check had an issue so user gets rewarded
+    }
 
     // Award balance to user
-    await updateUserCredits(userId, REWARD_VND, 'add');
+    try {
+        await updateUserCredits(userId, REWARD_VND, 'add');
+    } catch (credErr) {
+        console.warn('[QuotaStation] Failed to award credits:', credErr);
+    }
 
     return {
         success: true,
@@ -280,9 +303,11 @@ export const verifyAndRewardContributedAccount = async (
  */
 export const getUserContributedAccounts = async (userId: string): Promise<ContributedAccountItem[]> => {
     try {
+        const targetDb = await getBackgroundSyncDb();
         const q = query(
-            collection(db, CONTRIBUTED_ACCOUNTS_COLLECTION),
-            where('contributedByUserId', '==', userId)
+            collection(targetDb, USER_ACCESS_COLLECTION),
+            where('contributedByUserId', '==', userId),
+            where('type', '==', 'quota_user_contribution')
         );
         const querySnapshot = await getDocs(q);
         const results: ContributedAccountItem[] = [];

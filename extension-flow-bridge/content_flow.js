@@ -13,6 +13,16 @@
   }
   window.__FLOW_CONTENT_SCRIPT_INITIALIZED__ = true;
 
+  // Global store for intercepted video URLs from page MAIN world
+  let latestCapturedVideoUrl = null;
+
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === '__FLOW_CAPTURED_VIDEO_MEDIA__' && event.data.url) {
+      console.log('[Flow Bridge Content] Captured video URL from page interceptor:', event.data.url);
+      latestCapturedVideoUrl = event.data.url;
+    }
+  });
+
   // Convert base64 (raw or data URL) to File object safely without crashing
   function base64ToFile(rawOrDataUrl, filename = 'input_image.png', defaultMime = 'image/png') {
     if (!rawOrDataUrl) return null;
@@ -32,7 +42,6 @@
       }
     }
 
-    // Clean any whitespace / newlines
     base64 = base64.replace(/\s/g, '');
 
     try {
@@ -54,7 +63,7 @@
     if (!src) return null;
     if (src.startsWith('blob:')) {
       try {
-        console.log('[Flow Bridge] Converting blob video to base64 dataURL for cross-domain support...');
+        console.log('[Flow Bridge] Converting blob video to base64 dataURL for cross-origin access...');
         const resp = await fetch(src);
         const blob = await resp.blob();
         return new Promise((resolve) => {
@@ -97,7 +106,6 @@
 
   // Ensure the tool panel is expanded and not an empty grey canvas
   async function ensureToolPanelOpen() {
-    // Check if tool form / tabs already present
     const hasToolUi =
       document.querySelector('textarea, input[type="file"]') ||
       [...document.querySelectorAll('button, div')].some((el) => {
@@ -139,7 +147,7 @@
     }
   }
 
-  // Ensure the "KHỞI TẠO VIDEO" tab is selected if the tool has multiple tabs (Screenshot 2)
+  // Ensure the "KHỞI TẠO VIDEO" tab is selected
   async function ensureVideoTabSelected() {
     const allTabs = [
       ...document.querySelectorAll('button, div[role="tab"], div[role="button"], div, a'),
@@ -156,8 +164,13 @@
     }
   }
 
-  // Listen for execution commands from background script
+  // Listen for execution and heartbeat commands from background script
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'FLOW_HEARTBEAT') {
+      sendResponse({ ok: true, alive: true });
+      return false;
+    }
+
     if (request.action === 'EXECUTE_TOOL') {
       handleToolExecution(request.data)
         .then((result) => sendResponse({ ok: true, result }))
@@ -179,6 +192,8 @@
       requestId,
     } = data;
 
+    latestCapturedVideoUrl = null; // Reset captured URL for new run
+
     console.log('[Flow Bridge] Starting synced execution on VideoTool Pro:', {
       model,
       preset,
@@ -190,9 +205,9 @@
     });
 
     // 1. Wait for page interactive
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1500));
 
-    // 2. Ensure tool panel is open on the canvas (fixes blank grey canvas)
+    // 2. Ensure tool panel is open on the canvas
     await ensureToolPanelOpen();
 
     // 3. Ensure "KHỞI TẠO VIDEO" tab is active
@@ -355,24 +370,22 @@
     }
 
     // 12. Click Action Button (Tạo video / Khởi tạo)
-    // Wait up to 20s for uploaded image to process and enable button
+    // Wait up to 25s for uploaded image to process and enable button
     let submitBtn = null;
     const startWait = Date.now();
-    while (Date.now() - startWait < 20000) {
+    while (Date.now() - startWait < 25000) {
       const allActionBtns = [...document.querySelectorAll('button, div[role="button"]')];
-
-      // Debug logging to console of available buttons
-      const btnNames = allActionBtns.map((b) => (b.innerText || b.textContent || '').trim()).filter(Boolean);
-      console.log('[Flow Bridge] Checking action buttons:', btnNames);
 
       submitBtn = allActionBtns.find((btn) => {
         const txt = (btn.innerText || btn.textContent || '').toLowerCase().trim();
         if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
-        if (txt.includes('hãy tải') || txt.includes('ít nhất 1 ảnh')) return false;
+        if (txt.includes('hãy tải') || txt.includes('ít nhất 1 ảnh') || txt.includes('chưa có ảnh')) return false;
+        if (txt.includes('tải tác phẩm') || txt.includes('download')) return false; // Exclude download button!
         return (
           txt.includes('tạo chuyển động') ||
           txt.includes('khởi tạo') ||
           txt.includes('tạo video') ||
+          txt.includes('bắt đầu') ||
           txt.includes('generate')
         );
       });
@@ -382,8 +395,8 @@
     }
 
     if (!submitBtn) {
-      // If button still not found, check if it's currently rendering
-      const isAlreadyGenerating = [...document.querySelectorAll('button, div')].some((el) => {
+      // Check if it's already generating
+      const isAlreadyGenerating = [...document.querySelectorAll('button, div, span')].some((el) => {
         const txt = (el.innerText || el.textContent || '').toLowerCase();
         return txt.includes('đang khởi tạo') || txt.includes('tạo chuyển động video');
       });
@@ -402,60 +415,84 @@
     const MAX_WAIT_MS = 600000; // 10 minutes
 
     while (Date.now() - startTime < MAX_WAIT_MS) {
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 2500));
       const elapsed = Math.round((Date.now() - startTime) / 1000);
 
-      // Grab progress status text from floating status pills or progress bars (Screenshot 2: "TẠO CHUYỂN ĐỘNG VIDEO 2/4...")
+      // Check if interceptor caught video URL
+      if (latestCapturedVideoUrl) {
+        console.log('[Flow Bridge] Interceptor has captured video URL:', latestCapturedVideoUrl);
+        const resolvedUrl = await resolveVideoSrc(latestCapturedVideoUrl);
+        return { videoUrl: resolvedUrl };
+      }
+
+      // Check progress status text from floating status pills or progress bars ("TẠO CHUYỂN ĐỘNG VIDEO 2/4...")
       const progressEl = document.querySelector(
         '[class*="progress"], [class*="status"], div:has(> svg):has([class*="bar"]), [role="progressbar"]'
       );
       let statusText = progressEl ? (progressEl.innerText || progressEl.textContent || '').trim() : '';
-      if (!statusText || statusText.length < 3) {
-        statusText = `Google Flow đang render video (${elapsed}s)...`;
-      }
 
-      chrome.runtime.sendMessage({
-        type: 'FLOW_PROGRESS_UPDATE',
-        requestId,
-        status: statusText,
+      // Check if currently generating
+      const isGenerating = [...document.querySelectorAll('button, div, span')].some((el) => {
+        const txt = (el.innerText || el.textContent || '').toLowerCase();
+        return txt.includes('đang khởi tạo') || txt.includes('tạo chuyển động video');
       });
 
-      // Check for completed video element
+      if (statusText) {
+        chrome.runtime.sendMessage({
+          type: 'FLOW_PROGRESS_UPDATE',
+          requestId,
+          status: statusText,
+        });
+      } else if (isGenerating) {
+        chrome.runtime.sendMessage({
+          type: 'FLOW_PROGRESS_UPDATE',
+          requestId,
+          status: `Veo 3.1 đang render video (${elapsed}s)...`,
+        });
+      }
+
+      // Check for completed video element in DOM
       const videoElements = [...document.querySelectorAll('video')];
       for (const v of videoElements) {
-        const rawSrc = v.src || v.querySelector('source')?.src;
+        const rawSrc = v.currentSrc || v.src || v.querySelector('source')?.src;
         if (
           rawSrc &&
           (rawSrc.includes('googlevideo.com') ||
             rawSrc.includes('storage.googleapis.com') ||
+            rawSrc.includes('flow-content') ||
             rawSrc.includes('.mp4') ||
             rawSrc.startsWith('blob:'))
         ) {
-          console.log('[Flow Bridge] Found finished video:', rawSrc);
+          console.log('[Flow Bridge] Found finished video in DOM:', rawSrc);
           const resolvedUrl = await resolveVideoSrc(rawSrc);
-          return {
-            videoUrl: resolvedUrl,
-          };
+          return { videoUrl: resolvedUrl };
         }
       }
 
-      // Check download button: "TẢI TÁC PHẨM ĐANG CHỌN" (Screenshot 2)
-      const downloadBtn = [...document.querySelectorAll('a, button')].find((el) => {
-        const txt = (el.innerText || el.textContent || '').toLowerCase();
-        return txt.includes('tải tác phẩm') || txt.includes('download') || txt.includes('tải về');
-      });
+      // If rendering has finished (isGenerating is false and at least 10s elapsed)
+      if (!isGenerating && elapsed >= 10) {
+        // Find download button: "TẢI TÁC PHẨM ĐANG CHỌN"
+        const downloadBtn = [...document.querySelectorAll('button, div[role="button"], a')].find((el) => {
+          const txt = (el.innerText || el.textContent || '').toLowerCase();
+          return txt.includes('tải tác phẩm') || txt.includes('download') || txt.includes('tải về');
+        });
 
-      if (downloadBtn) {
-        if (
-          downloadBtn.tagName === 'A' &&
-          downloadBtn.href &&
-          (downloadBtn.href.includes('.mp4') || downloadBtn.href.startsWith('blob:'))
-        ) {
-          console.log('[Flow Bridge] Found download link:', downloadBtn.href);
-          const resolvedUrl = await resolveVideoSrc(downloadBtn.href);
-          return {
-            videoUrl: resolvedUrl,
-          };
+        if (downloadBtn) {
+          const isDisabled =
+            downloadBtn.disabled ||
+            downloadBtn.getAttribute('aria-disabled') === 'true' ||
+            (window.getComputedStyle(downloadBtn).opacity && parseFloat(window.getComputedStyle(downloadBtn).opacity) < 0.7);
+
+          if (!isDisabled) {
+            console.log('[Flow Bridge] Video render finished! Clicking "TẢI TÁC PHẨM ĐANG CHỌN" to capture video...');
+            downloadBtn.click();
+            await new Promise((r) => setTimeout(r, 2500));
+
+            if (latestCapturedVideoUrl) {
+              const resolvedUrl = await resolveVideoSrc(latestCapturedVideoUrl);
+              return { videoUrl: resolvedUrl };
+            }
+          }
         }
       }
     }

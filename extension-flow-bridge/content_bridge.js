@@ -8,8 +8,8 @@
 // Mark DOM without violating Content Security Policy (No inline <script>)
 try {
   document.documentElement.dataset.flowBridgeInstalled = 'true';
-  document.documentElement.dataset.flowBridgeVersion = '1.0.0';
-  window.dispatchEvent(new CustomEvent('imagetool-flow-bridge-ready', { detail: { version: '1.0.0' } }));
+  document.documentElement.dataset.flowBridgeVersion = '1.0.1';
+  window.dispatchEvent(new CustomEvent('imagetool-flow-bridge-ready', { detail: { version: '1.0.1' } }));
 } catch (e) {
   // Ignore fallback
 }
@@ -33,7 +33,7 @@ function notifyPageReady() {
   window.postMessage(
     {
       type: 'FLOW_BRIDGE_PONG',
-      version: '1.0.0',
+      version: '1.0.1',
       installed: true,
     },
     '*'

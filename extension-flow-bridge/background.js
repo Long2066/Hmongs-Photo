@@ -1,8 +1,9 @@
 /**
  * Background Service Worker for ImageTool Flow Bridge Extension
  * 
- * 100% BACKGROUND GENERATION (CHẠY NGẦM HOÀN TOÀN)
- * Không bao giờ nhảy tab hoặc cướp tiêu điểm của người dùng.
+ * Tối ưu hoá Phương án 2: Bắt trực tiếp tab Google Flow đang mở của người dùng,
+ * giữ kết nối liên tục (heartbeat) để chống Chrome đóng băng ngầm (tab throttling),
+ * tự động bắt link video trả thẳng về web ImageTool.
  */
 
 const DEFAULT_TOOL_URL =
@@ -41,7 +42,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (action === 'OPEN_LOGIN') {
     chrome.tabs.create(
       {
-        url: 'https://flow.google.com',
+        url: DEFAULT_TOOL_URL,
         active: true,
       },
       (tab) => sendResponse({ ok: true, tabId: tab.id })
@@ -49,9 +50,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // Forward Progress Updates
+  // Forward Progress Updates to ImageTool web tabs
   if (request.type === 'FLOW_PROGRESS_UPDATE') {
-    // Broadcast progress to all ImageTool tabs
     chrome.tabs.query(
       {
         url: ['https://vip-imagetools.vercel.app/*', 'http://localhost:*/*', 'http://127.0.0.1:*/*'],
@@ -71,10 +71,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return;
   }
 
-  // Generate Video: 100% Background Execution
+  // Generate Video: Background Pipeline
   if (action === 'GENERATE_VIDEO') {
     const callerTabId = sender.tab ? sender.tab.id : null;
-    // Acknowledge immediately to prevent port closed errors
     sendResponse({ ok: true, status: 'STARTED' });
 
     // Ensure caller tab stays active and focused
@@ -82,7 +81,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       chrome.tabs.update(callerTabId, { active: true }).catch(() => {});
     }
 
-    // Run execution pipeline asynchronously in background
+    // Run execution pipeline asynchronously
     executeVideoGenerationFlow(payload, requestId, callerTabId).catch((err) => {
       console.error('[Background] Video Generation Error:', err);
       if (callerTabId) {
@@ -95,43 +94,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           .catch(() => {});
       }
     });
-    return false; // Acknowledged synchronously
+    return false;
   }
 });
 
-// 3. Execution Pipeline: 100% Background Automation
+// 3. Execution Pipeline: Reuses Existing Flow Tab & Injects Interceptors
 async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
   const targetUrl = payload?.toolUrl || DEFAULT_TOOL_URL;
 
-  // Step A: Find if user already has Google Flow open
+  // Step A: Search for existing tabs on flow.google.com
   const existingTabs = await chrome.tabs.query({ url: '*://flow.google.com/*' });
+  
+  // 1. Prioritize exact tool URL match
   let flowTab = existingTabs.find((t) => t.url && t.url.includes('b18b72cc-9dc1-4560-bf52-70266e226a18'));
-  let isNewTab = false;
 
-  if (flowTab) {
-    console.log('[Background] Using existing Google Flow tab in background:', flowTab.id);
-    // DO NOT activate flowTab! Keep user on ImageTool tab!
-  } else if (existingTabs.length > 0) {
+  // 2. Fallback: match by title
+  if (!flowTab) {
+    flowTab = existingTabs.find(
+      (t) => t.title && (t.title.includes('ImageTool') || t.title.includes('VideoTool') || t.title.includes('Pro Studio'))
+    );
+  }
+
+  // 3. Fallback: any existing Flow tab -> navigate to tool
+  if (!flowTab && existingTabs.length > 0) {
     flowTab = existingTabs[0];
-    console.log('[Background] Navigating existing Google Flow tab to tool in background:', flowTab.id);
-    await chrome.tabs.update(flowTab.id, { url: targetUrl, active: false });
-    await new Promise((r) => setTimeout(r, 4000));
-  } else {
-    isNewTab = true;
-    console.log('[Background] Creating new Google Flow tab IN BACKGROUND (active: false)');
+    console.log('[Background] Navigating existing Google Flow tab to tool URL:', flowTab.id);
+    await chrome.tabs.update(flowTab.id, { url: targetUrl });
+    await new Promise((r) => setTimeout(r, 3500));
+  }
+
+  // 4. If user doesn't have Flow open at all: open it
+  if (!flowTab) {
+    console.log('[Background] No Flow tab found, opening tool tab');
     flowTab = await chrome.tabs.create({
       url: targetUrl,
-      active: false, // 100% Background! Do not jump or steal user focus!
+      active: false,
     });
   }
 
-  // Ensure caller tab stays active
+  // Ensure caller tab stays focused
   if (callerTabId) {
     chrome.tabs.update(callerTabId, { active: true }).catch(() => {});
   }
 
-  // Wait for tab load completion if newly navigated/created
-  if (isNewTab || flowTab.status !== 'complete') {
+  // Wait for tab load completion if needed
+  if (flowTab.status !== 'complete') {
     await new Promise((resolve) => {
       function listener(tabId, info) {
         if (tabId === flowTab.id && info.status === 'complete') {
@@ -140,14 +147,70 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
         }
       }
       chrome.tabs.onUpdated.addListener(listener);
-      setTimeout(resolve, 15000); // 15s fallback
+      setTimeout(resolve, 12000);
     });
   }
 
-  // Give Google Flow SPA 3 seconds to initialize
-  await new Promise((r) => setTimeout(r, 3000));
+  // Short pause for SPA initialization
+  await new Promise((r) => setTimeout(r, 2000));
 
-  // Ensure content_flow.js is present in tab
+  // Step B: Inject network/blob interceptor into the page MAIN world
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: flowTab.id },
+      world: 'MAIN',
+      func: () => {
+        if (window.__FLOW_PAGE_INTERCEPTOR_ACTIVE__) return;
+        window.__FLOW_PAGE_INTERCEPTOR_ACTIVE__ = true;
+        console.log('[Flow Bridge Interceptor] Active in MAIN world');
+
+        // Hook URL.createObjectURL for video blobs
+        const origCreate = URL.createObjectURL;
+        URL.createObjectURL = function (obj) {
+          const url = origCreate.apply(this, arguments);
+          try {
+            if (obj instanceof Blob && (obj.type.includes('video') || obj.size > 80000)) {
+              console.log('[Flow Interceptor] Captured video blob URL:', url, obj.size);
+              window.postMessage({ type: '__FLOW_CAPTURED_VIDEO_MEDIA__', url }, '*');
+            }
+          } catch (e) {}
+          return url;
+        };
+
+        // Hook anchor click for download triggers
+        const origClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function () {
+          try {
+            if (this.href && (this.href.includes('.mp4') || this.href.startsWith('blob:') || this.href.includes('flow-content'))) {
+              console.log('[Flow Interceptor] Captured anchor download URL:', this.href);
+              window.postMessage({ type: '__FLOW_CAPTURED_VIDEO_MEDIA__', url: this.href }, '*');
+            }
+          } catch (e) {}
+          return origClick.apply(this, arguments);
+        };
+
+        // Hook fetch responses for video streams
+        const origFetch = window.fetch;
+        window.fetch = async function (...args) {
+          const resp = await origFetch.apply(this, args);
+          try {
+            const clone = resp.clone();
+            const url = clone.url || '';
+            const ct = clone.headers.get('content-type') || '';
+            if (ct.includes('video/mp4') || url.includes('/video/') || (url.includes('.mp4') && !url.includes('.js'))) {
+              console.log('[Flow Interceptor] Captured fetch video URL:', url);
+              window.postMessage({ type: '__FLOW_CAPTURED_VIDEO_MEDIA__', url }, '*');
+            }
+          } catch (e) {}
+          return resp;
+        };
+      },
+    });
+  } catch (e) {
+    console.warn('[Background] Interceptor injection note:', e);
+  }
+
+  // Step C: Ensure content_flow.js is injected
   try {
     await chrome.scripting.executeScript({
       target: { tabId: flowTab.id },
@@ -157,8 +220,13 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
     // Script already injected
   }
 
+  // Step D: Start Heartbeat interval to wake up content script and prevent Chrome background tab sleep
+  const heartbeatTimer = setInterval(() => {
+    chrome.tabs.sendMessage(flowTab.id, { action: 'FLOW_HEARTBEAT', requestId }).catch(() => {});
+  }, 2500);
+
   try {
-    // Send execution job to content_flow.js inside that tab
+    // Send execution job to content_flow.js
     const response = await chrome.tabs.sendMessage(flowTab.id, {
       action: 'EXECUTE_TOOL',
       data: {
@@ -193,11 +261,8 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
       urls: [videoUrl],
     };
   } finally {
-    // Only close tab if it was newly opened by extension in background
-    if (isNewTab && flowTab?.id) {
-      try {
-        chrome.tabs.remove(flowTab.id);
-      } catch (e) {}
-    }
+    clearInterval(heartbeatTimer);
+    // NEVER close the flow tab - keep it open for subsequent generations!
   }
 }
+
