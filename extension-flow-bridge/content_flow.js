@@ -104,46 +104,49 @@
     return false;
   }
 
-  // Ensure the tool panel is expanded and not an empty grey canvas
+  // Ensure the tool panel is expanded and not an empty grey canvas or catalog page
   async function ensureToolPanelOpen() {
-    const hasToolUi =
-      document.querySelector('textarea, input[type="file"]') ||
-      [...document.querySelectorAll('button, div')].some((el) => {
-        const txt = (el.innerText || '').toLowerCase();
-        return (
-          txt.includes('khởi tạo video') ||
-          txt.includes('model video') ||
-          txt.includes('media tham chiếu') ||
-          txt.includes('studio ảnh ai')
-        );
-      });
-
-    if (hasToolUi) {
-      console.log('[Flow Bridge] Tool UI already visible on canvas.');
+    // If somehow on /tools catalog (Image 2), redirect immediately to the tool app URL
+    if (window.location.href.includes('/tools') && !window.location.href.includes('/tool/')) {
+      console.log('[Flow Bridge] Tab is on /tools catalog page, redirecting to tool app URL...');
+      window.location.href =
+        'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP';
+      await new Promise((r) => setTimeout(r, 4500));
       return;
     }
 
-    console.log('[Flow Bridge] Tool UI not visible (blank canvas), opening tool panel...');
+    // Wait up to 12s for the tool UI to paint
+    const t0 = Date.now();
+    while (Date.now() - t0 < 12000) {
+      const hasToolUi =
+        document.querySelector('textarea, input[type="file"]') ||
+        [...document.querySelectorAll('button, div')].some((el) => {
+          const txt = (el.innerText || '').toLowerCase();
+          return (
+            txt.includes('khởi tạo video') ||
+            txt.includes('model video') ||
+            txt.includes('media tham chiếu') ||
+            txt.includes('studio ảnh ai')
+          );
+        });
 
-    // 1. Try clicking "Công cụ" button at top bar
-    const topButtons = [...document.querySelectorAll('button, div[role="button"]')];
-    const congCuBtn = topButtons.find((b) => (b.innerText || '').trim().toLowerCase() === 'công cụ');
-    if (congCuBtn) {
-      congCuBtn.click();
-      console.log('[Flow Bridge] Clicked "Công cụ" button at top');
-      await new Promise((r) => setTimeout(r, 1500));
-    }
+      if (hasToolUi) {
+        console.log('[Flow Bridge] Tool UI confirmed visible on canvas.');
+        return;
+      }
 
-    // 2. Try clicking pinned tool in sidebar if still not visible
-    const sidebarItems = [...document.querySelectorAll('[class*="pinned"], [role="button"], a, div')];
-    const pinnedTool = sidebarItems.find((el) => {
-      const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
-      return txt.includes('videotool') || txt.includes('imagetool') || txt.includes('pro studio');
-    });
-    if (pinnedTool) {
-      pinnedTool.click();
-      console.log('[Flow Bridge] Clicked pinned tool in sidebar');
-      await new Promise((r) => setTimeout(r, 1500));
+      // Try clicking pinned tool in sidebar if visible
+      const sidebarItems = [...document.querySelectorAll('[class*="pinned"], [role="button"], a, div')];
+      const pinnedTool = sidebarItems.find((el) => {
+        const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
+        return txt.includes('videotool') || txt.includes('imagetool') || txt.includes('pro studio');
+      });
+      if (pinnedTool) {
+        pinnedTool.click();
+        console.log('[Flow Bridge] Clicked pinned tool in sidebar');
+      }
+
+      await new Promise((r) => setTimeout(r, 1000));
     }
   }
 

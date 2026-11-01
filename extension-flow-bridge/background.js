@@ -104,32 +104,28 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
 
   // Step A: Search for existing tabs on flow.google.com
   const existingTabs = await chrome.tabs.query({ url: '*://flow.google.com/*' });
-  
-  // 1. Prioritize exact tool URL match
   let flowTab = existingTabs.find((t) => t.url && t.url.includes('b18b72cc-9dc1-4560-bf52-70266e226a18'));
 
-  // 2. Fallback: match by title
-  if (!flowTab) {
-    flowTab = existingTabs.find(
-      (t) => t.title && (t.title.includes('ImageTool') || t.title.includes('VideoTool') || t.title.includes('Pro Studio'))
-    );
-  }
-
-  // 3. Fallback: any existing Flow tab -> navigate to tool
   if (!flowTab && existingTabs.length > 0) {
+    // Tab exists on Flow (e.g. on /tools or /project) -> navigate it to exact tool URL!
     flowTab = existingTabs[0];
-    console.log('[Background] Navigating existing Google Flow tab to tool URL:', flowTab.id);
+    console.log('[Background] Tab not on tool URL, navigating to tool:', targetUrl);
     await chrome.tabs.update(flowTab.id, { url: targetUrl });
-    await new Promise((r) => setTimeout(r, 3500));
-  }
-
-  // 4. If user doesn't have Flow open at all: open it
-  if (!flowTab) {
+    await new Promise((r) => setTimeout(r, 4000));
+  } else if (!flowTab) {
     console.log('[Background] No Flow tab found, opening tool tab');
     flowTab = await chrome.tabs.create({
       url: targetUrl,
       active: false,
     });
+    await new Promise((r) => setTimeout(r, 4000));
+  } else {
+    // If tab URL accidentally moved to /tools catalog, redirect back
+    if (flowTab.url && flowTab.url.includes('/tools') && !flowTab.url.includes('/tool/')) {
+      console.log('[Background] Tab redirected to /tools catalog, restoring tool URL:', targetUrl);
+      await chrome.tabs.update(flowTab.id, { url: targetUrl });
+      await new Promise((r) => setTimeout(r, 4000));
+    }
   }
 
   // Ensure caller tab stays focused
