@@ -4,7 +4,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import * as antigravityService from './antigravityService';
 import * as geminiOAuthService from './geminiOAuthService';
 import * as nineRouterService from './nineRouterService';
-import { optimizeReferenceImages } from './imageOptimizer';
+import { optimizeReferenceImages, enforceResolutionAndAspect } from './imageOptimizer';
 
 // --- GENERATION MODE TYPES ---
 export type GenerationMode = 'ninerouter' | 'antigravity' | 'oauth' | 'vip' | 'free' | 'none';
@@ -1698,14 +1698,14 @@ export const generateImagesFromPromptsList = async (
                 throw new Error(`${activeMode}_MODE_FAILED`);
             }
 
-            // Post-process to ensure strict aspect ratio compliance (9:16, 16:9, etc.)
-            if (aspectRatio && aspectRatio !== '1:1') {
-                try {
-                    console.log(`[AspectRatio] Post-processing image ${index + 1} to enforce ratio ${aspectRatio}`);
-                    base64Image = await enforceAspectRatio(base64Image, aspectRatio);
-                } catch (ratioErr) {
-                    console.warn(`[AspectRatio] Could not post-process aspect ratio for image ${index + 1}:`, ratioErr);
+            // Post-process to ensure strict aspect ratio and true physical pixel resolution (HD / FHD / 2K / 4K)
+            try {
+                if (resolution && (resolution.toUpperCase() === '4K' || resolution.toUpperCase() === '2K')) {
+                    onStatusUpdate(`[Ảnh ${index + 1}] Đang nâng cấp độ phân giải ${resolution.toUpperCase()} & làm nét chi tiết...`);
                 }
+                base64Image = await enforceResolutionAndAspect(base64Image, aspectRatio, resolution);
+            } catch (resErr) {
+                console.warn(`[Resolution & AspectRatio] Could not post-process image ${index + 1}:`, resErr);
             }
 
             return base64Image;
@@ -2961,6 +2961,14 @@ export const generateProfilePics = async (
                     5000,
                     (msg) => onStatusUpdate(`[${i + 1}/${outputCount}] ${msg}`)
                 );
+            }
+
+            if (base64Image) {
+                try {
+                    base64Image = await enforceResolutionAndAspect(base64Image, '1:1', resolution);
+                } catch (profResErr) {
+                    console.warn(`[Profile Resolution] Could not post-process profile ${i + 1}:`, profResErr);
+                }
             }
 
             onImageGenerated(i, base64Image);

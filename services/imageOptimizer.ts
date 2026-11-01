@@ -354,3 +354,190 @@ export const createCompositeReferenceImage = async (
         return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
     }
 };
+
+
+/**
+ * Calculates exact target pixel dimensions based on aspect ratio and resolution.
+ * Complies with industry standards: HD (720p/1024), FHD (1080p), 2K (1440p/2048), 4K (2160p/3840).
+ */
+export const getTargetPixelDimensions = (
+    aspectRatio: string = '1:1',
+    resolution: string = 'FHD'
+): { width: number; height: number } => {
+    const res = (resolution || 'FHD').toUpperCase();
+    const is4K = res === '4K';
+    const is2K = res === '2K';
+    const isHD = res === 'HD';
+
+    switch (aspectRatio) {
+        case '16:9':
+            if (is4K) return { width: 3840, height: 2160 };
+            if (is2K) return { width: 2560, height: 1440 };
+            if (isHD) return { width: 1280, height: 720 };
+            return { width: 1920, height: 1080 };
+        case '9:16':
+            if (is4K) return { width: 2160, height: 3840 };
+            if (is2K) return { width: 1440, height: 2560 };
+            if (isHD) return { width: 720, height: 1280 };
+            return { width: 1080, height: 1920 };
+        case '4:3':
+            if (is4K) return { width: 2880, height: 2160 };
+            if (is2K) return { width: 1920, height: 1440 };
+            if (isHD) return { width: 1152, height: 864 };
+            return { width: 1440, height: 1080 };
+        case '3:4':
+            if (is4K) return { width: 2160, height: 2880 };
+            if (is2K) return { width: 1440, height: 1920 };
+            if (isHD) return { width: 864, height: 1152 };
+            return { width: 1080, height: 1440 };
+        case '3:2':
+            if (is4K) return { width: 3240, height: 2160 };
+            if (is2K) return { width: 2160, height: 1440 };
+            if (isHD) return { width: 1216, height: 816 };
+            return { width: 1620, height: 1080 };
+        case '2:3':
+            if (is4K) return { width: 2160, height: 3240 };
+            if (is2K) return { width: 1440, height: 2160 };
+            if (isHD) return { width: 816, height: 1216 };
+            return { width: 1080, height: 1620 };
+        case '1:1':
+        default:
+            if (is4K) return { width: 3840, height: 3840 };
+            if (is2K) return { width: 2048, height: 2048 };
+            if (isHD) return { width: 1024, height: 1024 };
+            return { width: 1536, height: 1536 };
+    }
+};
+
+/**
+ * Enforces true physical pixel resolution (HD / FHD / 2K / 4K) and strict aspect ratio
+ * using Canvas High-Quality Resampling and an Unsharp Masking Kernel (Sharpening).
+ * Guarantees that exported image files possess real 2K/4K pixel dimensions and crisp details.
+ */
+export const enforceResolutionAndAspect = async (
+    base64Image: string,
+    aspectRatio: string = '1:1',
+    resolution: string = 'FHD'
+): Promise<string> => {
+    if (!base64Image) return base64Image;
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return base64Image;
+    }
+
+    const isDataUri = base64Image.startsWith('data:');
+    const imageSrc = isDataUri ? base64Image : `data:image/jpeg;base64,${base64Image}`;
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const target = getTargetPixelDimensions(aspectRatio, resolution);
+            const targetRatio = target.width / target.height;
+            const currentRatio = img.width / img.height;
+
+            let cropWidth = img.width;
+            let cropHeight = img.height;
+            let cropX = 0;
+            let cropY = 0;
+
+            if (Math.abs(currentRatio - targetRatio) > 0.01) {
+                if (currentRatio > targetRatio) {
+                    cropHeight = img.height;
+                    cropWidth = Math.round(cropHeight * targetRatio);
+                    cropX = Math.round((img.width - cropWidth) / 2);
+                    cropY = 0;
+                } else {
+                    cropWidth = img.width;
+                    cropHeight = Math.round(cropWidth / targetRatio);
+                    cropX = 0;
+                    cropY = Math.round((img.height - cropHeight) / 2);
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = target.width;
+            canvas.height = target.height;
+            const ctx = canvas.getContext('2d');
+
+            if (!ctx) {
+                resolve(base64Image);
+                return;
+            }
+
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
+            // Stepped scaling if enlarging by > 2x to preserve micro-textures
+            const scaleFactor = Math.max(target.width / cropWidth, target.height / cropHeight);
+            if (scaleFactor > 2.0) {
+                const intermediateCanvas = document.createElement('canvas');
+                const interWidth = Math.round(cropWidth * 1.8);
+                const interHeight = Math.round(cropHeight * 1.8);
+                intermediateCanvas.width = interWidth;
+                intermediateCanvas.height = interHeight;
+                const interCtx = intermediateCanvas.getContext('2d');
+                if (interCtx) {
+                    interCtx.imageSmoothingEnabled = true;
+                    interCtx.imageSmoothingQuality = 'high';
+                    interCtx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, interWidth, interHeight);
+                    ctx.drawImage(intermediateCanvas, 0, 0, interWidth, interHeight, 0, 0, target.width, target.height);
+                } else {
+                    ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, target.width, target.height);
+                }
+            } else {
+                ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, target.width, target.height);
+            }
+
+            // High-pass Unsharp Masking Kernel based on target resolution
+            const resUpper = (resolution || 'FHD').toUpperCase();
+            const strength = resUpper === '4K' ? 0.16 : resUpper === '2K' ? 0.12 : resUpper === 'FHD' ? 0.06 : 0;
+            if (strength > 0) {
+                try {
+                    const imgData = ctx.getImageData(0, 0, target.width, target.height);
+                    const data = imgData.data;
+                    const buffer = new Uint8ClampedArray(data);
+                    const w = target.width;
+                    const h = target.height;
+                    const center = 1 + 4 * strength;
+
+                    for (let y = 1; y < h - 1; y++) {
+                        const rowOffset = y * w;
+                        const topOffset = (y - 1) * w;
+                        const bottomOffset = (y + 1) * w;
+
+                        for (let x = 1; x < w - 1; x++) {
+                            const idx = (rowOffset + x) << 2;
+                            const topIdx = (topOffset + x) << 2;
+                            const bottomIdx = (bottomOffset + x) << 2;
+                            const leftIdx = (rowOffset + x - 1) << 2;
+                            const rightIdx = (rowOffset + x + 1) << 2;
+
+                            const r = buffer[idx] * center - strength * (buffer[topIdx] + buffer[bottomIdx] + buffer[leftIdx] + buffer[rightIdx]);
+                            const g = buffer[idx + 1] * center - strength * (buffer[topIdx + 1] + buffer[bottomIdx + 1] + buffer[leftIdx + 1] + buffer[rightIdx + 1]);
+                            const b = buffer[idx + 2] * center - strength * (buffer[topIdx + 2] + buffer[bottomIdx + 2] + buffer[leftIdx + 2] + buffer[rightIdx + 2]);
+
+                            data[idx] = r < 0 ? 0 : r > 255 ? 255 : r;
+                            data[idx + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+                            data[idx + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+                        }
+                    }
+                    ctx.putImageData(imgData, 0, 0);
+                } catch (sharpenErr) {
+                    console.warn('[Resolution] Sharpening kernel skipped:', sharpenErr);
+                }
+            }
+
+            const outputQuality = resUpper === '4K' ? 0.95 : resUpper === '2K' ? 0.93 : 0.90;
+            const resultDataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+            const base64Out = resultDataUrl.includes(',') ? resultDataUrl.split(',')[1] : resultDataUrl;
+            console.log(`[Resolution] Output enforced to ${resUpper} (${target.width}x${target.height})`);
+            resolve(isDataUri ? resultDataUrl : base64Out);
+        };
+
+        img.onerror = () => {
+            console.warn('[Resolution] Failed to decode image for resolution enforcement');
+            resolve(base64Image);
+        };
+
+        img.src = imageSrc;
+    });
+};
