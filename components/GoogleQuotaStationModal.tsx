@@ -33,7 +33,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const [contributedList, setContributedList] = useState<ContributedAccountItem[]>([]);
     const [isExtensionInstalled, setIsExtensionInstalled] = useState<boolean>(false);
     const [showManualPaste, setShowManualPaste] = useState<boolean>(false);
-    const [showExtensionGuide, setShowExtensionGuide] = useState<boolean>(false);
     const [copiedExtensionsUrl, setCopiedExtensionsUrl] = useState<boolean>(false);
 
     // Keep ref to avoid stale closures in event listeners
@@ -62,7 +61,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
             setCallbackInput('');
             setStep('idle');
             setShowManualPaste(false);
-            setShowExtensionGuide(false);
         }
     }, [isOpen, user?.id]);
 
@@ -152,12 +150,15 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         if (inputEl) inputEl.focus();
     };
 
-    // Copy chrome://extensions helper
-    const handleCopyExtensionsUrl = async () => {
+    // Open / copy chrome://extensions helper
+    const handleOpenExtensionsPage = async () => {
         try {
             await navigator.clipboard.writeText('chrome://extensions');
             setCopiedExtensionsUrl(true);
-            setTimeout(() => setCopiedExtensionsUrl(false), 2500);
+            setTimeout(() => setCopiedExtensionsUrl(false), 3500);
+        } catch {}
+        try {
+            window.open('chrome://extensions', '_blank');
         } catch {}
     };
 
@@ -231,7 +232,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                             </div>
                             <div>
                                 <div className="flex items-center gap-2">
-                                    <h2 className="text-lg font-bold tracking-tight text-white">Trạm Nạp Quota</h2>
+                                    <h2 className="text-lg font-bold tracking-tight text-white">Cấu hình</h2>
                                     <span className="px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wider bg-amber-400 text-slate-900 rounded-full shadow-xs">
                                         +20 Ảnh / Acc
                                     </span>
@@ -291,23 +292,24 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <h4 className="text-xs font-bold text-slate-900">Cài Bổ Trợ Tự Động (vip-imagetools)</h4>
+                                            <h4 className="text-xs font-bold text-slate-900">Bổ trợ tự động (vip-imagetools)</h4>
                                             <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-100 rounded-md">
                                                 Khuyên dùng
                                             </span>
                                         </div>
                                         <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                            Tự động bắt link và nạp +20 ảnh ngay sau khi đăng nhập Google (Không cần copy link).
+                                            Tự động bắt link và nạp +20 ảnh ngay sau khi đăng nhập (không cần copy link).
                                         </p>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                            {/* 2 Buttons Stacked: Download ZIP & Open chrome://extensions */}
+                            <div className="space-y-2 pt-0.5">
                                 <a
                                     href="/vip-imagetools.zip"
                                     download="vip-imagetools.zip"
-                                    className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 min-h-[40px]"
+                                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-98 min-h-[42px]"
                                 >
                                     <span>📥</span>
                                     <span>Tải Bổ Trợ (.zip)</span>
@@ -315,53 +317,40 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
 
                                 <button
                                     type="button"
-                                    onClick={() => setShowExtensionGuide(!showExtensionGuide)}
-                                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition-colors min-h-[40px]"
+                                    onClick={handleOpenExtensionsPage}
+                                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-indigo-50/70 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-300 transition-all active:scale-98 min-h-[42px] shadow-2xs"
                                 >
-                                    <span>{showExtensionGuide ? 'Ẩn hướng dẫn' : '📖 Xem hướng dẫn cài (3 bước)'}</span>
-                                    <span className="text-[10px]">{showExtensionGuide ? '▲' : '▼'}</span>
+                                    <span>⚙️</span>
+                                    <span>
+                                        {copiedExtensionsUrl ? '✓ Đã sao chép link chrome://extensions (Mở tab mới & dán)' : 'Cài đặt (Mở trang chrome://extensions/)'}
+                                    </span>
                                 </button>
                             </div>
 
-                            {/* Collapsible 3-Step Guide */}
-                            {showExtensionGuide && (
-                                <div className="p-3.5 rounded-xl bg-white/95 border border-indigo-200/70 text-xs space-y-2.5 mt-2 animate-fade-in shadow-xs">
-                                    <div className="flex items-start gap-2.5">
-                                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
-                                        <div className="text-slate-700 text-[11px] leading-relaxed">
-                                            Bấm nút <strong>"Tải Bổ Trợ (.zip)"</strong> ở trên và <strong>giải nén</strong> được thư mục <code>vip-imagetools</code> vào máy.
-                                        </div>
+                            {/* Short, compact 3-step guide right underneath */}
+                            <div className="p-3.5 rounded-xl bg-white/95 border border-indigo-200/70 text-xs space-y-2 shadow-2xs">
+                                <p className="font-bold text-slate-900 text-[11px] flex items-center gap-1.5">
+                                    <span>📖 Cách đưa tệp vừa tải lên Chrome (3 bước):</span>
+                                </p>
+                                <div className="space-y-1.5 text-slate-600 text-[11px] leading-relaxed">
+                                    <div className="flex items-start gap-2">
+                                        <span className="font-bold text-indigo-600 shrink-0">①</span>
+                                        <span><strong>Giải nén</strong> file <code>vip-imagetools.zip</code> vừa tải vào máy.</span>
                                     </div>
-
-                                    <div className="flex items-start gap-2.5">
-                                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
-                                        <div className="text-slate-700 text-[11px] leading-relaxed flex-1">
-                                            <div>Mở một tab mới trên trình duyệt Chrome, gõ:</div>
-                                            <div className="flex items-center gap-1.5 mt-1">
-                                                <code className="px-2 py-1 bg-slate-100 text-slate-800 rounded font-mono text-[11px]">chrome://extensions</code>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleCopyExtensionsUrl}
-                                                    className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-[11px] font-bold transition-colors shrink-0"
-                                                >
-                                                    {copiedExtensionsUrl ? '✓ Đã chép' : '📋 Chép link'}
-                                                </button>
-                                            </div>
-                                            <div className="text-slate-500 text-[10px] mt-1">
-                                                Sau đó gạt bật <strong>"Chế độ dành cho nhà phát triển" (Developer mode)</strong> ở góc trên bên phải.
-                                            </div>
-                                        </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="font-bold text-indigo-600 shrink-0">②</span>
+                                        <span>Bấm nút <strong>"Cài đặt"</strong> ở trên (hoặc mở tab mới gõ <code>chrome://extensions</code>) ➔ Bật công tắc <strong>"Chế độ dành cho nhà phát triển"</strong> ở góc trên bên phải.</span>
                                     </div>
-
-                                    <div className="flex items-start gap-2.5">
-                                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-[11px]">3</span>
-                                        <div className="text-slate-700 text-[11px] leading-relaxed">
-                                            Bấm <strong>"Tải tiện ích đã giải nén"</strong> (Load unpacked) ở góc trái ➔ Chọn thư mục <code>vip-imagetools</code>.
-                                            <p className="text-emerald-600 font-semibold mt-1">✓ Xong! Trình duyệt sẽ tự động kết nối và modal này sẽ chuyển sang màu xanh.</p>
-                                        </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="font-bold text-indigo-600 shrink-0">③</span>
+                                        <span>Bấm nút <strong>"Tải tiện ích đã giải nén"</strong> ở góc trái ➔ Chọn thư mục <code>vip-imagetools</code> vừa giải nén.</span>
                                     </div>
                                 </div>
-                            )}
+                                <div className="pt-1.5 border-t border-slate-100 flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
+                                    <span>✓</span>
+                                    <span>Sau khi chọn xong, web sẽ tự động kết nối và nhận diện A-Z!</span>
+                                </div>
+                            </div>
                         </div>
                     )}
 
