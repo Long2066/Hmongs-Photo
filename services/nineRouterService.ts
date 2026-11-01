@@ -1394,10 +1394,16 @@ Generate a polished, centered, professional ID/profile portrait maintaining real
 *** MANDATORY COUPLE SCENE & STRICT DUAL-OUTFIT BINDING PROTOCOL ***
 - DUAL CHARACTER VISUAL: Depict BOTH a breathtakingly handsome Korean male K-Pop Idol AND an exquisitely gorgeous Korean female K-Pop Idol / Ulzzang together in the scene. Both have flawless porcelain glass skin chok-chok, captivating charismatic eyes, natural double eyelids, sharp jawlines, tall and graceful builds.
 - REFERENCE PHOTOS ROLE: Input reference images provide CLOTHING, TEXTILES, AND ACCESSORIES ONLY. DO NOT copy faces, skin tones, or ages from the reference images (ignore any mannequin, artisan, or person in the reference photos).
-- STRICT GENDER-TO-OUTFIT 1-TO-1 MAPPING (NON-NEGOTIABLE):
-  1. MALE IDOL: MUST wear 100% of the garments from Image 1 / Left Panel ("INPUT REFERENCE: MALE OUTFIT" - exact suit/jacket/vest, trousers, embroidery trims, and colors).
-  2. FEMALE IDOL: MUST wear 100% of the garments from Image 2 / Right Panel ("INPUT REFERENCE: FEMALE OUTFIT" - exact dress, colors, patterns, bodice, sleeves, flared skirt, and headdress).
-  3. ZERO HALLUCINATION & ZERO CROSS-CONTAMINATION: Strictly FORBIDDEN to replace or alter the female outfit with generic black/indigo velvet, or borrow the male vest's geometric/diamond patterns for the female! The female idol MUST wear that exact color palette and garment design from Image 2 / Right Panel!
+
+*** POSITION-INDEPENDENT 1-TO-1 OUTFIT LOCK (CRITICAL) ***
+Regardless of whether the character is positioned on the left side, right side, foreground, background, standing, or sitting:
+1. MALE IDOL: MUST wear 100% of the garments from Image 1 / Left Reference ("INPUT REFERENCE: MALE OUTFIT" - exact suit/jacket/vest, trousers, embroidery trims, and colors).
+2. FEMALE IDOL: MUST wear 100% of the garments from Image 2 / Right Reference ("INPUT REFERENCE: FEMALE OUTFIT" - exact dress, colors, patterns, bodice, sleeves, flared skirt, and headdress).
+3. ZERO HALLUCINATION & ZERO CROSS-CONTAMINATION: Strictly FORBIDDEN to replace or alter the female outfit with generic black/indigo velvet, or borrow the male vest's geometric/diamond patterns for the female! The female idol MUST wear that exact color palette and garment design from Image 2 / Right Reference!
+4. ANTI-STIFFNESS & NATURAL CANDID POSING:
+   - ❌ FORBIDDEN: Do not depict the couple standing stiffly, rigidly upright like mannequins in a bridal showcase.
+   - ✅ MANDATORY: Relaxed posture, natural elbow and shoulder positions, dynamic candid interaction matching the scene prompt (walking, turning, sitting, authentic eye contact).
+5. ACCESSORY INTEGRITY: Do not add random unrequested props (umbrellas, flowers, fans, etc.) unless specified in the prompt or accessory reference.
 - CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose both subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
 
         geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (COUPLE SCENE) ***
@@ -1405,11 +1411,13 @@ Inspect all ${referenceImages.length} attached input reference image(s).
 CRITICAL RULES FOR COUPLE GENERATION:
 1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Both subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape.
 2. DUAL KOREAN IDOL VISUAL: Render BOTH a handsome Korean male K-Pop idol AND a gorgeous Korean female idol / Ulzzang together. Flawless porcelain glass skin, charismatic eyes, elegant idol visual.
-3. STRICT MULTIMODAL OUTFIT BINDING (NON-NEGOTIABLE):
-   - "INPUT REFERENCE: MALE OUTFIT" -> Worn exclusively by the MALE idol. Faithfully replicate 100% of the suit/jacket, trousers, embroidery, and colors from that photo.
-   - "INPUT REFERENCE: FEMALE OUTFIT" -> Worn exclusively by the FEMALE idol. Faithfully replicate 100% of the dress, colors, patterns, bodice, flared skirt, and headdress from that photo.
-   - ZERO HALLUCINATION: DO NOT alter or substitute the female outfit with standard black/indigo H'Mong dress. The female idol MUST wear the exact authentic colors (e.g. red, pink, white) and craftsmanship from her reference photo.
-4. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`;
+3. POSITION-INDEPENDENT MULTIMODAL OUTFIT BINDING:
+   - Regardless of whether the character is on the left, right, foreground, background, standing, or sitting:
+   - "INPUT REFERENCE: MALE OUTFIT" (Image 1) -> Worn exclusively by the MALE idol. Faithfully replicate 100% of the suit/jacket, trousers, embroidery, and colors from that photo.
+   - "INPUT REFERENCE: FEMALE OUTFIT" (Image 2) -> Worn exclusively by the FEMALE idol. Faithfully replicate 100% of the dress, colors, patterns, bodice, flared skirt, and headdress from that photo.
+   - ZERO HALLUCINATION & ZERO CROSS-OVER: The female MUST wear her exact authentic dress colors, bodice, and skirt from Image 2. Never borrow the male's patterns or colors for the female.
+4. ANTI-STIFFNESS: Render natural candid posture, fluid body lines, and genuine human interaction instead of rigid mannequin stances.
+5. The background and action must strictly follow the scene description below, NOT the reference photos' backgrounds.`;
     } else {
         // Standard Creative Generation (Single Character)
         const targetGender = hasFemaleRef ? 'FEMALE' : hasMaleRef ? 'MALE' : 'SOLO';
