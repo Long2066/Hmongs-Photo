@@ -32,6 +32,7 @@ let downloadPath = app.getPath('downloads');
 // Keep a global reference of the window object
 let mainWindow;
 let localServer = null;
+let localServerPort = null;
 let quotaOAuthServer = null;
 
 // Auto-updater configuration
@@ -226,9 +227,50 @@ function startLocalServer(distDir) {
 
     return new Promise((resolve) => {
         const server = http.createServer((req, res) => {
-            let reqUrl = req.url.split('?')[0];
-            if (reqUrl === '/') reqUrl = '/index.html';
-            let filePath = path.join(distDir, reqUrl);
+            const reqUrl = (req.url || '').split('?')[0];
+
+            if (req.method === 'OPTIONS') {
+                res.writeHead(204, {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type'
+                });
+                res.end();
+                return;
+            }
+
+            // Google OAuth Bridge callback from external Chrome
+            if (req.method === 'POST' && reqUrl === '/api/auth-complete') {
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', () => {
+                    try {
+                        const data = JSON.parse(body);
+                        console.log('[AuthBridge] Received Google OAuth from external Chrome:', data.email);
+
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('external-google-auth-success', data);
+                            if (mainWindow.isMinimized()) mainWindow.restore();
+                            mainWindow.focus();
+                        }
+
+                        res.writeHead(200, {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*'
+                        });
+                        res.end(JSON.stringify({ ok: true }));
+                    } catch (err) {
+                        res.writeHead(400, {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*'
+                        });
+                        res.end(JSON.stringify({ ok: false, error: err.message }));
+                    }
+                });
+                return;
+            }
+
+            let filePath = path.join(distDir, reqUrl === '/' ? '/index.html' : reqUrl);
 
             if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
                 filePath = path.join(distDir, 'index.html');
@@ -254,6 +296,7 @@ function startLocalServer(distDir) {
         // 127.0.0.1 with port 0 binds to any available free port automatically
         server.listen(0, '127.0.0.1', () => {
             const port = server.address().port;
+            localServerPort = port;
             console.log(`[LocalServer] Serving dist at http://localhost:${port}`);
             localServer = server;
             resolve(port);
@@ -283,45 +326,9 @@ async function createWindow() {
         backgroundColor: '#f8fafc'
     });
 
-    // Support Google OAuth Popups & Links in Electron
+    // Open any external popups / links in default browser
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        // Quota Station OAuth (port 51121) or Gemini OAuth (port 8085) or Flow -> external Chrome
-        if (
-            url.includes('51121') ||
-            url.includes('8085') ||
-            url.includes('flow.google.com')
-        ) {
-            console.log('[WindowOpenHandler] Opening Quota/Flow in external Chrome:', url);
-            openInChromeOrBrowser(url);
-            return { action: 'deny' };
-        }
-
-        // Firebase Google OAuth Sign-in Popup:
-        // MUST allow as child BrowserWindow so window.opener and postMessage remain intact!
-        if (
-            url.includes('firebaseapp.com') ||
-            url.includes('/__/auth/') ||
-            url.includes('accounts.google.com')
-        ) {
-            console.log('[WindowOpenHandler] Allowing internal OAuth popup:', url);
-            return {
-                action: 'allow',
-                overrideBrowserWindowOptions: {
-                    width: 500,
-                    height: 650,
-                    autoHideMenuBar: true,
-                    title: 'Đăng nhập Google - ImageTool',
-                    webPreferences: {
-                        nodeIntegration: false,
-                        contextIsolation: true,
-                        userAgent: CHROME_UA
-                    }
-                }
-            };
-        }
-
-        console.log('[WindowOpenHandler] Opening external link in browser:', url);
-        shell.openExternal(url);
+        openInChromeOrBrowser(url);
         return { action: 'deny' };
     });
 
@@ -479,6 +486,14 @@ ipcMain.handle('open-incognito', async (event, url) => {
 // Open URL in external Google Chrome (or default browser fallback)
 ipcMain.handle('open-external', async (_event, url) => {
     return openInChromeOrBrowser(url);
+});
+
+// Launch Google Auth in real external Google Chrome browser
+ipcMain.handle('start-external-google-auth', async () => {
+    const port = localServerPort || (process.env.NODE_ENV === 'development' ? 3000 : 51121);
+    const bridgeUrl = `http://localhost:${port}/auth-bridge.html`;
+    console.log('[AuthBridge] Opening external Chrome for Google Auth:', bridgeUrl);
+    return openInChromeOrBrowser(bridgeUrl);
 });
 
 // Get app version

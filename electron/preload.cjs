@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('quota-oauth-captured', subscription);
         return () => ipcRenderer.removeListener('quota-oauth-captured', subscription);
     },
+    onExternalGoogleAuth: (callback) => {
+        const subscription = (_event, data) => callback(data);
+        ipcRenderer.on('external-google-auth-success', subscription);
+        return () => ipcRenderer.removeListener('external-google-auth-success', subscription);
+    },
+    startExternalGoogleAuth: () => ipcRenderer.invoke('start-external-google-auth'),
 
     // ============ AUTO-UPDATE ============
     downloadUpdate: () => ipcRenderer.invoke('download-update'),

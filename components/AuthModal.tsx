@@ -51,6 +51,72 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
         }
     }, [view, countdown]);
 
+    // Listen for external Google OAuth completion from real Chrome browser
+    useEffect(() => {
+        const electronAPI = (window as any).electronAPI;
+        if (electronAPI?.onExternalGoogleAuth) {
+            const cleanup = electronAPI.onExternalGoogleAuth(async (data: any) => {
+                console.log('[AuthModal] Received external Google Auth payload:', data?.email);
+                setIsGoogleLoading(true);
+                setError('');
+                setInfoMessage('Đang hoàn tất đăng nhập...');
+
+                try {
+                    let fbUser: any = null;
+                    if (data.idToken) {
+                        try {
+                            const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+                            const { auth } = await import('../src/firebaseConfig');
+                            const cred = GoogleAuthProvider.credential(data.idToken, data.accessToken);
+                            const userCred = await signInWithCredential(auth, cred);
+                            fbUser = userCred.user;
+                        } catch (credErr) {
+                            console.warn('[AuthModal] signInWithCredential fallback:', credErr);
+                        }
+                    }
+
+                    const email = fbUser?.email || data.email || '';
+                    const uid = fbUser?.uid || data.uid || ('google_' + Date.now());
+                    const displayName = fbUser?.displayName || data.displayName || email.split('@')[0] || 'User';
+                    const photoURL = fbUser?.photoURL || data.photoURL || `https://ui-avatars.com/api/?name=${displayName}&background=random`;
+
+                    // Check device account limit
+                    const deviceCheck = await checkDeviceAccountLimit(email, uid);
+                    if (!deviceCheck.allowed) {
+                        await firebaseAuth.logoutUser();
+                        setError(deviceCheck.message || '⚠️ Thiết bị này đã đạt giới hạn tối đa 2 tài khoản đăng nhập.');
+                        setIsGoogleLoading(false);
+                        return;
+                    }
+                    await recordDeviceAccount(email, uid);
+
+                    try {
+                        await firebaseAuth.recordNewRegistration(uid, displayName, email);
+                        await firebaseAuth.recordUserAccess(uid, displayName, email);
+                    } catch (e) {}
+
+                    const user: User = {
+                        id: uid,
+                        username: email,
+                        name: displayName,
+                        avatar: photoURL
+                    };
+
+                    onAuthSuccess(user);
+                } catch (err: any) {
+                    console.error('[AuthModal] External Google Auth error:', err);
+                    setError('Đăng nhập Google thất bại: ' + (err.message || 'Lỗi không xác định'));
+                } finally {
+                    setIsGoogleLoading(false);
+                }
+            });
+
+            return () => {
+                if (typeof cleanup === 'function') cleanup();
+            };
+        }
+    }, [onAuthSuccess]);
+
     // Password Strength Logic
     const getPasswordStrength = (pwd: string) => {
         if (!pwd) return 0;
@@ -69,6 +135,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
         setInfoMessage('');
         setUnauthorizedDomain(null);
         setIsGoogleLoading(true);
+
+        const electronAPI = (window as any).electronAPI;
+        if (electronAPI?.startExternalGoogleAuth) {
+            setInfoMessage('Đang mở trình duyệt Google Chrome để đăng nhập an toàn...');
+            try {
+                await electronAPI.startExternalGoogleAuth();
+            } catch (err: any) {
+                console.error('[AuthModal] Failed to start external Google auth:', err);
+                setIsGoogleLoading(false);
+                setError('Không thể mở Google Chrome: ' + (err.message || ''));
+            }
+            return;
+        }
 
         try {
             const fbUser = await firebaseAuth.loginWithGoogle();
@@ -317,7 +396,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                         className="w-full flex items-center justify-center gap-3 py-3 px-4 min-h-[46px] bg-white hover:bg-slate-50 active:scale-[0.98] border border-slate-200/90 rounded-xl font-semibold text-sm sm:text-base text-slate-700 shadow-sm hover:shadow transition-all disabled:opacity-60 disabled:cursor-not-allowed group focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                     >
                                         {isGoogleLoading ? (
-                                            <div className="flex items-center gap-2 text-indigo-600 font-medium">
+                                             <div className="flex items-center gap-2 text-indigo-600 font-medium">
                                                 <svg className="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
