@@ -166,56 +166,54 @@ _jobs: dict[str, dict[str, Any]] = {}
 
 # ── Browser & Session Helpers ─────────────────────────────────────────────────
 
-async def _ensure_cdp_chrome_running() -> bool:
+async def _ensure_cdp_chrome_running(signin: bool = False) -> bool:
     """Ensure interactive Chrome is running on the user's real desktop (port 9222)."""
     import urllib.request
     import subprocess
     try:
-        with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.5) as resp:
+        with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:
             if resp.status == 200:
                 return True
     except Exception:
         pass
 
-    bat_path = Path(__file__).parent / "start_cdp_chrome.bat"
-    bat_path.write_text(
-        '@echo off\n'
-        'start "" "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
-        '--remote-debugging-port=9222 '
-        '--user-data-dir="C:\\Users\\Admin\\.flow-py\\cdp-profile" '
-        '--window-position=100,100 --window-size=1280,900 '
-        '--no-first-run --no-default-browser-check '
-        '"https://flow.google.com"\n',
-        encoding="utf-8",
+    from flow._storage import PROFILE_DIR
+    target_url = (
+        "https://accounts.google.com/v3/signin/identifier?continue=https://flow.google.com/&flowName=GlifWebSignIn&flowEntry=ServiceLogin"
+        if signin
+        else "https://flow.google.com"
     )
-    # Attempt 1: Direct subprocess Popen
-    try:
-        subprocess.Popen([str(bat_path)], shell=True)
-        for _ in range(10):
-            await asyncio.sleep(0.5)
-            try:
-                with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:
-                    if resp.status == 200:
-                        return True
-            except Exception:
-                pass
-    except Exception as direct_err:
-        log.debug("Direct launch note: %s", direct_err)
 
-    # Attempt 2: Scheduled task fallback
+    chrome_candidates = [
+        Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "Application" / "chrome.exe",
+    ]
+    exe_path = None
+    for cand in chrome_candidates:
+        if cand.exists():
+            exe_path = str(cand)
+            break
+
+    if not exe_path:
+        return False
+
+    bat_path = Path(__file__).parent / "start_cdp_chrome.bat"
+    bat_content = (
+        "@echo off\r\n"
+        f'start "" "{exe_path}" '
+        "--remote-debugging-port=9222 "
+        f'--user-data-dir="{PROFILE_DIR}" '
+        "--start-maximized "
+        "--no-first-run --no-default-browser-check "
+        f'"{target_url}"\r\n'
+    )
+    bat_path.write_text(bat_content, encoding="utf-8")
+
     try:
-        ps_cmd = (
-            f'$action = New-ScheduledTaskAction -Execute "{bat_path}"; '
-            '$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; '
-            'Register-ScheduledTask -TaskName "FlowChromeCDP" -Action $action -Settings $settings -Force | Out-Null; '
-            'Start-ScheduledTask -TaskName "FlowChromeCDP"'
-        )
-        subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True,
-            timeout=8,
-        )
-        for _ in range(12):
+        import os
+        os.startfile(str(bat_path))
+        for _ in range(16):
             await asyncio.sleep(0.5)
             try:
                 with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:
@@ -224,7 +222,8 @@ async def _ensure_cdp_chrome_running() -> bool:
             except Exception:
                 pass
     except Exception as e:
-        log.warning("Could not start CDP Chrome via schtasks: %s", e)
+        log.warning("Could not launch start_cdp_chrome.bat: %s", e)
+
     return False
 
 
@@ -267,7 +266,7 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
             _bm = None
 
     ensure_dirs()
-    # If interactive CDP on 9222 is active, connect to it; otherwise use native persistent context
+    # 1. Prefer live CDP Chrome on port 9222
     try:
         import urllib.request
         with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=0.8) as resp:
@@ -279,6 +278,18 @@ async def _get_or_start_bm(headless: bool = False) -> BrowserManager:
     except Exception:
         pass
 
+    # 2. Try starting native Chrome on 9222
+    try:
+        running = await _ensure_cdp_chrome_running(signin=False)
+        if running:
+            bm = BrowserManager.from_cdp("http://127.0.0.1:9222")
+            await bm.start()
+            _bm = bm
+            return _bm
+    except Exception as cdp_err:
+        log.debug("CDP start notice: %s", cdp_err)
+
+    # 3. Fallback to normal persistent context
     bm = BrowserManager(headless=headless)
     await bm.start()
     _bm = bm
@@ -1072,7 +1083,7 @@ async def trigger_flow_login():
     global _login_in_progress, _bm
     _login_in_progress = True
 
-    # Safely release browser instance so login.bat has 100% exclusive access without conflicts
+    # Safely release browser handle
     async with _browser_lock:
         if _bm is not None:
             try:
@@ -1081,6 +1092,10 @@ async def trigger_flow_login():
                 pass
             _bm = None
 
+    # 1. Ensure Chrome is running on port 9222 with the Google Sign In URL
+    await _ensure_cdp_chrome_running(signin=True)
+
+    # 2. Also trigger login.bat for terminal monitoring & feedback
     bat_path = Path(__file__).parent / "login.bat"
     try:
         import os
@@ -1088,9 +1103,7 @@ async def trigger_flow_login():
         log.info("Launched %s via Windows Shell (os.startfile)", bat_path)
     except Exception as e:
         log.warning("Could not launch login.bat: %s", e)
-        _login_in_progress = False
 
-    # Timeout safety: reset _login_in_progress after 10 minutes if not already completed
     async def _safety_reset():
         await asyncio.sleep(600)
         global _login_in_progress
@@ -1135,12 +1148,23 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
         if req.cookies:
             raw_list = req.cookies
             for c in raw_list:
-                name = str(c.get("name", ""))
+                name = str(c.get("name", "")).strip()
                 value = c.get("value")
-                domain = str(c.get("domain", ".google.com"))
+                domain = str(c.get("domain", ".google.com")).strip()
                 if not name or value is None:
                     continue
                 cookie_names.append(f"{name}@{domain}")
+
+                raw_ss = str(c.get("sameSite", "")).lower()
+                if raw_ss in ("no_restriction", "none"):
+                    same_site = "None"
+                elif raw_ss in ("lax", "lax_after_reconnect"):
+                    same_site = "Lax"
+                elif raw_ss == "strict":
+                    same_site = "Strict"
+                else:
+                    same_site = "None" if c.get("secure") else "Lax"
+
                 if name.startswith("__Host-"):
                     target_url = (
                         "https://flow.google.com/"
@@ -1153,6 +1177,7 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                         "url": target_url,
                         "secure": True,
                         "httpOnly": bool(c.get("httpOnly", True)),
+                        "sameSite": same_site,
                     }
                 else:
                     item = {
@@ -1162,10 +1187,8 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                         "path": str(c.get("path", "/")),
                         "secure": bool(c.get("secure", True)),
                         "httpOnly": bool(c.get("httpOnly", False)),
+                        "sameSite": same_site,
                     }
-                same_site = str(c.get("sameSite", "")).lower()
-                if same_site in ("strict", "lax", "none"):
-                    item["sameSite"] = same_site.capitalize()
                 if c.get("expirationDate"):
                     try:
                         item["expires"] = float(c["expirationDate"])
@@ -1173,21 +1196,27 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                         pass
                 pw_cookies.append(item)
 
-        injected_count = 0
-        for ck in pw_cookies:
-            try:
-                await bm.context.add_cookies([ck])
-                injected_count += 1
-            except Exception as ck_err:
-                log.debug("Skipped cookie %s: %s", ck.get("name"), ck_err)
+        page = await bm.page()
 
-        log.info("Cleared old cookies & injected %d/%d fresh cookies: %s", injected_count, len(pw_cookies), cookie_names)
+        # Inject via CDP Network.setCookies for native fidelity if supported
+        try:
+            cdp = await bm.context.new_cdp_session(page)
+            await cdp.send("Network.setCookies", {"cookies": pw_cookies})
+            log.info("Injected %d cookies via CDP Network.setCookies", len(pw_cookies))
+        except Exception as cdp_err:
+            log.debug("CDP Network.setCookies notice: %s", cdp_err)
+            for ck in pw_cookies:
+                try:
+                    await bm.context.add_cookies([ck])
+                except Exception as ck_err:
+                    log.debug("Skipped cookie %s: %s", ck.get("name"), ck_err)
+
+        log.info("Cleared old cookies & injected %d cookies: %s", len(pw_cookies), cookie_names)
 
         if req.project_id:
             set_active_project(req.project_id, f"https://flow.google.com/project/{req.project_id}")
             add_project(req.project_id, "chrome-sync", f"https://flow.google.com/project/{req.project_id}")
 
-        page = await bm.page()
         pid = await _ensure_in_project(page, target_pid=req.project_id)
         if pid:
             _auth_state.update({
@@ -1204,14 +1233,14 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                 "authenticated": False,
                 "email": None,
                 "project_id": None,
-                "error": "Cookie đã hết hạn hoặc Google từ chối." if is_signin else "Chưa đăng nhập Google Flow",
+                "error": "Cookie này đã hết hạn hoặc Google yêu cầu đăng nhập trực tiếp trên trình duyệt máy bạn." if is_signin else "Chưa đăng nhập Google Flow",
                 "last_checked": time.time(),
             })
             log.warning("Cookie injection check: not authenticated (url=%s)", page.url)
 
     return {
         "status": "ok" if _auth_state.get("authenticated") else "unauthenticated",
-        "injected": injected_count,
+        "injected": len(pw_cookies),
         "authenticated": _auth_state.get("authenticated"),
         "email": _auth_state.get("email"),
         "project_id": _auth_state.get("project_id"),

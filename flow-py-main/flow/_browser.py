@@ -23,11 +23,11 @@ log = logging.getLogger(__name__)
 FLOW_BASE_URL   = "https://labs.google/fx/tools/flow"
 FLOW_PROJECT_RE = r"https://(?:labs\.google/fx/tools/flow|flow\.google\.com)/project/[^/?#]+"
 
-# Chrome user-agent to avoid bot detection
+# Chrome user-agent for Windows to avoid bot detection and token-binding mismatch
 _USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/122.0.0.0 Safari/537.36"
+    "Chrome/131.0.0.0 Safari/537.36"
 )
 
 
@@ -97,11 +97,35 @@ class BrowserManager:
             self._ctx = contexts[0]
             log.info("CDP connected: %d existing pages", len(self._ctx.pages))
         else:
+            # Auto-detect if Chrome is running on 9222 first
+            try:
+                import urllib.request
+                with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=0.8) as resp:
+                    if resp.status == 200:
+                        log.info("Found live Chrome on port 9222, connecting over CDP...")
+                        self._cdp_browser = await self._pw.chromium.connect_over_cdp("http://127.0.0.1:9222")
+                        self._ctx = self._cdp_browser.contexts[0]
+                        self.cdp_url = "http://127.0.0.1:9222"
+                        return self
+            except Exception:
+                pass
+
+            # Clean stale lockfile if no Chrome process is holding it
+            lockfile_path = self.profile_dir / "lockfile"
+            if lockfile_path.exists():
+                try:
+                    lockfile_path.unlink()
+                except Exception:
+                    pass
+
             # Normal persistent profile launch
             args = [
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
+                "--start-maximized",
+                "--window-position=100,100",
+                "--window-size=1280,900",
             ]
             if self.headless:
                 args.append("--headless=new")
@@ -123,13 +147,17 @@ class BrowserManager:
                     break
 
             launch_kwargs = dict(
-                headless=False,
+                headless=self.headless,
                 slow_mo=self.slow_mo,
-                viewport={"width": 1440, "height": 900},
                 user_agent=_USER_AGENT,
                 accept_downloads=True,
                 args=args,
             )
+            if not self.headless:
+                launch_kwargs["no_viewport"] = True
+            else:
+                launch_kwargs["viewport"] = {"width": 1440, "height": 900}
+
             if exe_path:
                 launch_kwargs["executable_path"] = exe_path
             else:

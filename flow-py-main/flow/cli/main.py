@@ -127,16 +127,83 @@ def cli(ctx: click.Context, debug: bool, verbose: bool, quiet: bool):
 def login():
     """Open browser for Google authentication."""
     async def _go():
-        from .._storage import set_active_project, add_project
-        import re, json
+        from .._storage import set_active_project, add_project, PROFILE_DIR
+        import re, json, subprocess, urllib.request
         from pathlib import Path
 
-        bm = BrowserManager(headless=False)
-        await bm.start()
+        chrome_candidates = [
+            Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+            Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "Application" / "chrome.exe",
+        ]
+        exe_path = None
+        for cand in chrome_candidates:
+            if cand.exists():
+                exe_path = str(cand)
+                break
+
+        signin_url = (
+            "https://accounts.google.com/v3/signin/identifier?"
+            "continue=https://flow.google.com/&flowName=GlifWebSignIn&flowEntry=ServiceLogin"
+        )
+
+        click.echo("========================================================")
+        click.echo("  DANG MO TRINH DUYET CHROME DE BAN DANG NHAP GOOGLE FLOW...")
+        click.echo("  Vui long dang nhap tren cua so Chrome vua bat len!")
+        click.echo("========================================================")
+
+        # First check if Chrome is already on 9222
+        is_running = False
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:
+                if resp.status == 200:
+                    is_running = True
+        except Exception:
+            pass
+
+        if not is_running and exe_path:
+            chrome_args = [
+                exe_path,
+                "--remote-debugging-port=9222",
+                f"--user-data-dir={PROFILE_DIR}",
+                "--start-maximized",
+                "--no-first-run",
+                "--no-default-browser-check",
+                signin_url,
+            ]
+            try:
+                subprocess.Popen(chrome_args)
+            except Exception as p_err:
+                click.echo(f"Lỗi khởi chạy Chrome: {p_err}")
+
+        # Wait for Chrome CDP port 9222 to respond
+        connected = False
+        for _ in range(16):
+            await asyncio.sleep(0.5)
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as resp:
+                    if resp.status == 200:
+                        connected = True
+                        break
+            except Exception:
+                pass
+
+        if not connected:
+            click.echo("⚠️ Khởi động trình duyệt trực tiếp qua Playwright...")
+            bm = BrowserManager(headless=False)
+            await bm.start()
+        else:
+            bm = BrowserManager.from_cdp("http://127.0.0.1:9222")
+            await bm.start()
+
         page = await bm.page()
-        click.echo("Đang mở trình duyệt Chrome để bạn đăng nhập Google Flow...")
-        signin_url = "https://accounts.google.com/v3/signin/identifier?continue=https://flow.google.com/&flowName=GlifWebSignIn&flowEntry=ServiceLogin"
-        await page.goto(signin_url, wait_until="domcontentloaded")
+        try:
+            if "accounts.google.com" not in page.url and "flow.google.com" not in page.url:
+                await page.goto(signin_url, wait_until="domcontentloaded")
+        except Exception:
+            pass
+
+        click.echo("✅ Cửa sổ Chrome đang hiển thị trên màn hình.")
 
         # Wait for user to complete Google Sign In and reach Flow workspace
         active_pid = None
@@ -198,7 +265,7 @@ def login():
             set_active_project(active_pid, f"https://flow.google.com/project/{active_pid}")
             add_project(active_pid, user_email or "chrome_login", f"https://flow.google.com/project/{active_pid}")
 
-        # Save cookies to accounts_pool.json so this account is automatically in the rotation pool!
+        # Save cookies to accounts_pool.json
         try:
             cookies = await bm.context.cookies()
             pool_file = Path(__file__).resolve().parent.parent.parent / "accounts_pool.json"
@@ -235,7 +302,6 @@ def login():
 
         # Notify running server that login is done
         try:
-            import urllib.request
             req = urllib.request.Request("http://localhost:8100/v1/auth/login-done", data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=3) as r:
                 pass
