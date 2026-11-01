@@ -19,6 +19,8 @@ import {
     getVideoEngine,
     setVideoEngine,
     VideoEngine,
+    checkFlowExtensionInstalled,
+    triggerExtensionLogin,
 } from '../services/geminiVideoService';
 
 import {
@@ -58,10 +60,9 @@ export interface VideoPanelProps {
 }
 
 const FLOW_MODEL_OPTIONS = [
-    { id: 'Omni 1.1 Flash', label: 'Omni 1.1 Flash', badge: 'Nhanh' },
-    { id: 'Veo 3.1 - Lite', label: 'Veo 3.1 Lite', badge: 'Tiết kiệm' },
-    { id: 'Veo 3.1 - Fast', label: 'Veo 3.1 Fast', badge: 'Chuẩn' },
-    { id: 'Veo 3.1 - Quality', label: 'Veo 3.1 Quality', badge: 'Nét cao' },
+    { id: 'Veo 3.1 - Lite', label: 'Veo 3.1 Lite', badge: 'Khuyên dùng' },
+    { id: 'Veo 3.1 - Fast', label: 'Veo 3.1 Fast', badge: 'Xử lý nhanh' },
+    { id: 'Omni 1.1 Flash', label: 'Omni 1.1 Flash', badge: 'Tối đa 10s' },
 ];
 
 const PROMPT_PRESETS = {
@@ -88,8 +89,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     hasInputImage,
     inputImagePreview,
 }) => {
-    // Engine State: 'fal_ai' (Default Global Cloud) vs 'siliconflow' vs 'flow_local' (Local Google Flow)
+    // Engine State: 'flow_extension' (Default Bridge) vs 'fal_ai' vs 'flow_local' vs 'siliconflow'
     const [engine, setEngineState] = useState<VideoEngine>(() => getVideoEngine());
+
+    // Extension Specific State
+    const [isExtensionInstalled, setIsExtensionInstalled] = useState<boolean>(false);
+    const [showExtensionGuide, setShowExtensionGuide] = useState<boolean>(false);
 
     // Common Video States
     const [prompt, setPrompt] = useState('');
@@ -100,7 +105,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [configMessage, setConfigMessage] = useState<string | null>(null);
     const [configMessageType, setConfigMessageType] = useState<'success' | 'error' | null>(null);
 
-    // Fal.ai Specific State (Default Cloud Provider)
+    // Fal.ai Specific State
     const [falApiKey, setFalApiKeyState] = useState(() => getFalApiKey());
     const [falModel, setFalModelState] = useState(() => getSavedFalModel());
     const [falUserInfo, setFalUserInfo] = useState<FalUserInfo | null>(null);
@@ -115,7 +120,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [showSiliconKeyText, setShowSiliconKeyText] = useState(false);
 
     // Google Flow Specific State
-    const [selectedFlowModel, setSelectedFlowModel] = useState<string>('Omni 1.1 Flash');
+    const [selectedFlowModel, setSelectedFlowModel] = useState<string>('Veo 3.1 - Lite');
     const [serverHealth, setServerHealth] = useState<VideoServerHealth>({ online: false });
     const [isCheckingServer, setIsCheckingServer] = useState(false);
     const [isTriggeringLogin, setIsTriggeringLogin] = useState(false);
@@ -132,6 +137,27 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         setConfigMessage(null);
         setConfigMessageType(null);
     };
+
+    // Extension detection
+    useEffect(() => {
+        let mounted = true;
+        const detectExtension = async () => {
+            const installed = await checkFlowExtensionInstalled();
+            if (mounted) setIsExtensionInstalled(installed);
+        };
+        detectExtension();
+
+        const messageHandler = (e: MessageEvent) => {
+            if (e.data?.type === 'FLOW_BRIDGE_PONG') {
+                if (mounted) setIsExtensionInstalled(true);
+            }
+        };
+        window.addEventListener('message', messageHandler);
+        return () => {
+            mounted = false;
+            window.removeEventListener('message', messageHandler);
+        };
+    }, []);
 
     // Refresh Fal.ai status
     const refreshFalStatus = async (keyOverride?: string) => {
@@ -211,7 +237,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         setIsCheckingFal(false);
         if (info.ok) {
             setConfigMessageType('success');
-            setConfigMessage('Đã kết nối tài khoản Fal.ai Cloud thành công! Sẵn sàng tạo video.');
+            setConfigMessage('Đã kết nối tài khoản Fal.ai Cloud thành công!');
         } else {
             setConfigMessageType('error');
             setConfigMessage(info.error || 'API Key Fal.ai không hợp lệ. Vui lòng kiểm tra lại!');
@@ -350,13 +376,16 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     };
 
     const isImageMode = subMode === 'image_to_video';
+    const isExtensionMode = engine === 'flow_extension';
     const isFalMode = engine === 'fal_ai';
     const isSiliconMode = engine === 'siliconflow';
 
     const canSubmit = !isLoading && !isDisabled && prompt.trim().length > 0 && (!isImageMode || hasInputImage);
 
     const handleExecuteGenerate = () => {
-        const activeModel = isFalMode
+        const activeModel = isExtensionMode
+            ? selectedFlowModel
+            : isFalMode
             ? falModel
             : isSiliconMode
             ? siliconModel
@@ -366,21 +395,35 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     return (
         <div className="flex flex-col gap-4 p-1 animate-fade-in">
-            {/* Engine Segmented Bar: Fal.ai Cloud (Default) vs Google Flow (Local) vs SiliconFlow */}
+            {/* Engine Segmented Bar: Extension (Default) vs Fal.ai vs Local Server vs SiliconFlow */}
             <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                         Động cơ tạo video
                     </span>
                     <span className="text-[10px] text-slate-400 font-medium">
-                        {isFalMode
-                            ? 'Google 1-click • Không cần giấy tờ'
+                        {isExtensionMode
+                            ? 'Google Veo 3.1 • Acc Cá Nhân • 0đ Vĩnh Viễn'
+                            : isFalMode
+                            ? 'Cloud API • Google 1-Click'
                             : isSiliconMode
-                            ? 'SiliconFlow Cloud API'
-                            : 'Chạy qua Server máy tính'}
+                            ? 'SiliconFlow Cloud'
+                            : 'Server Máy Tính (Cổng 8100)'}
                     </span>
                 </div>
                 <div className="grid grid-cols-3 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('flow_extension')}
+                        className={`min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            isExtensionMode
+                                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>🧩</span>
+                        <span className="truncate">Google Flow (Extension)</span>
+                    </button>
                     <button
                         type="button"
                         onClick={() => handleSwitchEngine('fal_ai')}
@@ -391,7 +434,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         }`}
                     >
                         <span>🚀</span>
-                        <span className="truncate">Fal.ai (Khuyên dùng)</span>
+                        <span className="truncate">Fal.ai Cloud</span>
                     </button>
                     <button
                         type="button"
@@ -402,25 +445,101 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 : 'text-slate-600 hover:text-slate-900'
                         }`}
                     >
-                        <span>🌐</span>
-                        <span className="truncate">Google Flow</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => handleSwitchEngine('siliconflow')}
-                        className={`min-h-[42px] flex items-center justify-center gap-1 px-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            isSiliconMode
-                                ? 'bg-white text-purple-700 shadow-xs ring-1 ring-slate-900/5'
-                                : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                        <span>⚡</span>
-                        <span className="truncate">SiliconFlow</span>
+                        <span>💻</span>
+                        <span className="truncate">Server PC (.vbs)</span>
                     </button>
                 </div>
             </div>
 
-            {/* FAL.AI CLOUD CARD (DEFAULT RECOMMENDED) */}
+            {/* GOOGLE FLOW CHROME EXTENSION CARD (DEFAULT & MOST POWERFUL) */}
+            {isExtensionMode && (
+                <div className="bg-gradient-to-br from-indigo-50/70 via-slate-50 to-purple-50/50 p-3 rounded-xl ring-1 ring-indigo-500/15 flex flex-col gap-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-xs">
+                                <span>🧩</span>
+                            </div>
+                            <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-slate-900">Google Flow Bridge</span>
+                                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-indigo-600 text-white">
+                                        Veo 3.1
+                                    </span>
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                    Dùng tài khoản Google cá nhân của bạn • Miễn phí 100%
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => setShowExtensionGuide(!showExtensionGuide)}
+                                className="min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer"
+                            >
+                                <span
+                                    className={`w-2 h-2 rounded-full ${
+                                        isExtensionInstalled ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
+                                    }`}
+                                />
+                                <span className="text-[11px] font-semibold text-slate-700 tabular-nums">
+                                    {isExtensionInstalled ? 'Đã kết nối Tiện ích' : 'Cài đặt Tiện ích'}
+                                </span>
+                                <span className="text-[10px] text-slate-400 ml-0.5">{showExtensionGuide ? '▲' : '⚙️'}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Extension Setup Guide Alert (shown if not installed or clicked) */}
+                    {(!isExtensionInstalled || showExtensionGuide) && (
+                        <div className="pt-2 border-t border-indigo-200/50 flex flex-col gap-2 animate-fade-in">
+                            <div className="p-3 rounded-xl bg-white ring-1 ring-slate-900/5 flex flex-col gap-2.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                                        <span>🛠️</span>
+                                        <span>Hướng dẫn cài đặt Tiện ích Chrome (1 lần duy nhất trong 10s)</span>
+                                    </span>
+                                    {isExtensionInstalled && (
+                                        <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                                            ✓ Đã cài đặt
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="text-[11px] text-slate-600 leading-relaxed space-y-1">
+                                    <div><b>1.</b> Mở trình duyệt Chrome, gõ vào thanh địa chỉ: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-indigo-700 select-all">chrome://extensions</code></div>
+                                    <div><b>2.</b> Bật công tắc <b>"Chế độ dành cho nhà phát triển" (Developer mode)</b> ở góc trên cùng bên phải.</div>
+                                    <div><b>3.</b> Bấm nút <b>"Tải tiện ích đã giải nén" (Load unpacked)</b>.</div>
+                                    <div><b>4.</b> Chọn thư mục: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-indigo-700 select-all">D:\ToolMedia\extension-flow-bridge</code> là xong!</div>
+                                </div>
+
+                                <div className="flex items-center gap-2 pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={triggerExtensionLogin}
+                                        className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                    >
+                                        <span>🌐</span>
+                                        <span>Đăng nhập Google Flow</span>
+                                    </button>
+                                    <a
+                                        href="https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                    >
+                                        <span>🚀</span>
+                                        <span>Mở Tool trên Flow ↗</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* FAL.AI CLOUD CARD */}
             {isFalMode && (
                 <div className="bg-gradient-to-br from-indigo-50/70 via-slate-50 to-purple-50/50 p-3 rounded-xl ring-1 ring-indigo-500/15 flex flex-col gap-2.5 shadow-2xs">
                     <div className="flex items-center justify-between gap-2">
@@ -445,7 +564,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             <button
                                 type="button"
                                 onClick={() => setShowConfigPanel(!showConfigPanel)}
-                                title="Bấm để cấu hình API Key Fal.ai"
                                 className="min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer"
                             >
                                 <span
@@ -473,7 +591,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         </div>
                     </div>
 
-                    {/* Fal.ai Config Dropdown */}
                     {showConfigPanel && (
                         <div className="pt-2 border-t border-indigo-200/50 flex flex-col gap-2 animate-fade-in">
                             <div className="p-2.5 rounded-xl bg-white ring-1 ring-slate-900/5 flex flex-col gap-2">
@@ -514,103 +631,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                         {isCheckingFal ? 'Đang lưu...' : 'Lưu Key'}
                                     </button>
                                 </div>
-                                <div className="p-2 rounded-lg bg-indigo-50/60 ring-1 ring-indigo-500/10 text-[10.5px] text-indigo-950 flex flex-col gap-1 leading-relaxed">
-                                    <div><b>💡 Hướng dẫn 3 bước lấy Key (hoàn toàn miễn phí):</b></div>
-                                    <div>1. Bấm vào link <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener noreferrer" className="font-semibold underline text-indigo-700">fal.ai/dashboard/keys</a>.</div>
-                                    <div>2. Chọn <b>Sign in with Google</b> (hoặc GitHub) để đăng nhập 1 click.</div>
-                                    <div>3. Bấm <b>Add Key</b>, copy chuỗi Key dán vào ô trên rồi bấm <b>Lưu Key</b>.</div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* SILICONFLOW CLOUD CARD */}
-            {isSiliconMode && (
-                <div className="bg-gradient-to-br from-purple-50/70 via-slate-50 to-indigo-50/50 p-3 rounded-xl ring-1 ring-purple-500/15 flex flex-col gap-2.5 shadow-2xs">
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-xs">
-                                <span>⚡</span>
-                            </div>
-                            <div className="flex flex-col">
-                                <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-semibold text-slate-900">SiliconFlow Cloud</span>
-                                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-purple-600 text-white">
-                                        REST API
-                                    </span>
-                                </div>
-                                <span className="text-[10px] text-slate-500 font-medium">
-                                    {siliconUserInfo?.name
-                                        ? `${siliconUserInfo.name} • ${siliconUserInfo.balance || 'Khả dụng'}`
-                                        : 'Dành cho ai đã có tài khoản sẵn'}
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                            <button
-                                type="button"
-                                onClick={() => setShowConfigPanel(!showConfigPanel)}
-                                title="Bấm để cấu hình API Key SiliconFlow"
-                                className="min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer"
-                            >
-                                <span
-                                    className={`w-2 h-2 rounded-full ${
-                                        isCheckingSilicon
-                                            ? 'bg-amber-400 animate-pulse'
-                                            : siliconUserInfo?.ok
-                                            ? 'bg-emerald-500'
-                                            : siliconApiKey.trim()
-                                            ? 'bg-purple-500'
-                                            : 'bg-amber-500'
-                                    }`}
-                                />
-                                <span className="text-[11px] font-semibold text-slate-700 tabular-nums">
-                                    {isCheckingSilicon
-                                        ? 'Kiểm tra...'
-                                        : siliconUserInfo?.ok
-                                        ? 'Đã kết nối'
-                                        : siliconApiKey.trim()
-                                        ? 'Đã có Key'
-                                        : 'Nhập Key'}
-                                </span>
-                                <span className="text-[10px] text-slate-400 ml-0.5">{showConfigPanel ? '▲' : '⚙️'}</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {showConfigPanel && (
-                        <div className="pt-2 border-t border-purple-200/50 flex flex-col gap-2 animate-fade-in">
-                            <div className="p-2.5 rounded-xl bg-white ring-1 ring-slate-900/5 flex flex-col gap-2">
-                                <label className="text-[11px] font-semibold text-slate-800">
-                                    API Key SiliconFlow (sk-...)
-                                </label>
-                                <div className="flex items-center gap-1.5">
-                                    <input
-                                        type={showSiliconKeyText ? 'text' : 'password'}
-                                        value={siliconApiKey}
-                                        onChange={(e) => setSiliconApiKeyState(e.target.value)}
-                                        placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                        className="flex-1 bg-slate-50 ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:bg-white focus:ring-2 focus:ring-purple-500/30 outline-none"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowSiliconKeyText(!showSiliconKeyText)}
-                                        className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] cursor-pointer"
-                                    >
-                                        {showSiliconKeyText ? 'Ẩn' : 'Hiện'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleSaveSiliconApiKey}
-                                        disabled={isCheckingSilicon}
-                                        className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
-                                    >
-                                        {isCheckingSilicon ? 'Đang lưu...' : 'Lưu Key'}
-                                    </button>
-                                </div>
                             </div>
                         </div>
                     )}
@@ -627,7 +647,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             </div>
                             <div className="flex flex-col">
                                 <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-semibold text-slate-900">Google Flow</span>
+                                    <span className="text-xs font-semibold text-slate-900">Google Flow (Local)</span>
                                     <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md bg-rose-600 text-white">
                                         Veo 3.1
                                     </span>
@@ -637,11 +657,9 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                         </span>
                                     )}
                                 </div>
-                                {serverHealth.email && serverHealth.email !== 'Google Flow Active' && (
-                                    <span className="text-[10px] text-slate-500 font-mono truncate max-w-[140px]">
-                                        {serverHealth.email}
-                                    </span>
-                                )}
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                    Chạy qua file CHAY_SERVER_NGAM.vbs trên Desktop
+                                </span>
                             </div>
                         </div>
 
@@ -649,7 +667,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             <button
                                 type="button"
                                 onClick={() => setShowConfigPanel(!showConfigPanel)}
-                                title="Bấm để quản lý tài khoản hoặc server"
                                 className="min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ring-1 ring-slate-900/5 shadow-2xs hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer"
                             >
                                 <span
@@ -699,50 +716,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 >
                                     <span>➕</span>
                                     <span>Lưu nick Chrome hiện tại</span>
-                                </button>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <input
-                                    type="text"
-                                    value={accountLabelInput}
-                                    onChange={(e) => setAccountLabelInput(e.target.value)}
-                                    placeholder="Tên gợi nhớ (VD: Gmail 1)"
-                                    className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] focus:ring-2 focus:ring-rose-500/30 outline-none"
-                                />
-                                <input
-                                    type="text"
-                                    value={projectIdInput}
-                                    onChange={(e) => setProjectIdInput(e.target.value)}
-                                    placeholder="Project ID (Tự động)"
-                                    className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg px-2.5 py-1.5 text-slate-800 text-[11px] font-mono focus:ring-2 focus:ring-rose-500/30 outline-none"
-                                />
-                            </div>
-
-                            <textarea
-                                value={cookieInput}
-                                onChange={(e) => setCookieInput(e.target.value)}
-                                placeholder="Dán JSON Cookie từ Cookie-Editor để thêm nick vào Hồ sơ xoay vòng hoặc dùng riêng..."
-                                rows={2}
-                                className="w-full bg-white ring-1 ring-slate-900/10 rounded-lg p-2 text-slate-800 text-[11px] font-mono leading-relaxed focus:ring-2 focus:ring-rose-500/30 outline-none"
-                            />
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleAddCookieToPool}
-                                    disabled={isSyncingCookies}
-                                    className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
-                                >
-                                    ➕ Thêm vào Hồ sơ xoay vòng
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleSyncCookies}
-                                    disabled={isSyncingCookies}
-                                    className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-white ring-1 ring-slate-900/10 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60 shadow-xs"
-                                >
-                                    Thử dùng riêng Cookie này
                                 </button>
                             </div>
                         </div>
@@ -854,10 +827,10 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             <div>
                 <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                        {isFalMode ? 'Mô hình Fal.ai Cloud' : isSiliconMode ? 'Mô hình SiliconFlow Cloud' : 'Mô hình Google Flow'}
+                        {isFalMode ? 'Mô hình Fal.ai Cloud' : isSiliconMode ? 'Mô hình SiliconFlow Cloud' : 'Mô hình Google Flow (Veo 3.1)'}
                     </label>
                     <span className="text-[10px] text-emerald-600 font-medium">
-                        Tốc độ cao • Không cần chờ
+                        {isExtensionMode ? 'Veo 3.1 Miễn phí 100%' : 'Tốc độ cao'}
                     </span>
                 </div>
 
@@ -922,7 +895,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         ))}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                         {FLOW_MODEL_OPTIONS.map((m) => (
                             <button
                                 key={m.id}
@@ -930,7 +903,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 onClick={() => setSelectedFlowModel(m.id)}
                                 className={`min-h-[42px] flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer ${
                                     selectedFlowModel === m.id
-                                        ? 'bg-rose-50/70 text-rose-700 ring-2 ring-rose-500/40 shadow-xs'
+                                        ? 'bg-indigo-50/80 text-indigo-700 ring-2 ring-indigo-500/40 shadow-xs'
                                         : 'bg-slate-50 text-slate-600 ring-1 ring-slate-900/5 hover:bg-slate-100 hover:text-slate-900'
                                 }`}
                             >
@@ -1029,13 +1002,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 type="button"
                 onClick={handleExecuteGenerate}
                 disabled={!canSubmit}
-                className={`w-full min-h-[48px] mt-1 px-6 py-3.5 text-white font-semibold text-sm tracking-wide rounded-xl shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] cursor-pointer ${
-                    isFalMode
-                        ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-indigo-500/20 hover:shadow-indigo-500/30 focus:ring-2 focus:ring-indigo-500/40'
-                        : isSiliconMode
-                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-500/20 hover:shadow-purple-500/30 focus:ring-2 focus:ring-purple-500/40'
-                        : 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 shadow-rose-500/20 hover:shadow-rose-500/30 focus:ring-2 focus:ring-rose-500/40'
-                }`}
+                className="w-full min-h-[48px] mt-1 px-6 py-3.5 text-white font-semibold text-sm tracking-wide rounded-xl shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] cursor-pointer bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-indigo-500/20 hover:shadow-indigo-500/30 focus:ring-2 focus:ring-indigo-500/40"
             >
                 {isLoading ? (
                     <span className="flex items-center justify-center gap-2">
@@ -1047,10 +1014,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </span>
                 ) : (
                     <span className="flex items-center justify-center gap-2">
-                        {isFalMode ? <span>🚀</span> : isSiliconMode ? <span>⚡</span> : <VideoCameraIcon className="w-5 h-5" />}
+                        {isExtensionMode ? <span>🧩</span> : isFalMode ? <span>🚀</span> : <VideoCameraIcon className="w-5 h-5" />}
                         <span>
-                            {isFalMode
-                                ? `TẠO VIDEO FAL.AI (${falModel.split('/').pop()?.toUpperCase()})`
+                            {isExtensionMode
+                                ? `TẠO VIDEO VEO 3.1 (${selectedFlowModel.replace(' - ', ' ')})`
+                                : isFalMode
+                                ? `TẠO VIDEO CLOUD (${falModel.split('/').pop()?.toUpperCase()})`
                                 : isSiliconMode
                                 ? `TẠO VIDEO CLOUD (${siliconModel.split('/').pop()})`
                                 : `TẠO VIDEO VEO 3.1 (${selectedFlowModel.replace(' - ', ' ')})`}

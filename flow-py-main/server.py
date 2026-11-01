@@ -12,6 +12,12 @@ Provides HTTP endpoints for:
   - GET  /files/{filename}              -> Serve generated .mp4 files
 """
 from __future__ import annotations
+import sys
+import os
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w', encoding='utf-8')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 
 import asyncio
 import base64

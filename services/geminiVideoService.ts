@@ -2,17 +2,117 @@ import { generateSiliconVideo } from './siliconVideoService';
 import { generateFalVideo } from './falVideoService';
 
 /**
- * Service tích hợp Video AI: Fal.ai Cloud (Mặc định), SiliconFlow Cloud & Google Flow Local
+ * Service tích hợp Video AI: Google Flow Extension (Mới), Fal.ai Cloud, Google Flow Local & SiliconFlow
  */
 
-export type VideoEngine = 'fal_ai' | 'siliconflow' | 'flow_local';
+export type VideoEngine = 'flow_extension' | 'fal_ai' | 'flow_local' | 'siliconflow';
 
 export const getVideoEngine = (): VideoEngine => {
-    return (localStorage.getItem('video_engine') as VideoEngine) || 'fal_ai';
+    return (localStorage.getItem('video_engine') as VideoEngine) || 'flow_extension';
 };
 
 export const setVideoEngine = (engine: VideoEngine): void => {
     localStorage.setItem('video_engine', engine);
+};
+
+/**
+ * Kiểm tra xem người dùng đã cài đặt tiện ích ImageTool Flow Bridge trên Chrome chưa
+ */
+export const checkFlowExtensionInstalled = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+        if ((window as any).__IMAGETOOL_FLOW_BRIDGE_INSTALLED__) {
+            return resolve(true);
+        }
+
+        const handler = (event: MessageEvent) => {
+            if (event.data?.type === 'FLOW_BRIDGE_PONG') {
+                window.removeEventListener('message', handler);
+                resolve(true);
+            }
+        };
+
+        window.addEventListener('message', handler);
+        window.postMessage({ type: 'FLOW_BRIDGE_PING' }, '*');
+
+        setTimeout(() => {
+            window.removeEventListener('message', handler);
+            resolve(!!(window as any).__IMAGETOOL_FLOW_BRIDGE_INSTALLED__);
+        }, 800);
+    });
+};
+
+/**
+ * Kích hoạt mở trang đăng nhập Google Flow qua Extension
+ */
+export const triggerExtensionLogin = (): void => {
+    window.postMessage({ type: 'FLOW_TRIGGER_LOGIN' }, '*');
+};
+
+/**
+ * Tạo Video qua Chrome Extension Bridge (Tài khoản Google cá nhân, không cần cài server)
+ */
+export const generateExtensionVideo = async (params: VideoGenerationParams): Promise<{ url: string; urls: string[] }> => {
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const { prompt, aspectRatio, model, inputImageBase64, onProgress } = params;
+
+    onProgress?.('Đang gửi lệnh tạo video tới Tiện ích Chrome...', 0);
+
+    return new Promise((resolve, reject) => {
+        const timeoutMs = 600000; // 10 minutes max
+        const startTime = Date.now();
+
+        const timer = setTimeout(() => {
+            window.removeEventListener('message', messageHandler);
+            reject(new Error('Hết thời gian chờ phản hồi từ Tiện ích Chrome (Timeout).'));
+        }, timeoutMs);
+
+        const messageHandler = (event: MessageEvent) => {
+            if (!event.data || typeof event.data !== 'object') return;
+            const data = event.data;
+
+            if (data.requestId && data.requestId !== requestId) return;
+
+            if (data.type === 'FLOW_GENERATE_PROGRESS') {
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                onProgress?.(data.status || 'Google Flow đang tạo video...', elapsed);
+            }
+
+            if (data.type === 'FLOW_GENERATE_SUCCESS') {
+                clearTimeout(timer);
+                window.removeEventListener('message', messageHandler);
+                const videoUrl = data.videoUrl || data.urls?.[0];
+                if (!videoUrl) {
+                    reject(new Error('Không tìm thấy link video hoàn tất.'));
+                    return;
+                }
+                resolve({
+                    url: videoUrl,
+                    urls: data.urls || [videoUrl],
+                });
+            }
+
+            if (data.type === 'FLOW_GENERATE_ERROR') {
+                clearTimeout(timer);
+                window.removeEventListener('message', messageHandler);
+                reject(new Error(data.error || 'Lỗi khi tạo video qua Google Flow Extension.'));
+            }
+        };
+
+        window.addEventListener('message', messageHandler);
+
+        // Send request to Extension content script
+        window.postMessage({
+            type: 'FLOW_EXECUTE_GENERATE',
+            requestId,
+            payload: {
+                prompt,
+                aspectRatio,
+                model: model || 'Veo 3.1 - Lite',
+                imageBase64: inputImageBase64,
+                toolUrl: 'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP',
+            },
+        }, '*');
+    });
 };
 
 export interface VideoGenerationParams {
@@ -288,7 +388,12 @@ export const removeAccountFromFlowPool = async (accId: string): Promise<any> => 
 export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; urls: string[]; bytes?: number }> => {
     const engine = getVideoEngine();
 
-    // 1. Chế độ Fal.ai Cloud API (Mặc định - Đăng nhập Google 1 click, không cần CMND/CCCD, 100% Quốc tế)
+    // 1. Chế độ Chrome Extension Bridge (Tài khoản Google Flow cá nhân - Không cần cài server)
+    if (engine === 'flow_extension') {
+        return await generateExtensionVideo(params);
+    }
+
+    // 2. Chế độ Fal.ai Cloud API (Đăng nhập Google 1 click, không cần CMND/CCCD, 100% Quốc tế)
     if (engine === 'fal_ai') {
         const res = await generateFalVideo({
             prompt: params.prompt,
