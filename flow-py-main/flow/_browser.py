@@ -98,26 +98,6 @@ class BrowserManager:
             log.info("CDP connected: %d existing pages", len(self._ctx.pages))
         else:
             # Normal persistent profile launch
-            # Clean up any stale headless Chrome process holding the lock on this profile_dir
-            try:
-                import subprocess
-                prof_str = str(self.profile_dir).lower()
-                ps_cmd = (
-                    "Get-CimInstance Win32_Process | "
-                    "Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*flow-py*' } | "
-                    "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-                )
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, timeout=5)
-                for lock_name in ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"):
-                    lp = self.profile_dir / lock_name
-                    if lp.exists():
-                        try:
-                            lp.unlink()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
             args = [
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",

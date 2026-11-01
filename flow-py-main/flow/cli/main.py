@@ -142,7 +142,12 @@ def login():
         active_pid = None
         user_email = None
         while True:
-            url = page.url
+            try:
+                url = page.url
+            except Exception:
+                click.echo("Cửa sổ Chrome đã được đóng.")
+                break
+
             if "/about" in url and "flow.google.com" in url:
                 try:
                     create_btn = page.locator('button:has-text("Create with Google Flow"), a:has-text("Create with Google Flow"), button:has-text("Bắt đầu")').first
@@ -151,7 +156,7 @@ def login():
                 except Exception:
                     pass
 
-            if "flow.google.com" in url and "accounts.google.com" not in url:
+            if "flow.google.com" in url and "accounts.google.com" not in url and "/about" not in url:
                 m = re.search(r"/project/([a-f0-9\-]{8,})", url)
                 if m:
                     active_pid = m.group(1)
@@ -159,29 +164,35 @@ def login():
                     break
 
                 # Check account badge
-                user_email = await page.evaluate("""
-                    () => {
-                        const acc = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
-                        if (acc) {
-                            const aria = acc.getAttribute('aria-label') || '';
-                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-                            if (m) return m[1];
+                try:
+                    user_email = await page.evaluate("""
+                        () => {
+                            const acc = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
+                            if (acc) {
+                                const aria = acc.getAttribute('aria-label') || '';
+                                const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                if (m) return m[1];
+                            }
+                            return window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null;
                         }
-                        return window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null;
-                    }
-                """)
-                if user_email and "/about" not in url:
-                    click.echo(f"✅ Đã đăng nhập tài khoản: {user_email}")
-                    break
+                    """)
+                    if user_email:
+                        click.echo(f"✅ Đã đăng nhập tài khoản: {user_email}")
+                        break
+                except Exception:
+                    pass
 
             await asyncio.sleep(2)
             click.echo("  (Đang chờ bạn hoàn tất đăng nhập trên cửa sổ Chrome...)", err=True)
 
         if not active_pid:
-            await asyncio.sleep(2)
-            m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
-            if m:
-                active_pid = m.group(1)
+            try:
+                await asyncio.sleep(2)
+                m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+                if m:
+                    active_pid = m.group(1)
+            except Exception:
+                pass
 
         if active_pid:
             set_active_project(active_pid, f"https://flow.google.com/project/{active_pid}")
@@ -222,9 +233,19 @@ def login():
         except Exception as ck_ex:
             click.echo(f"Lưu hồ sơ: {ck_ex}")
 
+        # Notify running server that login is done
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://localhost:8100/v1/auth/login-done", data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=3) as r:
+                pass
+        except Exception:
+            pass
+
         await asyncio.sleep(1)
         await bm.stop()
         click.echo("Hoàn tất! Bạn có thể vào Web để tạo video ngay.")
+
 
     run(_go())
 

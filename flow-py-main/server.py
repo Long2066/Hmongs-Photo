@@ -1032,7 +1032,20 @@ async def health_check(refresh: bool = False):
     """Health check endpoint polled by ToolMedia VideoPanel.
     Fast & non-blocking: never blocks on _browser_lock during video generation.
     """
-    from flow._storage import is_authenticated
+    if _login_in_progress:
+        return {
+            "status": "ok",
+            "engine": "flow-py",
+            "backend_mode": "flow-py (Veo 3.1)",
+            "active_backend": "flow.google.com",
+            "authenticated": False,
+            "email": None,
+            "project_id": None,
+            "credits": None,
+            "tier": None,
+            "login_in_progress": True,
+            "auth_error": "Đang mở cửa sổ đăng nhập Chrome trên màn hình...",
+        }
 
     now = time.time()
     if (refresh or (now - _auth_state["last_checked"] > 10.0)) and not _browser_lock.locked():
@@ -1048,7 +1061,7 @@ async def health_check(refresh: bool = False):
         "project_id": _auth_state["project_id"],
         "credits": _auth_state["credits"],
         "tier": _auth_state["tier"],
-        "login_in_progress": _login_in_progress,
+        "login_in_progress": False,
         "auth_error": _auth_state["error"],
     }
 
@@ -1056,6 +1069,18 @@ async def health_check(refresh: bool = False):
 @app.post("/v1/auth/login")
 async def trigger_flow_login():
     """Launch visible Chrome login on the user's real desktop."""
+    global _login_in_progress, _bm
+    _login_in_progress = True
+
+    # Safely release browser instance so login.bat has 100% exclusive access without conflicts
+    async with _browser_lock:
+        if _bm is not None:
+            try:
+                await _bm.stop()
+            except Exception:
+                pass
+            _bm = None
+
     bat_path = Path(__file__).parent / "login.bat"
     try:
         import os
@@ -1063,10 +1088,35 @@ async def trigger_flow_login():
         log.info("Launched %s via Windows Shell (os.startfile)", bat_path)
     except Exception as e:
         log.warning("Could not launch login.bat: %s", e)
+        _login_in_progress = False
+
+    # Timeout safety: reset _login_in_progress after 10 minutes if not already completed
+    async def _safety_reset():
+        await asyncio.sleep(600)
+        global _login_in_progress
+        _login_in_progress = False
+
+    asyncio.create_task(_safety_reset())
+
     return {
         "status": "opening_browser",
         "message": "Đã mở cửa sổ đăng nhập Google Flow trên màn hình của bạn!",
     }
+
+
+@app.post("/v1/auth/login-done")
+async def notify_login_done():
+    """Called when login.bat completes interactive Chrome sign-in."""
+    global _login_in_progress
+    _login_in_progress = False
+    state = await refresh_auth_state(force_navigate=True)
+    return {
+        "status": "ok",
+        "authenticated": state.get("authenticated"),
+        "email": state.get("email"),
+        "project_id": state.get("project_id"),
+    }
+
 
 
 @app.post("/v1/auth/cookies")
