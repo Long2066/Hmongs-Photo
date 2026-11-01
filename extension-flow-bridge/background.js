@@ -1,5 +1,8 @@
 /**
  * Background Service Worker for ImageTool Flow Bridge Extension
+ * 
+ * 100% BACKGROUND GENERATION (CHẠY NGẦM HOÀN TOÀN)
+ * Không bao giờ nhảy tab hoặc cướp tiêu điểm của người dùng.
  */
 
 const DEFAULT_TOOL_URL =
@@ -68,13 +71,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return;
   }
 
-  // Generate Video
+  // Generate Video: 100% Background Execution
   if (action === 'GENERATE_VIDEO') {
     const callerTabId = sender.tab ? sender.tab.id : null;
     // Acknowledge immediately to prevent port closed errors
     sendResponse({ ok: true, status: 'STARTED' });
 
-    // Run execution pipeline asynchronously
+    // Ensure caller tab stays active and focused
+    if (callerTabId) {
+      chrome.tabs.update(callerTabId, { active: true }).catch(() => {});
+    }
+
+    // Run execution pipeline asynchronously in background
     executeVideoGenerationFlow(payload, requestId, callerTabId).catch((err) => {
       console.error('[Background] Video Generation Error:', err);
       if (callerTabId) {
@@ -91,7 +99,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// 3. Execution Pipeline: Reuses existing tab or opens foreground tab, injects automation, relays results
+// 3. Execution Pipeline: 100% Background Automation
 async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
   const targetUrl = payload?.toolUrl || DEFAULT_TOOL_URL;
 
@@ -101,21 +109,25 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
   let isNewTab = false;
 
   if (flowTab) {
-    console.log('[Background] Reusing existing Google Flow tool tab:', flowTab.id);
-    await chrome.tabs.update(flowTab.id, { active: true });
+    console.log('[Background] Using existing Google Flow tab in background:', flowTab.id);
+    // DO NOT activate flowTab! Keep user on ImageTool tab!
   } else if (existingTabs.length > 0) {
     flowTab = existingTabs[0];
-    console.log('[Background] Navigating existing Google Flow tab to tool:', flowTab.id);
-    await chrome.tabs.update(flowTab.id, { url: targetUrl, active: true });
-    // Wait for tab navigation
+    console.log('[Background] Navigating existing Google Flow tab to tool in background:', flowTab.id);
+    await chrome.tabs.update(flowTab.id, { url: targetUrl, active: false });
     await new Promise((r) => setTimeout(r, 4000));
   } else {
     isNewTab = true;
-    console.log('[Background] Creating new Google Flow tab');
+    console.log('[Background] Creating new Google Flow tab IN BACKGROUND (active: false)');
     flowTab = await chrome.tabs.create({
       url: targetUrl,
-      active: true, // Active to prevent background throttling
+      active: false, // 100% Background! Do not jump or steal user focus!
     });
+  }
+
+  // Ensure caller tab stays active
+  if (callerTabId) {
+    chrome.tabs.update(callerTabId, { active: true }).catch(() => {});
   }
 
   // Wait for tab load completion if newly navigated/created
@@ -132,8 +144,8 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
     });
   }
 
-  // Give Google Flow SPA 2.5 seconds to fully initialize
-  await new Promise((r) => setTimeout(r, 2500));
+  // Give Google Flow SPA 3 seconds to initialize
+  await new Promise((r) => setTimeout(r, 3000));
 
   // Ensure content_flow.js is present in tab
   try {
@@ -142,7 +154,7 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
       files: ['content_flow.js'],
     });
   } catch (e) {
-    // Script already injected or restricted
+    // Script already injected
   }
 
   try {
@@ -176,17 +188,12 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
         .catch(() => {});
     }
 
-    // Bring caller tab back to focus
-    if (callerTabId) {
-      chrome.tabs.update(callerTabId, { active: true }).catch(() => {});
-    }
-
     return {
       videoUrl,
       urls: [videoUrl],
     };
   } finally {
-    // Only close tab if it was newly opened by extension, otherwise keep user's existing tab
+    // Only close tab if it was newly opened by extension in background
     if (isNewTab && flowTab?.id) {
       try {
         chrome.tabs.remove(flowTab.id);

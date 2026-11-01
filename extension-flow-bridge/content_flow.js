@@ -95,6 +95,50 @@
     return false;
   }
 
+  // Ensure the tool panel is expanded and not an empty grey canvas
+  async function ensureToolPanelOpen() {
+    // Check if tool form / tabs already present
+    const hasToolUi =
+      document.querySelector('textarea, input[type="file"]') ||
+      [...document.querySelectorAll('button, div')].some((el) => {
+        const txt = (el.innerText || '').toLowerCase();
+        return (
+          txt.includes('khởi tạo video') ||
+          txt.includes('model video') ||
+          txt.includes('media tham chiếu') ||
+          txt.includes('studio ảnh ai')
+        );
+      });
+
+    if (hasToolUi) {
+      console.log('[Flow Bridge] Tool UI already visible on canvas.');
+      return;
+    }
+
+    console.log('[Flow Bridge] Tool UI not visible (blank canvas), opening tool panel...');
+
+    // 1. Try clicking "Công cụ" button at top bar
+    const topButtons = [...document.querySelectorAll('button, div[role="button"]')];
+    const congCuBtn = topButtons.find((b) => (b.innerText || '').trim().toLowerCase() === 'công cụ');
+    if (congCuBtn) {
+      congCuBtn.click();
+      console.log('[Flow Bridge] Clicked "Công cụ" button at top');
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    // 2. Try clicking pinned tool in sidebar if still not visible
+    const sidebarItems = [...document.querySelectorAll('[class*="pinned"], [role="button"], a, div')];
+    const pinnedTool = sidebarItems.find((el) => {
+      const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
+      return txt.includes('videotool') || txt.includes('imagetool') || txt.includes('pro studio');
+    });
+    if (pinnedTool) {
+      pinnedTool.click();
+      console.log('[Flow Bridge] Clicked pinned tool in sidebar');
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+
   // Ensure the "KHỞI TẠO VIDEO" tab is selected if the tool has multiple tabs (Screenshot 2)
   async function ensureVideoTabSelected() {
     const allTabs = [
@@ -148,10 +192,13 @@
     // 1. Wait for page interactive
     await new Promise((r) => setTimeout(r, 2000));
 
-    // 2. Ensure "KHỞI TẠO VIDEO" tab is active
+    // 2. Ensure tool panel is open on the canvas (fixes blank grey canvas)
+    await ensureToolPanelOpen();
+
+    // 3. Ensure "KHỞI TẠO VIDEO" tab is active
     await ensureVideoTabSelected();
 
-    // 3. Select Model Video AI (Omni 1.1 Flash, Veo 3.1 - Lite, Veo 3.1 - Fast)
+    // 4. Select Model Video AI (Omni 1.1 Flash, Veo 3.1 - Lite, Veo 3.1 - Fast)
     if (model) {
       if (model.includes('Lite')) {
         clickElementByText(['Veo 3.1 - Lite', 'Veo 3.1 Lite', 'Lite']);
@@ -163,7 +210,7 @@
       await new Promise((r) => setTimeout(r, 400));
     }
 
-    // 4. Upload / Inject source photo into ẢNH NGUỒN TẠO VIDEO (I2V) / MEDIA THAM CHIẾU
+    // 5. Upload / Inject source photo into ẢNH NGUỒN TẠO VIDEO (I2V) / MEDIA THAM CHIẾU
     if (imageBase64) {
       try {
         const file = base64ToFile(imageBase64, 'source_photo.png');
@@ -239,7 +286,7 @@
       }
     }
 
-    // 5. Select Preset Chuyển Động
+    // 6. Select Preset Chuyển Động
     if (preset) {
       clickElementByText([
         preset,
@@ -252,32 +299,32 @@
       await new Promise((r) => setTimeout(r, 400));
     }
 
-    // 6. Select Tỉ lệ khung hình (16:9 / 9:16)
+    // 7. Select Tỉ lệ khung hình (16:9 / 9:16)
     if (aspectRatio) {
       clickElementByText([aspectRatio, aspectRatio === '16:9' ? 'Ngang' : 'Dọc']);
       await new Promise((r) => setTimeout(r, 300));
     }
 
-    // 7. Select Độ phân giải (360p / 720p)
+    // 8. Select Độ phân giải (360p / 720p)
     if (resolution) {
       clickElementByText([resolution, resolution === '720p' ? 'Chuẩn sắc nét' : 'Xem trước']);
       await new Promise((r) => setTimeout(r, 300));
     }
 
-    // 8. Select Thời lượng (4s, 6s, 8s, 10s)
+    // 9. Select Thời lượng (4s, 6s, 8s, 10s)
     if (duration) {
       const durStr = duration.endsWith('s') ? duration : `${duration}s`;
       clickElementByText([durStr, `${duration} Giây`]);
       await new Promise((r) => setTimeout(r, 300));
     }
 
-    // 9. Select Số lượng biến thể (1 video, 2 video, 3 video)
+    // 10. Select Số lượng biến thể (1 video, 2 video, 3 video)
     if (variations) {
       clickElementByText([`${variations} video`, `${variations}`]);
       await new Promise((r) => setTimeout(r, 300));
     }
 
-    // 10. Input Prompt / Kịch bản bổ sung
+    // 11. Input Prompt / Kịch bản bổ sung
     if (prompt) {
       const textareas = [
         ...document.querySelectorAll('textarea, div[contenteditable="true"], input[type="text"]'),
@@ -307,7 +354,7 @@
       }
     }
 
-    // 11. Click Action Button (Tạo video / Khởi tạo)
+    // 12. Click Action Button (Tạo video / Khởi tạo)
     // Wait up to 20s for uploaded image to process and enable button
     let submitBtn = null;
     const startWait = Date.now();
@@ -350,7 +397,7 @@
       console.log('[Flow Bridge] Clicked submit button successfully!');
     }
 
-    // 12. Monitor loop: send progress updates and detect completed video
+    // 13. Monitor loop: send progress updates and detect completed video
     const startTime = Date.now();
     const MAX_WAIT_MS = 600000; // 10 minutes
 
