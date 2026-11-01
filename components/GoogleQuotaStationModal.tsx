@@ -93,7 +93,21 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         window.addEventListener('message', handleWindowMsg);
         window.postMessage({ type: 'FLOW_BRIDGE_PING' }, '*');
 
-        return () => window.removeEventListener('message', handleWindowMsg);
+        // 3. Electron IPC auto-capture (handles external Google Chrome callbacks on port 51121)
+        let cleanupElectronIpc: (() => void) | undefined;
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.onQuotaOAuthCaptured) {
+            cleanupElectronIpc = (window as any).electronAPI.onQuotaOAuthCaptured(async (capturedUrl: string) => {
+                console.log('[QuotaStation] Received auto callback from Electron IPC:', capturedUrl);
+                const trimmed = String(capturedUrl).trim();
+                setCallbackInput(trimmed);
+                await processSubmission(trimmed);
+            });
+        }
+
+        return () => {
+            window.removeEventListener('message', handleWindowMsg);
+            if (cleanupElectronIpc) cleanupElectronIpc();
+        };
     }, [isOpen]);
 
     const loadUserContributions = async () => {
@@ -121,8 +135,13 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
             expectedStateRef.current = session.state;
             setStep('authorizing');
 
-            // Open Google Authorization page in new tab/popup
-            window.open(session.url, '_blank', 'width=600,height=750,noopener,noreferrer');
+            // Open Google Authorization page in external Google Chrome (Desktop) or new tab (Web)
+            if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternal) {
+                console.log('[QuotaStation] Launching external Google Chrome for OAuth:', session.url);
+                await (window as any).electronAPI.openExternal(session.url);
+            } else {
+                window.open(session.url, '_blank', 'width=600,height=750,noopener,noreferrer');
+            }
         } catch (err: any) {
             setErrorMsg(err.message || 'Không thể kết nối với máy chủ VPS.');
         } finally {
@@ -421,12 +440,67 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                         </button>
                     </div>
 
-                    {/* Auto-Extension Processing Alerts */}
+                    {/* Authorizing Status & External Chrome Helper */}
                     {step === 'authorizing' && (
-                        <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-3 animate-pulse">
-                            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                            <div className="font-medium">
-                                Đang chờ bạn chọn tài khoản trên tab Google... Sau khi đăng nhập xong, tab sẽ tự đóng và tự cộng +10 lượt!
+                        <div className="p-4 rounded-2xl bg-indigo-50/90 border border-indigo-200 text-xs text-indigo-950 space-y-3 shadow-xs animate-fade-in">
+                            <div className="flex items-start gap-3">
+                                <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0 mt-0.5" />
+                                <div className="leading-relaxed">
+                                    <p className="font-bold text-indigo-900 text-[13px]">
+                                        🌐 Đã mở trình duyệt Google Chrome ngoài máy tính để xác thực!
+                                    </p>
+                                    <p className="text-slate-600 text-[11px] mt-1">
+                                        Vui lòng đăng nhập hoặc chọn tài khoản Google trên cửa sổ Chrome vừa mở. Sau khi xác thực xong, tab Chrome sẽ tự động đóng và ImageTool sẽ tự động cộng ngay <strong>+10 lượt tạo ảnh miễn phí</strong>!
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-indigo-200/60 flex items-center justify-between gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (authUrl) {
+                                            if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternal) {
+                                                (window as any).electronAPI.openExternal(authUrl);
+                                            } else {
+                                                window.open(authUrl, '_blank');
+                                            }
+                                        }
+                                    }}
+                                    className="px-3 py-1.5 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 rounded-lg text-[11px] font-semibold transition-all active:scale-95 shadow-2xs flex items-center gap-1.5"
+                                >
+                                    <span>🔄</span>
+                                    <span>Mở lại tab Chrome</span>
+                                </button>
+                                <span className="text-[11px] text-slate-500 font-mono">
+                                    Tự động nhận cổng 51121
+                                </span>
+                            </div>
+
+                            {/* Manual fallback input */}
+                            <div className="pt-2 border-t border-indigo-200/50 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-semibold text-slate-600">
+                                        Hoặc dán link xác nhận thủ công nếu chưa tự động nhận:
+                                    </span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder="Dán toàn bộ link từ thanh địa chỉ Chrome vào đây..."
+                                        value={callbackInput}
+                                        onChange={(e) => setCallbackInput(e.target.value)}
+                                        className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => processSubmission(callbackInput)}
+                                        disabled={!callbackInput.trim() || isLoading}
+                                        className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 shrink-0 shadow-xs active:scale-95"
+                                    >
+                                        Nhận ngay
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}

@@ -22,10 +22,174 @@ let downloadPath = app.getPath('downloads');
 // Keep a global reference of the window object
 let mainWindow;
 let localServer = null;
+let quotaOAuthServer = null;
 
 // Auto-updater configuration
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
+
+/**
+ * Locate Google Chrome on Windows
+ */
+function getChromeExecutablePath() {
+    const possiblePaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
+    ];
+
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            return p;
+        }
+    }
+    return null;
+}
+
+/**
+ * Open URL in external Google Chrome browser (bypasses Google embedded webview blocks)
+ */
+function openInChromeOrBrowser(url) {
+    const chromePath = getChromeExecutablePath();
+    if (chromePath) {
+        console.log('[Browser] Launching Google Chrome directly:', chromePath);
+        try {
+            const proc = spawn(chromePath, [url], { detached: true, stdio: 'ignore' });
+            proc.unref();
+            return { success: true, method: 'direct-chrome' };
+        } catch (e) {
+            console.warn('[Browser] Failed to spawn Chrome directly, falling back:', e);
+        }
+    }
+
+    try {
+        const proc = spawn('cmd.exe', ['/c', 'start', '', 'chrome', url], { detached: true, stdio: 'ignore' });
+        proc.unref();
+        return { success: true, method: 'cmd-chrome' };
+    } catch {
+        shell.openExternal(url);
+        return { success: true, method: 'openExternal' };
+    }
+}
+
+/**
+ * Automatic OAuth Callback Server for Google Quota Station (port 51121)
+ * Automatically receives the redirect from Google OAuth when authenticating on external Chrome,
+ * notifies the desktop app renderer via IPC, and cleanly serves a success completion page.
+ */
+function startQuotaCallbackServer() {
+    if (quotaOAuthServer) return;
+
+    try {
+        quotaOAuthServer = http.createServer((req, res) => {
+            try {
+                const reqUrl = req.url || '';
+                if (reqUrl.includes('oauth-callback') || reqUrl.includes('code=')) {
+                    const fullCallbackUrl = `http://localhost:51121${reqUrl}`;
+                    console.log('[QuotaOAuth] Intercepted Google OAuth Callback on 51121:', fullCallbackUrl);
+
+                    res.writeHead(200, {
+                        'Content-Type': 'text/html; charset=utf-8',
+                        'Access-Control-Allow-Origin': '*'
+                    });
+                    res.end(`<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Đăng nhập Google thành công - ImageTool</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      padding: 40px 32px;
+      text-align: center;
+      max-width: 440px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto 20px;
+    }
+    h2 { margin: 0 0 10px; font-size: 22px; color: #fff; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 20px; }
+    .badge {
+      display: inline-block;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      color: #fff;
+      font-weight: bold;
+      font-size: 13px;
+      padding: 6px 16px;
+      border-radius: 20px;
+      margin-bottom: 24px;
+    }
+    .close-hint { font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✓</div>
+    <div class="badge">+10 Lượt tạo ảnh miễn phí</div>
+    <h2>Xác thực Google thành công!</h2>
+    <p>Hệ thống đã nhận diện tài khoản Google. ImageTool đang tự động cộng <strong>+10 lượt tạo ảnh miễn phí</strong> cho bạn...</p>
+    <div class="close-hint">Tab này sẽ tự động đóng sau 3 giây...</div>
+  </div>
+  <script>
+    setTimeout(() => { try { window.close(); } catch(e){} }, 3000);
+  </script>
+</body>
+</html>`);
+
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('quota-oauth-captured', fullCallbackUrl);
+                        if (mainWindow.isMinimized()) mainWindow.restore();
+                        mainWindow.focus();
+                    }
+                    return;
+                }
+
+                res.writeHead(404);
+                res.end('Not found');
+            } catch (e) {
+                console.error('[QuotaOAuth] Handler error:', e);
+                res.writeHead(500);
+                res.end('Server Error');
+            }
+        });
+
+        quotaOAuthServer.listen(51121, '127.0.0.1', () => {
+            console.log('[QuotaOAuth] Callback listener active on http://127.0.0.1:51121');
+        });
+
+        quotaOAuthServer.on('error', (err) => {
+            console.warn('[QuotaOAuth] Port 51121 error:', err.message);
+        });
+    } catch (err) {
+        console.warn('[QuotaOAuth] Could not start callback server:', err.message);
+    }
+}
 
 /**
  * Embedded Lightweight Local Server for Desktop App
@@ -109,29 +273,28 @@ async function createWindow() {
         backgroundColor: '#f8fafc'
     });
 
-    // Support Google OAuth Popups in Electron (Firebase Auth / Google Sign-In)
+    // Support Google OAuth Popups & Links in Electron
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        // If it's Quota Station OAuth or Google sign-in, open in external Chrome to avoid embedded webview block
         if (
             url.includes('accounts.google.com') ||
-            url.includes('firebaseapp.com') ||
-            url.includes('/__/auth/')
+            url.includes('flow.google.com') ||
+            url.includes('oauth')
         ) {
-            return {
-                action: 'allow',
-                overrideBrowserWindowOptions: {
-                    width: 520,
-                    height: 680,
-                    autoHideMenuBar: true,
-                    webPreferences: {
-                        nodeIntegration: false,
-                        contextIsolation: true
-                    }
-                }
-            };
+            console.log('[WindowOpenHandler] Opening in external Chrome:', url);
+            openInChromeOrBrowser(url);
+            return { action: 'deny' };
         }
         shell.openExternal(url);
         return { action: 'deny' };
     });
+
+    // Start background Quota Station OAuth callback server (port 51121)
+    try {
+        startQuotaCallbackServer();
+    } catch (e) {
+        console.error('[QuotaCallbackServer] Init error:', e);
+    }
 
     // Initialize Flow Profile Manager
     try {
@@ -275,6 +438,11 @@ ipcMain.handle('open-incognito', async (event, url) => {
     // Fallback: open in default browser (not incognito)
     shell.openExternal(url);
     return { success: true, fallback: true };
+});
+
+// Open URL in external Google Chrome (or default browser fallback)
+ipcMain.handle('open-external', async (_event, url) => {
+    return openInChromeOrBrowser(url);
 });
 
 // Get app version
@@ -546,6 +714,9 @@ app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {
     if (localServer) {
         try { localServer.close(); } catch (e) { }
+    }
+    if (quotaOAuthServer) {
+        try { quotaOAuthServer.close(); } catch (e) { }
     }
     if (process.platform !== 'darwin') {
         app.quit();

@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // ============ BROWSER UTILS ============
     openIncognito: (url) => ipcRenderer.invoke('open-incognito', url),
+    openExternal: (url) => ipcRenderer.invoke('open-external', url),
+    onQuotaOAuthCaptured: (callback) => {
+        const subscription = (_event, url) => callback(url);
+        ipcRenderer.on('quota-oauth-captured', subscription);
+        return () => ipcRenderer.removeListener('quota-oauth-captured', subscription);
+    },
 
     // ============ AUTO-UPDATE ============
     downloadUpdate: () => ipcRenderer.invoke('download-update'),
