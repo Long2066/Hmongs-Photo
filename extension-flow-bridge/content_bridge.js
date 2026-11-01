@@ -14,22 +14,41 @@ try {
   // Ignore fallback
 }
 
+// Safely check if extension context is valid
+function isExtensionValid() {
+  try {
+    return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+  } catch (e) {
+    return false;
+  }
+}
+
 // Notify page via postMessage
 function notifyPageReady() {
+  if (!isExtensionValid()) return;
   try {
     document.documentElement.dataset.flowBridgeInstalled = 'true';
   } catch (e) {}
 
-  window.postMessage({
-    type: 'FLOW_BRIDGE_PONG',
-    version: '1.0.0',
-    installed: true,
-  }, '*');
+  window.postMessage(
+    {
+      type: 'FLOW_BRIDGE_PONG',
+      version: '1.0.0',
+      installed: true,
+    },
+    '*'
+  );
 }
 
 notifyPageReady();
 // Periodic announcement for SPAs after initial load
-setInterval(notifyPageReady, 3000);
+const timer = setInterval(() => {
+  if (!isExtensionValid()) {
+    clearInterval(timer);
+    return;
+  }
+  notifyPageReady();
+}, 3000);
 
 // Listen for requests from web page
 window.addEventListener('message', async (event) => {
@@ -44,60 +63,112 @@ window.addEventListener('message', async (event) => {
     return;
   }
 
+  // Check if extension was reloaded in developer mode
+  if (!isExtensionValid()) {
+    if (type === 'FLOW_EXECUTE_GENERATE') {
+      window.postMessage(
+        {
+          type: 'FLOW_GENERATE_ERROR',
+          requestId,
+          error: 'Tiện ích mở rộng vừa được tải lại. Vui lòng bấm F5 (Tải lại trang web) để làm mới kết nối.',
+        },
+        '*'
+      );
+    }
+    return;
+  }
+
   // 2. Check Auth Status
   if (type === 'FLOW_CHECK_AUTH') {
-    chrome.runtime.sendMessage({ action: 'CHECK_AUTH' }, (response) => {
-      window.postMessage({
-        type: 'FLOW_AUTH_STATUS',
-        requestId,
-        ...response,
-      }, '*');
-    });
+    try {
+      chrome.runtime.sendMessage({ action: 'CHECK_AUTH' }, (response) => {
+        if (chrome.runtime.lastError) return;
+        window.postMessage(
+          {
+            type: 'FLOW_AUTH_STATUS',
+            requestId,
+            ...response,
+          },
+          '*'
+        );
+      });
+    } catch (e) {}
     return;
   }
 
   // 3. Open Flow login tab
   if (type === 'FLOW_TRIGGER_LOGIN') {
-    chrome.runtime.sendMessage({ action: 'OPEN_LOGIN' }, (response) => {
-      window.postMessage({
-        type: 'FLOW_LOGIN_TRIGGERED',
-        requestId,
-        ...response,
-      }, '*');
-    });
+    try {
+      chrome.runtime.sendMessage({ action: 'OPEN_LOGIN' }, (response) => {
+        if (chrome.runtime.lastError) return;
+        window.postMessage(
+          {
+            type: 'FLOW_LOGIN_TRIGGERED',
+            requestId,
+            ...response,
+          },
+          '*'
+        );
+      });
+    } catch (e) {}
     return;
   }
 
   // 4. Request Video Generation
   if (type === 'FLOW_EXECUTE_GENERATE') {
-    chrome.runtime.sendMessage({
-      action: 'GENERATE_VIDEO',
-      requestId,
-      payload,
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        window.postMessage({
+    try {
+      chrome.runtime.sendMessage(
+        {
+          action: 'GENERATE_VIDEO',
+          requestId,
+          payload,
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            window.postMessage(
+              {
+                type: 'FLOW_GENERATE_ERROR',
+                requestId,
+                error: chrome.runtime.lastError.message || 'Lỗi kết nối tiện ích mở rộng',
+              },
+              '*'
+            );
+          } else if (response && !response.ok) {
+            window.postMessage(
+              {
+                type: 'FLOW_GENERATE_ERROR',
+                requestId,
+                error: response.error || 'Lỗi khi khởi chạy tạo video trên Flow',
+              },
+              '*'
+            );
+          }
+        }
+      );
+    } catch (err) {
+      console.warn('[Bridge] Extension context error:', err);
+      window.postMessage(
+        {
           type: 'FLOW_GENERATE_ERROR',
           requestId,
-          error: chrome.runtime.lastError.message || 'Lỗi kết nối tiện ích mở rộng',
-        }, '*');
-      } else if (response && !response.ok) {
-        window.postMessage({
-          type: 'FLOW_GENERATE_ERROR',
-          requestId,
-          error: response.error || 'Lỗi khi khởi chạy tạo video trên Flow',
-        }, '*');
-      }
-    });
+          error: 'Tiện ích mở rộng vừa được cập nhật. Vui lòng nhấn F5 (Tải lại trang web) để làm mới kết nối.',
+        },
+        '*'
+      );
+    }
     return;
   }
 });
 
 // Listen for progress/success events from background script
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message || !message.type) return;
+try {
+  if (isExtensionValid()) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (!message || !message.type) return;
 
-  if (message.type.startsWith('FLOW_')) {
-    window.postMessage(message, '*');
+      if (message.type.startsWith('FLOW_')) {
+        window.postMessage(message, '*');
+      }
+    });
   }
-});
+} catch (e) {}

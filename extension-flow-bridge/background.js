@@ -132,8 +132,18 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
     });
   }
 
-  // Give Google Flow SPA 3 seconds to fully initialize
-  await new Promise((r) => setTimeout(r, 3000));
+  // Give Google Flow SPA 2.5 seconds to fully initialize
+  await new Promise((r) => setTimeout(r, 2500));
+
+  // Ensure content_flow.js is present in tab
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: flowTab.id },
+      files: ['content_flow.js'],
+    });
+  } catch (e) {
+    // Script already injected or restricted
+  }
 
   try {
     // Send execution job to content_flow.js inside that tab
