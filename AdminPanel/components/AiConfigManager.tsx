@@ -33,8 +33,8 @@ interface AiConfigManagerProps {
 
 const SUPPORTED_TEXT_MODELS = [
     { id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5', tag: 'Ưu tiên 1', color: '#8b5cf6' },
-    { id: 'chatgpt-6.1-sol', name: 'ChatGPT 6.1 Sol', tag: 'Ưu tiên 2', color: '#3b82f6' },
-    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', tag: 'Ưu tiên 3', color: '#10b981' },
+    { id: 'gpt-6.1-terra', name: 'ChatGPT 6.1 Terra', tag: 'Ưu tiên 2', color: '#3b82f6' },
+    { id: 'gemini-4-argon-high', name: 'Gemini 4 Argon', tag: 'Ưu tiên 3', color: '#10b981' },
     { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', tag: 'Ưu tiên 4', color: '#f59e0b' },
 ];
 

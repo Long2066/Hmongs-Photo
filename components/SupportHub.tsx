@@ -53,7 +53,7 @@ KIẾN THỨC MỚI NHẤT VỀ IMAGETOOL:
 - Profile Pro: Tạo ảnh chân dung cá nhân chuyên nghiệp cho Facebook, Zalo, LinkedIn.
 
 3. HỆ THỐNG MODEL AI THẾ HỆ MỚI:
-- Model sinh text (tạo prompt và hỗ trợ): Claude Opus 5.5 High (cao cấp nhất, phong cách điện ảnh), ChatGPT 6.1 Sol (thông minh toàn diện), Gemini 4 Argon, Gemini 3.8 Flash.
+- Model sinh text (tạo prompt và hỗ trợ): Claude Opus 5.5 High (cao cấp nhất, phong cách điện ảnh), ChatGPT 6.1 Terra (siêu tốc & câu từ điện ảnh sâu sắc), Gemini 4 Argon, Gemini 3.8 Flash.
 - Model sinh ảnh: Gemini 3.1 Flash (chuẩn ảnh mẫu), GPT Image 2.5 (8K K-Pop Idol & thổ cẩm sắc nét), GPT Image 2.5 Flare, Sunburst, GPT Image 1.5.
 
 4. HỖ TRỢ KỸ THUẬT VÀ LIÊN HỆ:

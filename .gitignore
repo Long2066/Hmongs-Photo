@@ -20,6 +20,7 @@ flow-py-main/accounts_pool.json
 flow-py-main/**/__pycache__/
 /*.py
 *.cjs
+*.mjs
 
 # Editor directories and files
 .vscode/*

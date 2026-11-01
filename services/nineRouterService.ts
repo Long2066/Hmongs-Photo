@@ -1,4 +1,4 @@
-﻿/**
+/**
  * NineRouter Integration Service
  * 
  * This service provides integration with 9Router,
@@ -73,17 +73,17 @@ export const SUPPORTED_TEXT_MODELS: SupportedTextModel[] = [
         priority: 1
     },
     {
-        id: 'chatgpt-6.1-sol',
-        name: 'ChatGPT 6.1 Sol',
-        shortName: 'ChatGPT 6.1',
-        tag: 'Ưu tiên 2 - OpenAI',
+        id: 'gpt-6.1-terra',
+        name: 'ChatGPT 6.1 Terra',
+        shortName: 'GPT 6.1 Terra',
+        tag: 'Ưu tiên 2 - Siêu tốc & Chiều sâu',
         tagColor: 'blue',
-        description: 'Mô hình GPT thế hệ mới siêu thông minh, tự động thay thế dự phòng khi Opus hết quota',
+        description: 'Mô hình OpenAI 6.1 cân bằng hoàn hảo giữa chiều sâu prompt điện ảnh và tốc độ tức thì',
         priority: 2
     },
     {
-        id: 'gemini-4-argon',
-        name: 'Gemini 4 Argon',
+        id: 'gemini-4-argon-high',
+        name: 'Gemini 4 Argon (High)',
         shortName: 'Gemini 4 Argon',
         tag: 'Ưu tiên 3 - Google',
         tagColor: 'emerald',
@@ -380,7 +380,7 @@ export const resolveRequestUrl = (targetUrl: string): string => {
 const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs: number = 10000): Promise<Response> => {
     const finalUrl = resolveRequestUrl(url);
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const id = setTimeout(() => { try { controller.abort(new Error(`Quá thời gian chờ phản hồi (${Math.round(timeoutMs / 1000)}s)`)); } catch { controller.abort(); } }, timeoutMs);
     try {
         const mergedHeaders: Record<string, string> = {
             'ngrok-skip-browser-warning': 'true'
@@ -953,13 +953,14 @@ export const generateTextViaNineRouter = async (
 
     // Build priority candidates list for graceful fallback
     const primaryModel = model || getNineRouterTextModel();
-    const candidateModels: string[] = mapTextModelToCandidates(primaryModel);
+    const candidateModels: string[] = Array.from(new Set(mapTextModelToCandidates(primaryModel)));
 
     let lastError: any = null;
 
     for (const candidateModel of candidateModels) {
         try {
             console.log(`[CLIProxyAPI] Attempting prompt text generation with candidate: ${candidateModel}`);
+            const timeoutMs = (candidateModel.includes('sol') || candidateModel.includes('opus')) ? 90000 : 60000;
             const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers,
@@ -971,7 +972,7 @@ export const generateTextViaNineRouter = async (
                     max_completion_tokens: 8192,
                     stream: false
                 })
-            }, 60000);
+            }, timeoutMs);
 
             if (!resp.ok) {
                 const errText = await resp.text();
@@ -1023,21 +1024,35 @@ export const mapTextModelToCandidates = (preferred?: string): string[] => {
     if (!clean || clean === 'auto' || clean.includes('opus')) {
         return [
             'claude-opus-5-5-high',
-            'gpt-6.1-sol',
+            'gpt-6.1-terra',
+            'gpt-6-astra',
+            'gpt-6.1-terra',
             'gemini-4-argon-high',
-            'gemini-4-argon',
+            // gemini-4-argon removed: CLIProxyAPI requires gemini-4-argon-high
             'gemini-3.8-flash-high',
             'gemini-3.8-flash',
             'gemini-3-flash'
         ];
     }
 
-    // Nếu chọn ChatGPT 6.1: Ưu tiên 2 -> 3 -> 4
-    if (clean.includes('chatgpt') || clean.includes('gpt-6') || clean.includes('gpt') || clean.includes('sol')) {
+    // Ưu tiên 2: OpenAI ChatGPT 6.1 Terra (siêu tốc, prompt điện ảnh)
+    // Nếu chọn ChatGPT / GPT-6 / Terra / Sol / Astra: Ưu tiên 2 -> 3 -> 4
+    if (clean.includes('chatgpt') || clean.includes('gpt-6') || clean.includes('gpt') || clean.includes('terra') || clean.includes('sol') || clean.includes('astra')) {
         return [
+            'gpt-6.1-terra',
+            'gpt-6-astra',
             'gpt-6.1-sol',
             'gemini-4-argon-high',
-            'gemini-4-argon',
+            'gemini-3.8-flash-high',
+            'gemini-3.8-flash',
+            'gemini-3-flash'
+        ];
+    }
+    if (clean === '__legacy_gpt_branch__') {
+        return [
+            'gpt-6.1-terra',
+            'gemini-4-argon-high',
+            // gemini-4-argon removed: CLIProxyAPI requires gemini-4-argon-high
             'gemini-3.8-flash-high',
             'gemini-3.8-flash',
             'gemini-3-flash'
@@ -1048,7 +1063,7 @@ export const mapTextModelToCandidates = (preferred?: string): string[] => {
     if (clean.includes('argon') || clean.includes('gemini-4')) {
         return [
             'gemini-4-argon-high',
-            'gemini-4-argon',
+            // gemini-4-argon removed: CLIProxyAPI requires gemini-4-argon-high
             'gemini-3.8-flash-high',
             'gemini-3.8-flash',
             'gemini-3-flash'
@@ -1068,7 +1083,7 @@ export const mapTextModelToCandidates = (preferred?: string): string[] => {
     return [
         clean,
         'claude-opus-5-5-high',
-        'gpt-6.1-sol',
+        'gpt-6.1-terra',
         'gemini-4-argon-high',
         'gemini-3.8-flash-high'
     ];
@@ -1084,6 +1099,9 @@ export const getFriendlyTextModelName = (modelId: string, preferredModel?: strin
     }
     const lower = modelId.toLowerCase();
     if (lower.includes('opus')) return 'Opus 5.5';
+    if (lower.includes('terra')) return 'GPT 6.1 Terra';
+    if (lower.includes('astra')) return 'GPT 6.0 Astra';
+    if (lower.includes('sol')) return 'ChatGPT 6.1 Sol';
     if (lower.includes('sonnet') || lower.includes('chatgpt') || lower.includes('gpt') || lower.includes('edulanai')) return 'ChatGPT 6.1';
     if (lower.includes('argon') || lower.includes('gemini-4')) return 'Gemini 4 Argon';
     if (lower.includes('3.8') || lower.includes('flash')) return 'Gemini 3.8 Flash';
@@ -1126,7 +1144,7 @@ export const generateChatCompletionViaNineRouter = async (
     // Build candidate models order based on user selection or auto
     const defaultTextModel = getNineRouterTextModel();
     const activeModel = preferredModel && preferredModel !== 'auto' ? preferredModel : defaultTextModel;
-    const candidateModels: string[] = mapTextModelToCandidates(activeModel);
+    const candidateModels: string[] = Array.from(new Set(mapTextModelToCandidates(activeModel)));
 
     let lastError: any = null;
 
@@ -1135,6 +1153,7 @@ export const generateChatCompletionViaNineRouter = async (
         for (const candidateModel of candidateModels) {
             try {
                 console.log(`[CLIProxyAPI Chat] Attempting chatbot reply with model: ${candidateModel}`);
+                const timeoutMs = (candidateModel.includes('sol') || candidateModel.includes('opus')) ? 60000 : 35000;
                 const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                     method: 'POST',
                     headers,
@@ -1145,7 +1164,7 @@ export const generateChatCompletionViaNineRouter = async (
                         max_tokens: 2048,
                         stream: false
                     })
-                }, 35000);
+                }, timeoutMs);
 
                 if (!resp.ok) {
                     const errText = await resp.text();
