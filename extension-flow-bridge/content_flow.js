@@ -5,17 +5,40 @@
  * URL: https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP
  */
 
-// Convert base64 data URL to File object
-function dataURLtoFile(dataurl, filename = 'input_image.png') {
-  const arr = dataurl.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
+// Convert base64 (raw or data URL) to File object safely without crashing
+function base64ToFile(rawOrDataUrl, filename = 'input_image.png', defaultMime = 'image/png') {
+  if (!rawOrDataUrl) return null;
+
+  let base64 = rawOrDataUrl;
+  let mime = defaultMime;
+
+  if (rawOrDataUrl.includes(',')) {
+    const parts = rawOrDataUrl.split(',');
+    const match = parts[0].match(/:(.*?);/);
+    if (match) mime = match[1];
+    base64 = parts[1];
+  } else if (rawOrDataUrl.startsWith('data:')) {
+    const commaIdx = rawOrDataUrl.indexOf(',');
+    if (commaIdx !== -1) {
+      base64 = rawOrDataUrl.substring(commaIdx + 1);
+    }
   }
-  return new File([u8arr], filename, { type: mime });
+
+  // Clean any whitespace / newlines
+  base64 = base64.replace(/\s/g, '');
+
+  try {
+    const bstr = atob(base64);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  } catch (err) {
+    console.error('[Flow Bridge] Failed to convert base64 to File:', err);
+    return null;
+  }
 }
 
 // Convert blob URL to base64 Data URL so it is cross-origin accessible
@@ -111,10 +134,11 @@ async function handleToolExecution(data) {
     resolution,
     duration,
     variations,
+    hasImage: !!imageBase64,
   });
 
   // 1. Wait for page interactive
-  await new Promise((r) => setTimeout(r, 2500));
+  await new Promise((r) => setTimeout(r, 2000));
 
   // 2. Ensure "KHỞI TẠO VIDEO" tab is active
   await ensureVideoTabSelected();
@@ -134,16 +158,21 @@ async function handleToolExecution(data) {
   // 4. Upload / Inject source photo into ẢNH NGUỒN TẠO VIDEO (I2V) / MEDIA THAM CHIẾU
   if (imageBase64) {
     try {
-      const file = dataURLtoFile(imageBase64, 'source_photo.png');
+      const file = base64ToFile(imageBase64, 'source_photo.png');
+      if (!file) {
+        throw new Error('Dữ liệu ảnh nguồn không hợp lệ hoặc không chuyển đổi được.');
+      }
+      console.log('[Flow Bridge] Prepared source image File:', file.name, file.size, 'bytes, type:', file.type);
+
       const dt = new DataTransfer();
       dt.items.add(file);
 
-      // Strategy A: Existing file input
-      let fileInput = document.querySelector('input[type="file"]');
+      // Strategy A: Find all file inputs currently in DOM
+      let fileInputs = [...document.querySelectorAll('input[type="file"]')];
 
-      // Strategy B: Click upload trigger box if input is hidden/not in DOM yet
-      if (!fileInput) {
-        const uploadBox = [...document.querySelectorAll('button, div[role="button"], div')].find((el) => {
+      // Strategy B: Click upload trigger box if no file input found
+      if (fileInputs.length === 0) {
+        const uploadBox = [...document.querySelectorAll('button, div[role="button"], div, label')].find((el) => {
           const txt = (el.innerText || el.textContent || '').toLowerCase();
           return (
             txt.includes('thêm ảnh nguồn') ||
@@ -153,19 +182,22 @@ async function handleToolExecution(data) {
         });
         if (uploadBox) {
           uploadBox.click();
-          await new Promise((r) => setTimeout(r, 500));
-          fileInput = document.querySelector('input[type="file"]');
+          await new Promise((r) => setTimeout(r, 600));
+          fileInputs = [...document.querySelectorAll('input[type="file"]')];
         }
       }
 
-      if (fileInput) {
-        fileInput.files = dt.files;
-        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-        console.log('[Flow Bridge] Injected image via file input');
+      // Populate file inputs
+      if (fileInputs.length > 0) {
+        for (const input of fileInputs) {
+          input.files = dt.files;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          console.log('[Flow Bridge] Injected image into file input element');
+        }
       }
 
-      // Strategy C: Dispatch drop event on dropzone
+      // Strategy C: Dispatch drag & drop on dropzones
       const dropZones = [...document.querySelectorAll('div, section, label')].filter((el) => {
         const txt = (el.innerText || el.textContent || '').toLowerCase();
         return (
@@ -175,10 +207,12 @@ async function handleToolExecution(data) {
           el.className?.includes?.('upload')
         );
       });
-      const dropTarget = dropZones[0] || document.body;
-      dropTarget.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      dropTarget.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      dropTarget.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      for (const target of dropZones.slice(0, 3)) {
+        target.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        console.log('[Flow Bridge] Dispatched drop event on dropzone');
+      }
 
       // Strategy D: Dispatch paste event
       try {
@@ -190,7 +224,7 @@ async function handleToolExecution(data) {
         document.dispatchEvent(pasteEvent);
       } catch (pe) {}
 
-      console.log('[Flow Bridge] Dispatched multi-strategy image injection');
+      console.log('[Flow Bridge] Image injection routines executed');
       await new Promise((r) => setTimeout(r, 2000));
     } catch (err) {
       console.warn('[Flow Bridge] Error uploading image:', err);
@@ -266,14 +300,19 @@ async function handleToolExecution(data) {
   }
 
   // 11. Click Action Button (Tạo video / Khởi tạo)
-  // Wait up to 12s for uploaded image to process and enable button
+  // Wait up to 20s for uploaded image to process and enable button
   let submitBtn = null;
   const startWait = Date.now();
-  while (Date.now() - startWait < 12000) {
+  while (Date.now() - startWait < 20000) {
     const allActionBtns = [...document.querySelectorAll('button, div[role="button"]')];
+
+    // Debug logging to console of available buttons
+    const btnNames = allActionBtns.map((b) => (b.innerText || b.textContent || '').trim()).filter(Boolean);
+    console.log('[Flow Bridge] Checking action buttons:', btnNames);
+
     submitBtn = allActionBtns.find((btn) => {
       const txt = (btn.innerText || btn.textContent || '').toLowerCase().trim();
-      if (btn.disabled) return false;
+      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
       if (txt.includes('hãy tải') || txt.includes('ít nhất 1 ảnh')) return false;
       return (
         txt.includes('tạo chuyển động') ||
@@ -284,15 +323,24 @@ async function handleToolExecution(data) {
     });
 
     if (submitBtn) break;
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1200));
   }
 
   if (!submitBtn) {
-    throw new Error('Nút Tạo Video đang bị khoá hoặc chưa tải ảnh nguồn lên thành công.');
-  }
+    // If button still not found, check if it's currently rendering
+    const isAlreadyGenerating = [...document.querySelectorAll('button, div')].some((el) => {
+      const txt = (el.innerText || el.textContent || '').toLowerCase();
+      return txt.includes('đang khởi tạo') || txt.includes('tạo chuyển động video');
+    });
 
-  submitBtn.click();
-  console.log('[Flow Bridge] Clicked submit button successfully!');
+    if (!isAlreadyGenerating) {
+      throw new Error('Nút Tạo Video đang bị khoá hoặc Google Flow chưa nhận ảnh nguồn. Hãy kiểm tra tab Google Flow.');
+    }
+    console.log('[Flow Bridge] Generation appears already started');
+  } else {
+    submitBtn.click();
+    console.log('[Flow Bridge] Clicked submit button successfully!');
+  }
 
   // 12. Monitor loop: send progress updates and detect completed video
   const startTime = Date.now();
@@ -343,7 +391,11 @@ async function handleToolExecution(data) {
     });
 
     if (downloadBtn) {
-      if (downloadBtn.tagName === 'A' && downloadBtn.href && (downloadBtn.href.includes('.mp4') || downloadBtn.href.startsWith('blob:'))) {
+      if (
+        downloadBtn.tagName === 'A' &&
+        downloadBtn.href &&
+        (downloadBtn.href.includes('.mp4') || downloadBtn.href.startsWith('blob:'))
+      ) {
         console.log('[Flow Bridge] Found download link:', downloadBtn.href);
         const resolvedUrl = await resolveVideoSrc(downloadBtn.href);
         return {

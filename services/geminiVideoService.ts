@@ -44,7 +44,10 @@ export const setVideoDuration = (dur: '4s' | '6s' | '8s' | '10s'): void => {
  */
 export const checkFlowExtensionInstalled = (): Promise<boolean> => {
     return new Promise((resolve) => {
-        if ((window as any).__IMAGETOOL_FLOW_BRIDGE_INSTALLED__) {
+        if (
+            (window as any).__IMAGETOOL_FLOW_BRIDGE_INSTALLED__ ||
+            document.documentElement.dataset.flowBridgeInstalled === 'true'
+        ) {
             return resolve(true);
         }
 
@@ -60,7 +63,10 @@ export const checkFlowExtensionInstalled = (): Promise<boolean> => {
 
         setTimeout(() => {
             window.removeEventListener('message', handler);
-            resolve(!!(window as any).__IMAGETOOL_FLOW_BRIDGE_INSTALLED__);
+            resolve(
+                !!(window as any).__IMAGETOOL_FLOW_BRIDGE_INSTALLED__ ||
+                document.documentElement.dataset.flowBridgeInstalled === 'true'
+            );
         }, 800);
     });
 };
@@ -136,7 +142,9 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
                 resolution: params.resolution || '720p',
                 duration: params.duration || '8s',
                 variations: params.outputCount || 1,
-                imageBase64: inputImageBase64,
+                imageBase64: inputImageBase64
+                    ? (inputImageBase64.startsWith('data:') ? inputImageBase64 : `data:image/png;base64,${inputImageBase64}`)
+                    : undefined,
                 toolUrl: 'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP',
             },
         }, '*');

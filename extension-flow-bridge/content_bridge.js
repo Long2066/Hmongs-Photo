@@ -5,22 +5,21 @@
  * Bridges communication between web UI and Google Flow Extension.
  */
 
-// Inject marker into document so web app knows extension is active
+// Mark DOM without violating Content Security Policy (No inline <script>)
 try {
-  const markerScript = document.createElement('script');
-  markerScript.textContent = `
-    window.__IMAGETOOL_FLOW_BRIDGE_INSTALLED__ = true;
-    window.__IMAGETOOL_FLOW_BRIDGE_VERSION__ = "1.0.0";
-    window.dispatchEvent(new CustomEvent("imagetool-flow-bridge-ready", { detail: { version: "1.0.0" } }));
-  `;
-  (document.head || document.documentElement).appendChild(markerScript);
-  markerScript.remove();
+  document.documentElement.dataset.flowBridgeInstalled = 'true';
+  document.documentElement.dataset.flowBridgeVersion = '1.0.0';
+  window.dispatchEvent(new CustomEvent('imagetool-flow-bridge-ready', { detail: { version: '1.0.0' } }));
 } catch (e) {
   // Ignore fallback
 }
 
 // Notify page via postMessage
 function notifyPageReady() {
+  try {
+    document.documentElement.dataset.flowBridgeInstalled = 'true';
+  } catch (e) {}
+
   window.postMessage({
     type: 'FLOW_BRIDGE_PONG',
     version: '1.0.0',
@@ -34,7 +33,7 @@ setInterval(notifyPageReady, 3000);
 
 // Listen for requests from web page
 window.addEventListener('message', async (event) => {
-  // Only accept messages from same origin/window
+  // Only accept messages from same window
   if (event.source !== window || !event.data || !event.data.type) return;
 
   const { type, requestId, payload } = event.data;
@@ -82,13 +81,19 @@ window.addEventListener('message', async (event) => {
           requestId,
           error: chrome.runtime.lastError.message || 'Lỗi kết nối tiện ích mở rộng',
         }, '*');
+      } else if (response && !response.ok) {
+        window.postMessage({
+          type: 'FLOW_GENERATE_ERROR',
+          requestId,
+          error: response.error || 'Lỗi khi khởi chạy tạo video trên Flow',
+        }, '*');
       }
     });
     return;
   }
 });
 
-// Listen for progress/success events from background
+// Listen for progress/success events from background script
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || !message.type) return;
 
