@@ -1088,10 +1088,24 @@ export const generateBatchPromptsText = async (
     if (outputMode === 'couple') {
         modeInstruction = `OUTPUT MODE: COUPLE (MALE AND FEMALE TOGETHER).
         You MUST generate prompts where BOTH the Male Korean idol AND the Female Korean idol appear TOGETHER in the same scene interacting naturally.
-        MANDATORY DUAL-OUTFIT CLAUSE IN EVERY SINGLE PROMPT:
-        - The Male character: explicitly describe "the male idol is wearing 100% of the authentic MALE REFERENCE OUTFIT shown in the input photo, replicating exact colors, jacket/suit cut, trousers, and embroidery".
-        - The Female character: explicitly describe "the female idol is wearing 100% of the authentic FEMALE REFERENCE OUTFIT shown in the input photo, replicating exact dress colors, bodice, floral patterns, flared skirt, and matching headdress".
-        - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). BOTH outfits MUST be explicitly designated to their respective models in every single prompt!`;
+
+        *** MANDATORY SPATIAL & POSING DIVERSITY (POSITION ALTERNATION MATRIX) ***
+        DO NOT keep the male always on the left and the female always on the right across the prompts!
+        Across the ${count} prompts, you MUST systematically rotate and vary:
+        1. SCREEN POSITIONS (LEFT / RIGHT / FOREGROUND / BACKGROUND):
+           - In some prompts: The Female idol is on the LEFT side of the frame, and the Male idol is on the RIGHT side.
+           - In other prompts: The Male idol is on the LEFT side of the frame, and the Female idol is on the RIGHT side.
+           - In other prompts: One is slightly in the foreground and one in the background (staggered depth), or one is seated (on wooden porch steps or stone ledges) while the other stands nearby.
+        2. DYNAMIC CANDID INTERACTION BASED ON TOPIC: "${topic}":
+           - Poses must be fluid, candid, and naturally inspired by the Topic: "${topic}".
+           - NEVER depict both models standing straight and stiff like mannequins in a bridal shop.
+           - Generate completely varied, authentic ways of taking the photo across all ${count} images: walking, turning around, sitting, subtle natural leans, candid expressions, looking toward the landscape or exchanging a warm glance.
+
+        *** POSITION-INDEPENDENT OUTFIT BINDING IN EVERY PROMPT ***
+        Regardless of whether the character is on the left, right, foreground, background, standing, or sitting:
+        - The Male character: explicitly state "the male idol (positioned on [left/right/foreground/seated]) is wearing 100% of the authentic MALE REFERENCE OUTFIT shown in the input photo, replicating exact colors, jacket/suit cut, trousers, and embroidery".
+        - The Female character: explicitly state "the female idol (positioned on [left/right/foreground/seated]) is wearing 100% of the authentic FEMALE REFERENCE OUTFIT shown in the input photo, replicating exact dress colors, bodice, floral patterns, flared skirt, and matching headdress".
+        - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). NEVER borrow patterns or colors from the male outfit for the female. BOTH outfits MUST be explicitly designated to their respective models in every single prompt!`;
     } else {
         // SINGLE MODE - Determine gender based on which input slots have images
         const hasMaleInput = inputCounts.male > 0;
@@ -1157,19 +1171,29 @@ export const generateBatchPromptsText = async (
          `- COUPLE REQUIREMENT: Every prompt MUST explicitly describe BOTH the Male idol wearing the MALE Reference Outfit (100% original colors, cuts, and embroidery) AND the Female idol wearing the FEMALE Reference Outfit (100% original colors, bodice, flared skirt, and headdress).` :
          `- Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures"`
        }
-    2. REFERENCE ACCESSORY CLONING: If accessory images are provided:
-       - Male Accessory: The male MUST hold/use the EXACT item shown in the reference image
-       - Female Accessory: The female MUST hold/use the EXACT item shown in the reference image
-    3. NO MODIFICATIONS ALLOWED: Do not change, interpret, or "improve" the outfit/accessories. Clone them EXACTLY.
-    4. STYLE COMPLIANCE: "${styleDetail}"
-    5. SHOT TYPE & CAMERA COMPOSITION: "${shotType}"
+    2. ACCESSORIES & PROPS RULES (STRICT & PRECISE):
+       - If accessory images are provided in the input slots:
+         * Male Accessory: The male MUST hold/use the EXACT item shown in the Male Accessory reference image.
+         * Female Accessory: The female MUST hold/use the EXACT item shown in the Female Accessory reference image.
+       - STRICTLY FORBIDDEN TO INVENT RANDOM PROPS: DO NOT arbitrarily add random props (such as flowers, umbrellas, fans, baskets, or musical instruments) UNLESS:
+         a) An accessory reference image is explicitly provided in the input slots, OR
+         b) The user's Topic ("${topic}") explicitly describes a specific practical activity that inherently uses an item (e.g., "lấy củi" -> carrying a bundle of firewood, "bẻ ngô" -> holding freshly harvested corn, "hái rau" -> holding a vegetable harvesting basket, "gùi đồ" -> carrying a traditional back basket).
+       - If no accessory reference is provided and the Topic does not explicitly request an object-using activity, BOTH characters MUST have NATURAL EMPTY HANDS (e.g., walking with hands at side, relaxed natural gestures, holding hands, or resting hands naturally).
+    3. MANDATORY ANTI-STIFFNESS & NATURAL CANDID POSTURE:
+       - ❌ CẤM TUYỆT ĐỐI: Đứng nghiêm thẳng đơ như ma-nơ-canh trong tiệm áo cưới hoặc chụp ảnh thẻ đôi.
+       - ❌ CẤM TUYỆT ĐỐI: Luôn cố định nam bên trái, nữ bên phải trong toàn bộ các ảnh.
+       - ✅ BẮT BUỘC: Thể hiện ngôn ngữ cơ thể mềm mại (relaxed posture), khớp khuỷu tay và vai tự nhiên, biểu cảm ánh mắt có hồn và liên kết cảm xúc theo đúng chủ đề "${topic}".
+    4. NO MODIFICATIONS ALLOWED: Do not change, interpret, or "improve" the outfit/accessories. Clone them EXACTLY.
+    5. STYLE COMPLIANCE: "${styleDetail}"
+    6. SHOT TYPE & CAMERA COMPOSITION: "${shotType}"
        ${shotDirective}
-    6. ${modeInstruction}
+    7. ${modeInstruction}
     
     *** PROMPT STRUCTURE ***
     ${outputMode === 'couple' ?
-      `Each prompt should follow: "[Handsome Korean male idol] wearing 100% of the authentic Male Reference Outfit with exact cuts and embroidery + [stunning Korean female idol] wearing 100% of the authentic Female Reference Outfit with exact colors and headdress + [natural couple interaction/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [cinematic lighting/mood]"
-    Example: "A breathtakingly handsome Korean male K-pop idol center visual wearing 100% of the authentic Male Reference Outfit with exact cuts and embroidery, holding hands warmly with an extraordinarily gorgeous Korean female idol wearing 100% of the authentic Female Reference Outfit with exact vibrant colors, floral bodice, flared skirt, and matching headdress, both standing firmly grounded on a cobblestone mountain trail, surrounded by authentic highland village scenery in realistic 1:1 human scale, cinematic golden hour lighting"` :
+      `Each prompt should follow: "[Dynamic camera angle & natural candid pose based on topic] + [Male idol position (left/right/foreground/seated)] wearing 100% of the authentic Male Reference Outfit + [Female idol position (left/right/foreground/seated)] wearing 100% of the authentic Female Reference Outfit with exact colors and headdress + [candid interaction & relaxed posture with empty hands or input accessories only] + [scene/background in realistic 1:1 scale] + [cinematic lighting/mood]"
+    Example 1 (Female on Left, Male on Right): "A full-length candid environmental photograph. On the left side of the frame, an extraordinarily gorgeous Korean female idol wearing 100% of the authentic Female Reference Outfit with exact vibrant colors, floral bodice, flared skirt, and matching headdress strolls naturally along a mountain village pathway, glancing back with a warm smile toward the handsome Korean male idol positioned on the right side of the frame who is wearing 100% of the authentic Male Reference Outfit with exact cut and embroidery, relaxed body posture with empty hands, authentic cobblestone terrain, cinematic golden hour lighting"
+    Example 2 (Male on Left, Female on Right, Staggered Depth): "A cinematic dynamic fashion photograph. Positioned slightly in the foreground on the left, a charismatic Korean male idol wearing 100% of the authentic Male Reference Outfit steps forward naturally, while on the right side slightly angled, an elegant Korean female idol wearing 100% of the authentic Female Reference Outfit with exact original colors, embroidery, and headdress pauses near a traditional wooden veranda, relaxed fluid body language, authentic highland scenery in realistic 1:1 human scale"` :
       `Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"
     Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"`
     }
@@ -1379,10 +1403,12 @@ export const generateImagesFromPromptsList = async (
             const isCouple = outputMode === 'couple' || ((refImages.male && refImages.male.length > 0) && (refImages.female && refImages.female.length > 0));
             const outfitTryOnDirective = isCouple
                 ? `*** COUPLE SCENE & STRICT DUAL-OUTFIT TRY-ON PROTOCOL (MANDATORY) ***
-            - DUAL SUBJECT: Both a handsome Korean male K-Pop idol and an exquisitely beautiful Korean female idol appear together in the scene.
-            - MALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: MALE OUTFIT' exclusively onto the Male model (exact colors, suit/jacket cut, pants, embroidery).
-            - FEMALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: FEMALE OUTFIT' exclusively onto the Female model (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
-            - ZERO HALLUCINATION ON FEMALE OUTFIT: Strictly FORBIDDEN to render the female in generic black/indigo velvet or generic silver collars. The female model MUST replicate the exact color palette (e.g. red, pink, white, blue) and design from 'INPUT REFERENCE: FEMALE OUTFIT'.
+            - DUAL SUBJECT & POSITION INDEPENDENCE: Both a handsome Korean male K-Pop idol and an exquisitely beautiful Korean female idol appear together in the scene. Their positions and poses are dynamic and natural (one on the left, one on the right, or one seated, one standing, walking, or staggered in depth).
+            - POSITION-INDEPENDENT MALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: MALE OUTFIT' (Image 1 / Left Reference) exclusively onto the Male model (exact colors, suit/jacket/vest cut, pants, embroidery), REGARDLESS of whether he is on the left, right, foreground, background, or seated.
+            - POSITION-INDEPENDENT FEMALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: FEMALE OUTFIT' (Image 2 / Right Reference) exclusively onto the Female model (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress), REGARDLESS of whether she is on the left, right, foreground, background, or seated.
+            - ZERO HALLUCINATION & ZERO CROSS-OVER: Strictly FORBIDDEN to render the female in generic black/indigo velvet or borrow the male vest's geometric patterns for the female! The female model MUST replicate the exact color palette and design from 'INPUT REFERENCE: FEMALE OUTFIT'.
+            - ANTI-STIFFNESS: Render natural candid posture, fluid body lines, and genuine human interaction instead of rigid mannequin stances.
+            - ACCESSORY COMPLIANCE: Do not add random unrequested accessories. If accessory inputs exist or topic requires it, map them accurately; otherwise both models keep empty hands.
             - COMPLETE REPLICATION: Faithfully reproduce all embroidery motifs, textile patterns, trims, and accessories from both reference photos with 100% fidelity.`
                 : (refImages.female && refImages.female.length > 0)
                 ? `*** FEMALE SOLO SCENE & OUTFIT TRY-ON PROTOCOL ***
