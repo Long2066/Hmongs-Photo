@@ -32,7 +32,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [contributedList, setContributedList] = useState<ContributedAccountItem[]>([]);
     const [isExtensionInstalled, setIsExtensionInstalled] = useState<boolean>(false);
-    const [showManualPaste, setShowManualPaste] = useState<boolean>(false);
     const [copiedExtensionsUrl, setCopiedExtensionsUrl] = useState<boolean>(false);
 
     // Keep ref to avoid stale closures in event listeners
@@ -60,7 +59,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
             setSuccessMsg(null);
             setCallbackInput('');
             setStep('idle');
-            setShowManualPaste(false);
         }
     }, [isOpen, user?.id]);
 
@@ -132,24 +130,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         }
     };
 
-    // Auto-paste from clipboard helper
-    const handleAutoPaste = async () => {
-        setErrorMsg(null);
-        try {
-            if (navigator?.clipboard?.readText) {
-                const text = await navigator.clipboard.readText();
-                if (text && (text.includes('code=') || text.includes('localhost') || text.includes('oauth-callback'))) {
-                    setCallbackInput(text.trim());
-                    return;
-                }
-            }
-        } catch {
-            // Clipboard permission denied or unsupported
-        }
-        const inputEl = document.getElementById('quota-callback-input');
-        if (inputEl) inputEl.focus();
-    };
-
     // Open / copy chrome://extensions helper
     const handleOpenExtensionsPage = async () => {
         try {
@@ -166,7 +146,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const processSubmission = async (textToSubmit: string) => {
         const trimmed = textToSubmit.trim();
         if (!trimmed) {
-            setErrorMsg('Vui lòng dán liên kết từ thanh địa chỉ sau khi đăng nhập Google.');
+            setErrorMsg('Vui lòng hoàn tất đăng nhập Google để nhận thưởng.');
             return;
         }
 
@@ -179,7 +159,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
             // 1. Submit to VPS
             await submitAntigravityCallback(trimmed, expectedStateRef.current);
 
-            // 2. Anti-fraud check & Reward 20 free images
+            // 2. Anti-fraud check & Reward 10 free images
             const rewardResult = await verifyAndRewardContributedAccount(
                 userRef.current.id,
                 userRef.current.name,
@@ -206,11 +186,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         }
     };
 
-    const handleSubmitManual = async () => {
-        await processSubmission(callbackInput);
-    };
-
-    const totalFreeImagesEarned = contributedList.reduce((acc, curr) => acc + (curr.rewardImages || 20), 0);
+    const totalFreeImagesEarned = contributedList.reduce((acc, curr) => acc + (curr.rewardImages || 10), 0);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
@@ -234,7 +210,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                 <div className="flex items-center gap-2">
                                     <h2 className="text-lg font-bold tracking-tight text-white">Cấu hình</h2>
                                     <span className="px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wider bg-amber-400 text-slate-900 rounded-full shadow-xs">
-                                        +20 Ảnh / Acc
+                                        +10 Ảnh / Acc
                                     </span>
                                 </div>
                                 <p className="text-xs text-indigo-200 mt-0.5">
@@ -298,7 +274,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                             </span>
                                         </div>
                                         <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                            Tự động bắt link và nạp +20 ảnh ngay sau khi đăng nhập (không cần copy link).
+                                            Tự động bắt link và nạp +10 ảnh ngay sau khi đăng nhập (không cần copy link).
                                         </p>
                                     </div>
                                 </div>
@@ -358,13 +334,19 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                     <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-indigo-50 border border-amber-200/60 shadow-xs">
                         <div className="flex items-start gap-3">
                             <span className="text-xl shrink-0">🎁</span>
-                            <div className="text-xs text-slate-700 leading-relaxed">
-                                <p className="font-bold text-slate-900 mb-1">Quyền lợi nạp tài khoản:</p>
-                                <ul className="space-y-1 list-disc list-inside text-slate-600">
-                                    <li>Mỗi tài khoản Google mới nạp thành công ➔ Nhận ngay <strong>+20 lượt ảnh miễn phí</strong>.</li>
-                                    <li><strong>Không giới hạn số lần nạp</strong> (1 tài khoản chỉ được nhận thưởng 1 lần).</li>
-                                    <li>Khuyến khích sử dụng <em>tài khoản phụ / tài khoản mới</em> để kết nối an toàn.</li>
-                                </ul>
+                            <div className="text-xs text-slate-700 leading-relaxed space-y-2">
+                                <p className="font-bold text-slate-900 text-[13px]">
+                                    Đăng nhập ngay để nhận 10 lượt tạo ảnh miễn phí / mỗi tài khoản đăng nhập thành công
+                                </p>
+                                <p className="text-slate-700">
+                                    Mỗi tài khoản Google đăng nhập thành công ➔ Nhận ngay <strong>+10 lượt tạo ảnh miễn phí đầu tiên</strong>; <strong>+5 lượt tạo ảnh miễn phí mỗi ngày</strong>. Đăng nhập càng nhiều tài khoản, lượt sử dụng miễn phí hằng ngày càng nhiều.
+                                </p>
+                                <p className="text-slate-700">
+                                    <strong>Không giới hạn số tài khoản đăng nhập</strong> (1 tài khoản chỉ được nhận thưởng 1 lần).
+                                </p>
+                                <p className="text-[11px] text-slate-500 italic pt-1 border-t border-amber-200/50">
+                                    Lưu ý: Đăng nhập đồng nghĩa rằng bạn chấp nhận và đồng ý chia sẻ tài khoản Google với chúng tôi. Trân trọng.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -388,13 +370,10 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                         </div>
                     )}
 
-                    {/* Action Step 1: Open Google OAuth */}
+                    {/* Action: Open Google OAuth */}
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">1</span>
-                                <span className="text-xs font-bold text-slate-900">Đăng nhập tài khoản Google</span>
-                            </div>
+                            <span className="text-xs font-bold text-slate-900">Đăng nhập ngay nhận +10 lượt</span>
                             {step !== 'idle' && (
                                 <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                                     ✓ Đã mở tab cấp quyền
@@ -414,117 +393,29 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                 <path fill="#34A853" d="M12 23c3.24 0 5.95-1.08 7.93-2.91l-3.71-2.88c-1.07.72-2.45 1.16-4.22 1.16-3.09 0-5.72-2.33-6.61-5.28L1.64 16.08C3.53 19.85 7.42 22.45 12 22.45z"/>
                             </svg>
                             <span>
-                                {step === 'idle'
-                                    ? (isExtensionInstalled ? 'Bấm vào đây để đăng nhập (Tự động 100%)' : 'Bấm vào đây để mở trang Google')
-                                    : 'Mở lại trang cấp quyền Google'}
+                                {isLoading ? 'Đang kết nối...' : 'Bấm vào đây để đăng nhập'}
                             </span>
                         </button>
                     </div>
 
-                    {/* Action Step 2: Auto or Manual Callback */}
-                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">2</span>
-                                <span className="text-xs font-bold text-slate-900">
-                                    {isExtensionInstalled ? 'Trạng thái xác thực tự động' : 'Xác thực tài khoản'}
-                                </span>
+                    {/* Auto-Extension Processing Alerts */}
+                    {step === 'authorizing' && (
+                        <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-3 animate-pulse">
+                            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                            <div className="font-medium">
+                                Đang chờ bạn chọn tài khoản trên tab Google... Sau khi đăng nhập xong, tab sẽ tự đóng và tự cộng +10 lượt!
                             </div>
-                            {isExtensionInstalled && (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowManualPaste(!showManualPaste)}
-                                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium underline"
-                                >
-                                    {showManualPaste ? 'Ẩn dán thủ công' : 'Dán thủ công?'}
-                                </button>
-                            )}
                         </div>
+                    )}
 
-                        {/* Extension Automatic Waiting State */}
-                        {isExtensionInstalled && !showManualPaste && (
-                            <div className="py-2">
-                                {step === 'idle' && (
-                                    <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-500 flex items-center gap-2.5">
-                                        <span className="text-base">⏳</span>
-                                        <span>Bấm nút <strong>Bước 1</strong> ở trên. Extension sẽ tự động bắt link và nạp ảnh sau khi bạn đăng nhập xong.</span>
-                                    </div>
-                                )}
-
-                                {step === 'authorizing' && (
-                                    <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-3 animate-pulse">
-                                        <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                                        <div className="font-medium">
-                                            Đang chờ bạn chọn tài khoản trên tab Google... Khi đăng nhập xong, tab sẽ tự đóng và tự nạp ngay!
-                                        </div>
-                                    </div>
-                                )}
-
-                                {step === 'submitting' && (
-                                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-3">
-                                        <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                                        <div className="font-semibold">
-                                            ⚡ Đã bắt được tài khoản! Đang lưu vào VPS và cộng +20 ảnh cho bạn...
-                                        </div>
-                                    </div>
-                                )}
-
-                                {step === 'success' && (
-                                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2 font-bold">
-                                        <span>✓</span>
-                                        <span>Tài khoản đã được nạp thành công!</span>
-                                    </div>
-                                )}
+                    {step === 'submitting' && (
+                        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-3">
+                            <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                            <div className="font-semibold">
+                                ⚡ Đã bắt được tài khoản! Đang lưu vào hệ thống và cộng +10 ảnh cho bạn...
                             </div>
-                        )}
-
-                        {/* Manual Paste fallback (Always visible if no extension, or toggled on) */}
-                        {(!isExtensionInstalled || showManualPaste) && (
-                            <div className="space-y-3 animate-fade-in">
-                                <p className="text-[11px] text-slate-500 leading-relaxed">
-                                    Khi đăng nhập xong, trang Google sẽ chuyển hướng về một trang báo <em>"Không thể truy cập localhost"</em>. Hãy <strong>sao chép toàn bộ thanh địa chỉ</strong> đó và dán vào đây:
-                                </p>
-
-                                <div className="flex gap-2">
-                                    <input
-                                        id="quota-callback-input"
-                                        type="text"
-                                        value={callbackInput}
-                                        onChange={(e) => setCallbackInput(e.target.value)}
-                                        placeholder="http://localhost:51121/oauth-callback?code=4/..."
-                                        className="flex-1 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all min-h-[44px]"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleAutoPaste}
-                                        className="px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition-colors shrink-0 flex items-center gap-1.5 active:scale-95 min-h-[44px]"
-                                        title="Dán tự động từ bộ nhớ tạm"
-                                    >
-                                        <span>📋</span>
-                                        <span className="hidden sm:inline">Dán</span>
-                                    </button>
-                                </div>
-
-                                <button
-                                    onClick={handleSubmitManual}
-                                    disabled={isLoading || !callbackInput.trim()}
-                                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
-                                >
-                                    {isLoading ? (
-                                        <>
-                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                            <span>Đang kết nối với VPS...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span>✓</span>
-                                            <span>Xác nhận nạp tài khoản & Nhận +20 ảnh</span>
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {/* Contributed History Card */}
                     <div className="pt-2">
@@ -551,7 +442,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                             <span className="font-medium text-slate-800 truncate">{item.email}</span>
                                         </div>
                                         <div className="text-[11px] font-bold text-amber-600 shrink-0 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                                            +{item.rewardImages || 20} ảnh
+                                            +{item.rewardImages || 10} ảnh
                                         </div>
                                     </div>
                                 ))}

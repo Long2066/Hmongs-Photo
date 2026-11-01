@@ -35,7 +35,7 @@ export const TERMS_LIST: TermItem[] = [
         id: 3,
         title: 'Gói cước',
         badge: 'Chi phí',
-        description: 'Gói Free tặng 20 ảnh/ngày; gói Plus/Pro nạp kích hoạt tự động, tính phí 500đ/ảnh.'
+        description: 'Gói Free tặng 10 ảnh/ngày; gói Plus/Pro nạp kích hoạt tự động, tính phí 500đ/ảnh.'
     },
     {
         id: 4,

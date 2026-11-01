@@ -792,7 +792,7 @@ const FAILED_BILLS_COLLECTION = "failedBills";
 export type SubscriptionPlan = 'free' | 'plus' | 'pro';
 
 export const IMAGE_COST_VND = 500;
-export const FREE_DAILY_IMAGE_LIMIT = 20;
+export const FREE_DAILY_IMAGE_LIMIT = 10;
 export const FREE_ALLOWED_MODEL = 'gpt-image-1.5';
 
 export interface PlanInfo {
@@ -822,7 +822,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         dailyFreeLimit: FREE_DAILY_IMAGE_LIMIT,
         description: 'Trải nghiệm tạo ảnh AI cơ bản mỗi ngày hoàn toàn miễn phí.',
         features: [
-            'Tạo tối đa 20 ảnh / ngày',
+            'Tạo tối đa 10 ảnh / ngày',
             'Sử dụng model GPT Image 1.5',
             'Độ phân giải tiêu chuẩn (HD / FHD)',
             'Lưu trữ lịch sử tạo ảnh 72 giờ'
@@ -1398,7 +1398,7 @@ export interface TermsData {
 const DEFAULT_TERMS_CONTENT = `📜 ĐIỀU KHOẢN SỬ DỤNG IMAGETOOL
 1. Chấp thuận: Đăng ký tài khoản đồng nghĩa bạn đã đọc, hiểu và đồng ý toàn bộ điều khoản này.
 2. Bảo mật: Bạn tự chịu trách nhiệm bảo mật mật khẩu và mọi hoạt động dưới tài khoản của mình.
-3. Gói cước: Gói Free tặng 20 ảnh/ngày; gói Plus/Pro nạp kích hoạt tự động, tính phí 500đ/ảnh.
+3. Gói cước: Gói Free tặng 10 ảnh/ngày; gói Plus/Pro nạp kích hoạt tự động, tính phí 500đ/ảnh.
 4. Không hoàn tiền: Số dư và gói dịch vụ sau khi nạp thành công không thể quy đổi hay hoàn lại tiền mặt.
 5. Bảo mật ảnh: Ảnh tải lên chỉ phục vụ xử lý AI, cam kết không bán hay chia sẻ cho bên thứ 3.
 6. Lưu trữ: Lịch sử ảnh tạm tự động xóa sau 72 giờ để bảo mật, bạn vui lòng tải ảnh về máy ngay khi tạo.

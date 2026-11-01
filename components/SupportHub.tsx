@@ -41,7 +41,7 @@ QUY TẮC HƯỚNG DẪN MUA GÓI & THANH TOÁN (BẮT BUỘC):
 KIẾN THỨC MỚI NHẤT VỀ IMAGETOOL:
 
 1. BẢNG GIÁ VÀ CÁC GÓI CƯỚC MỚI NHẤT:
-- Gói Free: Miễn phí trọn đời, được tạo tối đa 20 ảnh mỗi ngày với model GPT 1.5, phù hợp trải nghiệm sáng tạo cơ bản.
+- Gói Free: Miễn phí trọn đời, được tạo tối đa 10 ảnh mỗi ngày với model GPT 1.5, phù hợp trải nghiệm sáng tạo cơ bản.
 - Gói Plus: Giá gốc 120.000đ hiện đang giảm chỉ còn 50.000đ. Sử dụng full tất cả tính năng trên tool, cho phép chọn độ phân giải ảnh xuất tối đa đến FHD (Full HD sắc nét). Chi phí tạo ảnh: 500đ mỗi ảnh (50.000đ tương đương 100 lượt tạo ảnh thỏa thích).
 - Gói Pro: Giá gốc 200.000đ hiện đang giảm chỉ còn 100.000đ. Sử dụng full tất cả tính năng có trên tool không giới hạn, hỗ trợ độ phân giải cao cấp nhất lên tới 4K Ultra HD. Chi phí tạo ảnh: 500đ mỗi ảnh (100.000đ tương đương 200 lượt tạo ảnh).
 

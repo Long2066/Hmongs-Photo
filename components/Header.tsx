@@ -59,7 +59,7 @@ const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryCl
                             className="w-full text-left flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 rounded-xl transition-colors"
                         >
                             <span className="text-base">⚙️</span>
-                            <span>Cấu hình (+20 ảnh)</span>
+                            <span>Cấu hình (+10 ảnh)</span>
                         </button>
                         {!isHistoryVisible && (
                             <button
@@ -221,7 +221,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={onQuotaStationClick}
-                                    title="Cấu hình - Nhận ngay 20 ảnh miễn phí"
+                                    title="Cấu hình - Nhận ngay 10 ảnh miễn phí"
                                     className="p-2 bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-full transition-all shadow-xs active:scale-95 flex items-center justify-center relative group min-w-[38px] min-h-[38px]"
                                     aria-label="Cấu hình"
                                 >

@@ -1,7 +1,7 @@
 /**
  * Google Quota Station Service
  * Handles crowdsourced Google account authentication via CLIProxyAPI VPS
- * and rewards users with +20 free image generations per unique Google account.
+ * and rewards users with +10 free image generations per unique Google account.
  * Uses getBackgroundSyncDb to guarantee 100% Firestore permissions across all clients.
  */
 
@@ -222,8 +222,8 @@ export const verifyAndRewardContributedAccount = async (
     userName: string,
     knownAccountsBefore: string[]
 ): Promise<ContributionResult> => {
-    const REWARD_IMAGES = 20;
-    const REWARD_VND = 10000; // 20 * 500 VND/image
+    const REWARD_IMAGES = 10;
+    const REWARD_VND = 5000; // 10 * 500 VND/image
 
     // 1. Give VPS up to 3 seconds to register the new auth file
     let currentAccounts = await fetchVpsAntigravityAccounts();
@@ -362,8 +362,8 @@ export const getUserContributedAccounts = async (userId: string): Promise<Contri
                     contributedByUserId: data.contributedByUserId,
                     contributedByUserName: data.contributedByUserName,
                     timestamp: data.timestamp || 0,
-                    rewardImages: data.rewardImages || 20,
-                    rewardVND: data.rewardVND || 10000
+                    rewardImages: data.rewardImages || 10,
+                    rewardVND: data.rewardVND || 5000
                 });
             }
         });
