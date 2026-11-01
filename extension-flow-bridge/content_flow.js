@@ -129,6 +129,25 @@
       useToolBtn.click();
       await new Promise((r) => setTimeout(r, 2000));
     }
+
+    // If on flow.google.com root/projects without a project open, enter or create one
+    if (!window.location.href.includes('/project/')) {
+      const projLink = document.querySelector('a[href*="/project/"]');
+      if (projLink) {
+        projLink.click();
+        await new Promise((r) => setTimeout(r, 4000));
+        return;
+      }
+      const newProjBtn = [...document.querySelectorAll('button, div[role="button"], a')].find((el) => {
+        const txt = (el.innerText || el.textContent || '').toLowerCase().trim();
+        return txt.includes('dự án mới') || txt.includes('new project') || txt.includes('tạo dự án') || txt === '+';
+      });
+      if (newProjBtn) {
+        newProjBtn.click();
+        await new Promise((r) => setTimeout(r, 4000));
+        return;
+      }
+    }
   }
 
   // Standard Google Flow Project Studio: Open settings panel (Veo/Aspect/Count)

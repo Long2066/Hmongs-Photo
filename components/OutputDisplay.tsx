@@ -167,11 +167,16 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                 )}
 
                 {isLoading ? (
-                    <div className="animate-fade-in flex flex-col items-center">
-                        <div className="mb-2">
+                    <div className="animate-fade-in flex flex-col items-center max-w-md mx-auto text-center px-4">
+                        <div className="mb-2.5">
                             <ClockLoader />
                         </div>
-                        <h3 className="text-base font-bold text-slate-900 mb-1">Vui lòng chờ ít phút</h3>
+                        <h3 className="text-base font-bold text-slate-900 mb-1 leading-snug">
+                            {loadingStatus || 'Vui lòng chờ ít phút'}
+                        </h3>
+                        <p className="text-xs text-amber-600 font-semibold animate-pulse mt-0.5">
+                            ⚡ Hệ thống AI đang xử lý theo thời gian thực... Vui lòng không đóng tab
+                        </p>
                     </div>
                 ) : error ? (
                     <div className="text-red-600 flex flex-col items-center gap-2 animate-fade-in">

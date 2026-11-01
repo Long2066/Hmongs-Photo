@@ -85,16 +85,40 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const { prompt, aspectRatio, model, inputImageBase64, onProgress } = params;
 
+    // 1. Kiểm tra tiện ích mở rộng trước khi thực hiện
+    const isInstalled = await checkFlowExtensionInstalled();
+    if (!isInstalled) {
+        throw new Error(
+            'Chưa phát hiện Tiện ích Chrome "vip-imagetools"! ' +
+            'Vui lòng bấm vào icon Cấu hình ⚙️ -> Tải Bổ Trợ (.zip) và cài đặt lên chrome://extensions, ' +
+            'sau đó tải lại trang (F5) hoặc chuyển sang chế độ Fal.ai Cloud / Server PC.'
+        );
+    }
+
     onProgress?.('Đang gửi lệnh tạo video tới Tiện ích Chrome...', 0);
 
     return new Promise((resolve, reject) => {
-        const timeoutMs = 600000; // 10 minutes max
+        let ackReceived = false;
         const startTime = Date.now();
 
-        const timer = setTimeout(() => {
+        // 2. Chống treo vô hạn: Nếu Extension không phản hồi trong 3.5 giây, báo lỗi ngay
+        const ackTimer = setTimeout(() => {
+            if (!ackReceived) {
+                window.removeEventListener('message', messageHandler);
+                reject(
+                    new Error(
+                        'Tiện ích "vip-imagetools" không phản hồi (có thể vừa được tải lại). ' +
+                        'Vui lòng nhấn F5 (Tải lại trang web) để làm mới kết nối và thử lại.'
+                    )
+                );
+            }
+        }, 3500);
+
+        // 3. Giới hạn tối đa 10 phút
+        const maxTimer = setTimeout(() => {
             window.removeEventListener('message', messageHandler);
-            reject(new Error('Hết thời gian chờ phản hồi từ Tiện ích Chrome (Timeout).'));
-        }, timeoutMs);
+            reject(new Error('Hết thời gian chờ phản hồi từ Google Flow (Timeout sau 10 phút).'));
+        }, 600000);
 
         const messageHandler = (event: MessageEvent) => {
             if (!event.data || typeof event.data !== 'object') return;
@@ -102,13 +126,23 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
 
             if (data.requestId && data.requestId !== requestId) return;
 
+            if (data.type === 'FLOW_GENERATE_ACK') {
+                ackReceived = true;
+                clearTimeout(ackTimer);
+                onProgress?.('Tiện ích Chrome đã nhận lệnh, đang mở kết nối Google Flow...', 1);
+            }
+
             if (data.type === 'FLOW_GENERATE_PROGRESS') {
+                ackReceived = true;
+                clearTimeout(ackTimer);
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
                 onProgress?.(data.status || 'Google Flow đang tạo video...', elapsed);
             }
 
             if (data.type === 'FLOW_GENERATE_SUCCESS') {
-                clearTimeout(timer);
+                ackReceived = true;
+                clearTimeout(ackTimer);
+                clearTimeout(maxTimer);
                 window.removeEventListener('message', messageHandler);
                 const videoUrl = data.videoUrl || data.urls?.[0];
                 if (!videoUrl) {
@@ -122,7 +156,9 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
             }
 
             if (data.type === 'FLOW_GENERATE_ERROR') {
-                clearTimeout(timer);
+                ackReceived = true;
+                clearTimeout(ackTimer);
+                clearTimeout(maxTimer);
                 window.removeEventListener('message', messageHandler);
                 reject(new Error(data.error || 'Lỗi khi tạo video qua Google Flow Extension.'));
             }
@@ -145,7 +181,7 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
                 imageBase64: inputImageBase64
                     ? (inputImageBase64.startsWith('data:') ? inputImageBase64 : `data:image/png;base64,${inputImageBase64}`)
                     : undefined,
-                toolUrl: 'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b',
+                toolUrl: 'https://flow.google.com',
             },
         }, '*');
     });

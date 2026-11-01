@@ -6,8 +6,8 @@
  * tự động bắt link video trả thẳng về web vip-imagetools.
  */
 
-const DEFAULT_FALLBACK_PROJECT_ID = 'dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b';
-const DEFAULT_TOOL_URL = `https://flow.google.com/project/${DEFAULT_FALLBACK_PROJECT_ID}`;
+const DEFAULT_FALLBACK_PROJECT_ID = '';
+const DEFAULT_TOOL_URL = 'https://flow.google.com';
 
 // 1. Check if user has active Google Flow cookies
 async function checkFlowAuth() {
@@ -157,8 +157,28 @@ function normalizeToStudioUrl(url) {
 
 // 3. Execution Pipeline: Reuses Existing Flow Tab & Injects Interceptors
 async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
+  // Check auth first
+  const auth = await checkFlowAuth();
+  if (!auth.authenticated) {
+    chrome.tabs.create({ url: 'https://flow.google.com', active: true });
+    throw new Error('Bạn chưa đăng nhập Google Flow! Hệ thống đã mở tab flow.google.com, vui lòng đăng nhập tài khoản Google trên tab đó rồi bấm Tạo Video lại.');
+  }
+
+  // Initial progress update to web app
+  if (callerTabId) {
+    chrome.tabs.sendMessage(callerTabId, {
+      type: 'FLOW_GENERATE_PROGRESS',
+      requestId,
+      status: 'Đang kết nối tới Google Flow (Veo 3.1)...',
+    }).catch(() => {});
+  }
+
   let targetUrl = payload?.toolUrl || DEFAULT_TOOL_URL;
-  targetUrl = normalizeToStudioUrl(targetUrl);
+  if (!targetUrl || targetUrl.includes('dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b')) {
+    targetUrl = 'https://flow.google.com';
+  } else {
+    targetUrl = normalizeToStudioUrl(targetUrl);
+  }
 
   // Step A: Search for existing tabs on flow.google.com
   const existingTabs = await chrome.tabs.query({ url: '*://flow.google.com/*' });
@@ -180,14 +200,14 @@ async function executeVideoGenerationFlow(payload, requestId, callerTabId) {
 
   if (flowTab) {
     // If the tab is currently on /tools or a broken /tool/... view, normalize it to the project studio
-    const studioUrl = normalizeToStudioUrl(flowTab.url || targetUrl);
-    if (!flowTab.url || flowTab.url.includes('/tools') || (flowTab.url.includes('/tool/') && flowTab.url.includes('?mode=APP'))) {
+    if (flowTab.url && (flowTab.url.includes('/tools') || (flowTab.url.includes('/tool/') && flowTab.url.includes('?mode=APP')))) {
+      const studioUrl = normalizeToStudioUrl(flowTab.url || targetUrl);
       console.log('[Background] Normalizing existing Flow tab to project studio:', studioUrl);
       await chrome.tabs.update(flowTab.id, { url: studioUrl });
       await new Promise((r) => setTimeout(r, 4000));
     }
   } else {
-    console.log('[Background] No Flow tab found, opening project studio in background tab:', targetUrl);
+    console.log('[Background] No Flow tab found, opening Flow in background tab:', targetUrl);
     flowTab = await chrome.tabs.create({
       url: targetUrl,
       active: false,

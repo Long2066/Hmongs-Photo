@@ -292,6 +292,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const canSubmit = !isLoading && !isDisabled && hasInputImage;
 
     const handleExecuteGenerate = () => {
+        if (isExtensionMode && !isExtensionInstalled) {
+            setShowExtensionGuide(true);
+            alert('Vui lòng cài đặt Tiện ích vip-imagetools trên Chrome để tạo video tự động (hoặc nhấn F5 nếu bạn vừa cài xong). Hãy xem hướng dẫn tải và cài đặt ở khung bên trên!');
+            return;
+        }
+
         const finalPrompt =
             prompt.trim() ||
             MOTION_PRESETS.find((p) => p.id === selectedPreset)?.samplePrompt ||
@@ -398,29 +404,65 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
             {/* Extension Setup Notice if not connected */}
             {isExtensionMode && !isExtensionInstalled && (
-                <div className="p-3 rounded-xl bg-amber-50 ring-1 ring-amber-500/30 flex flex-col gap-2 animate-fade-in">
-                    <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                            <span>🧩</span>
-                            <span>Cài đặt Tiện ích Chrome để tự động gửi & nhận video</span>
+                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 ring-1 ring-amber-500/30 flex flex-col gap-3 animate-fade-in shadow-xs">
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">🧩</span>
+                            <div className="flex flex-col">
+                                <span className="text-xs font-bold text-amber-950">
+                                    Cần cài đặt Tiện ích "vip-imagetools"
+                                </span>
+                                <span className="text-[11px] text-amber-800">
+                                    Để tự động gửi lệnh tạo video Veo 3.1 từ tài khoản Google của bạn
+                                </span>
+                            </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200/70 text-amber-900 shrink-0">
+                            Chưa kết nối
                         </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <a
+                            href="/vip-imagetools.zip"
+                            download="vip-imagetools.zip"
+                            className="flex-1 min-h-[38px] flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                        >
+                            <span>📥</span>
+                            <span>Tải Bổ Trợ (.zip)</span>
+                        </a>
                         <button
                             type="button"
-                            onClick={() => setShowExtensionGuide(!showExtensionGuide)}
-                            className="text-[10.5px] text-amber-800 underline font-semibold cursor-pointer"
+                            onClick={() => {
+                                navigator.clipboard.writeText('chrome://extensions/');
+                                alert('Đã sao chép "chrome://extensions/". Hãy mở tab mới trên Chrome và dán vào thanh địa chỉ để cài đặt tiện ích!');
+                            }}
+                            className="min-h-[38px] flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl ring-1 ring-slate-900/10 shadow-xs transition-all cursor-pointer"
                         >
-                            {showExtensionGuide ? 'Ẩn' : 'Xem cách cài 10s'}
+                            <span>📋</span>
+                            <span>Copy link cài đặt</span>
                         </button>
                     </div>
 
-                    {showExtensionGuide && (
-                        <div className="text-[11px] text-amber-900 bg-white/80 p-2.5 rounded-lg space-y-1 ring-1 ring-amber-500/20">
-                            <div>1. Mở Chrome gõ: <code className="bg-amber-100 px-1 rounded font-mono select-all">chrome://extensions</code></div>
-                            <div>2. Bật <b>"Chế độ dành cho nhà phát triển" (Developer mode)</b> góc trên phải.</div>
-                            <div>3. Bấm <b>"Tải tiện ích đã giải nén" (Load unpacked)</b>.</div>
-                            <div>4. Chọn thư mục: <code className="bg-amber-100 px-1 rounded font-mono select-all">D:\ToolMedia\extension-flow-bridge</code></div>
+                    <div className="text-[11.5px] text-slate-700 bg-white/90 p-2.5 rounded-xl space-y-1.5 ring-1 ring-amber-500/20">
+                        <div className="font-bold text-amber-900 text-xs mb-1">Cách cài đặt nhanh trong 10 giây:</div>
+                        <div className="flex items-start gap-1.5">
+                            <span className="font-bold text-amber-600 shrink-0">1.</span>
+                            <span>Bấm nút <b>Tải Bổ Trợ (.zip)</b> ở trên và giải nén thư mục trên máy tính.</span>
                         </div>
-                    )}
+                        <div className="flex items-start gap-1.5">
+                            <span className="font-bold text-amber-600 shrink-0">2.</span>
+                            <span>Mở Chrome dán <code className="bg-amber-100 text-amber-950 px-1 py-0.5 rounded font-mono select-all">chrome://extensions</code> và bật <b>"Chế độ cho nhà phát triển"</b> (Developer Mode) góc trên phải.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                            <span className="font-bold text-amber-600 shrink-0">3.</span>
+                            <span>Bấm nút <b>"Tải tiện ích đã giải nén"</b> (Load unpacked) và chọn thư mục vừa giải nén.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                            <span className="font-bold text-amber-600 shrink-0">4.</span>
+                            <span>Quay lại tab này và bấm <b>F5 (Tải lại trang)</b> để hoàn tất kết nối!</span>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -803,12 +845,17 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                             />
                         </svg>
-                        <span>Đang khởi tạo (1/{outputCount})...</span>
+                        <span>Đang xử lý Video ({outputCount} video)...</span>
                     </span>
                 ) : !hasInputImage ? (
                     <span className="flex items-center justify-center gap-2 text-slate-400">
                         <span className="text-base">🖼️</span>
                         <span>HÃY TẢI ÍT NHẤT 1 ẢNH NGUỒN</span>
+                    </span>
+                ) : isExtensionMode && !isExtensionInstalled ? (
+                    <span className="flex items-center justify-center gap-2 text-amber-100">
+                        <span className="text-base">🧩</span>
+                        <span>CẦN CÀI BỔ TRỢ ĐỂ TẠO VIDEO (BẤM ĐỂ XEM CÁCH CÀI)</span>
                     </span>
                 ) : (
                     <span className="flex items-center justify-center gap-2">

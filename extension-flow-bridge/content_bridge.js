@@ -116,6 +116,17 @@ window.addEventListener('message', async (event) => {
 
   // 4. Request Video Generation
   if (type === 'FLOW_EXECUTE_GENERATE') {
+    // Send immediate ACK back to web page so it knows extension is alive and received task
+    try {
+      window.postMessage(
+        {
+          type: 'FLOW_GENERATE_ACK',
+          requestId,
+        },
+        '*'
+      );
+    } catch (e) {}
+
     try {
       chrome.runtime.sendMessage(
         {
