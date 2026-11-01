@@ -160,7 +160,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             setIsSyncingCookies(false);
         }
     };
-    };
 
     const handleAddCookieToPool = async () => {
         if (!cookieInput.trim()) {
@@ -187,7 +186,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         } finally {
             setIsSyncingCookies(false);
         }
-    };
     };
 
     const handleRemovePoolAccount = async (accId: string) => {
@@ -234,7 +232,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         } finally {
             setIsSyncingCookies(false);
         }
-    };
     };
 
     const handleClearUserCookies = async () => {
