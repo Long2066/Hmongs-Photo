@@ -15,6 +15,30 @@ export const setVideoEngine = (engine: VideoEngine): void => {
     localStorage.setItem('video_engine', engine);
 };
 
+export const getVideoPreset = (): string => {
+    return localStorage.getItem('video_flow_preset') || 'Chân dung tự nhiên';
+};
+
+export const setVideoPreset = (preset: string): void => {
+    localStorage.setItem('video_flow_preset', preset);
+};
+
+export const getVideoResolution = (): '360p' | '720p' => {
+    return (localStorage.getItem('video_flow_resolution') as '360p' | '720p') || '720p';
+};
+
+export const setVideoResolution = (res: '360p' | '720p'): void => {
+    localStorage.setItem('video_flow_resolution', res);
+};
+
+export const getVideoDuration = (): '4s' | '6s' | '8s' | '10s' => {
+    return (localStorage.getItem('video_flow_duration') as '4s' | '6s' | '8s' | '10s') || '8s';
+};
+
+export const setVideoDuration = (dur: '4s' | '6s' | '8s' | '10s'): void => {
+    localStorage.setItem('video_flow_duration', dur);
+};
+
 /**
  * Kiểm tra xem người dùng đã cài đặt tiện ích ImageTool Flow Bridge trên Chrome chưa
  */
@@ -108,6 +132,10 @@ export const generateExtensionVideo = async (params: VideoGenerationParams): Pro
                 prompt,
                 aspectRatio,
                 model: model || 'Veo 3.1 - Lite',
+                preset: params.preset || 'Chân dung tự nhiên',
+                resolution: params.resolution || '720p',
+                duration: params.duration || '8s',
+                variations: params.outputCount || 1,
                 imageBase64: inputImageBase64,
                 toolUrl: 'https://flow.google.com/project/dadaf5cb-2bbf-4c4b-b622-014e2a6cda1b/tool/b18b72cc-9dc1-4560-bf52-70266e226a18?mode=APP',
             },
@@ -119,6 +147,9 @@ export interface VideoGenerationParams {
     prompt: string;
     aspectRatio: '16:9' | '9:16';
     model?: string;
+    preset?: string;
+    resolution?: '360p' | '720p';
+    duration?: '4s' | '6s' | '8s' | '10s';
     outputCount?: number;
     inputImageBase64?: string; // Tùy chọn: dùng cho chế độ Image -> Video
     onProgress?: (status: string, elapsedSeconds: number) => void;
@@ -390,7 +421,12 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
 
     // 1. Chế độ Chrome Extension Bridge (Tài khoản Google Flow cá nhân - Không cần cài server)
     if (engine === 'flow_extension') {
-        return await generateExtensionVideo(params);
+        return await generateExtensionVideo({
+            ...params,
+            preset: params.preset || getVideoPreset(),
+            resolution: params.resolution || getVideoResolution(),
+            duration: params.duration || getVideoDuration(),
+        });
     }
 
     // 2. Chế độ Fal.ai Cloud API (Đăng nhập Google 1 click, không cần CMND/CCCD, 100% Quốc tế)
