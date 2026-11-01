@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ImageTool Flow Bridge - Veo 3.1",
-  "version": "1.0.3",
-  "description": "Cầu nối tự động tạo video Google Veo 3.1 từ ImageTool qua tài khoản cá nhân",
+  "name": "ImageTool Flow Bridge - Veo 3.1 & Quota Auto",
+  "version": "1.0.4",
+  "description": "Cầu nối tự động tạo video Google Veo 3.1 & tự động nạp Quota Google vào ImageTool",
   "permissions": [
     "cookies",
     "storage",
@@ -13,6 +13,7 @@
     "https://flow.google.com/*",
     "https://labs.google/*",
     "https://vip-imagetools.vercel.app/*",
+    "https://*.vercel.app/*",
     "http://localhost:*/*",
     "http://127.0.0.1:*/*"
   ],
@@ -23,6 +24,7 @@
     {
       "matches": [
         "https://vip-imagetools.vercel.app/*",
+        "https://*.vercel.app/*",
         "http://localhost:*/*",
         "http://127.0.0.1:*/*"
       ],

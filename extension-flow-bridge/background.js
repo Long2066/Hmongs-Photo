@@ -29,6 +29,53 @@ async function checkFlowAuth() {
   }
 }
 
+// =========================================================================
+// GOOGLE QUOTA STATION: AUTO-CAPTURE OAUTH CALLBACK FROM GOOGLE
+// Automatically intercepts http://localhost:51121/oauth-callback?code=...
+// Sends the captured URL to the active ImageTool tab and closes the dead tab!
+// =========================================================================
+let lastCapturedOAuthUrl = '';
+let lastCapturedOAuthTime = 0;
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const currentUrl = changeInfo.url || tab?.url || '';
+  if (!currentUrl) return;
+
+  const isLocalHost = currentUrl.includes('localhost:') || currentUrl.includes('127.0.0.1:');
+  const isOAuthCallback = (
+    currentUrl.includes('oauth-callback') ||
+    currentUrl.includes('auth/callback') ||
+    (currentUrl.includes('code=') && currentUrl.includes('state='))
+  );
+
+  if (isLocalHost && isOAuthCallback) {
+    const now = Date.now();
+    if (currentUrl === lastCapturedOAuthUrl && (now - lastCapturedOAuthTime) < 4000) {
+      return;
+    }
+    lastCapturedOAuthUrl = currentUrl;
+    lastCapturedOAuthTime = now;
+
+    console.log('[Flow Bridge] Intercepted Google Quota OAuth Callback:', currentUrl);
+
+    // Broadcast to all active tool tabs
+    chrome.tabs.query({}, (tabs) => {
+      tabs.forEach((t) => {
+        if (!t.id) return;
+        chrome.tabs.sendMessage(t.id, {
+          type: 'QUOTA_OAUTH_CAPTURED',
+          callbackUrl: currentUrl
+        }).catch(() => {});
+      });
+    });
+
+    // Auto-close the dead localhost tab after a short moment so user doesn't see error page
+    setTimeout(() => {
+      chrome.tabs.remove(tabId).catch(() => {});
+    }, 700);
+  }
+});
+
 // 2. Message listener from content_bridge or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const { action, requestId, payload } = request;

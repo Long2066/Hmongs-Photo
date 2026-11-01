@@ -1,15 +1,15 @@
 /**
  * Content Bridge Script for ImageTool Web App
  * 
- * Runs on https://vip-imagetools.vercel.app and localhost:3000
- * Bridges communication between web UI and Google Flow Extension.
+ * Runs on https://vip-imagetools.vercel.app, *.vercel.app, and localhost
+ * Bridges communication between web UI, Google Flow Extension, and Google Quota Station.
  */
 
 // Mark DOM without violating Content Security Policy (No inline <script>)
 try {
   document.documentElement.dataset.flowBridgeInstalled = 'true';
-  document.documentElement.dataset.flowBridgeVersion = '1.0.3';
-  window.dispatchEvent(new CustomEvent('imagetool-flow-bridge-ready', { detail: { version: '1.0.3' } }));
+  document.documentElement.dataset.flowBridgeVersion = '1.0.4';
+  window.dispatchEvent(new CustomEvent('imagetool-flow-bridge-ready', { detail: { version: '1.0.4' } }));
 } catch (e) {
   // Ignore fallback
 }
@@ -33,7 +33,7 @@ function notifyPageReady() {
   window.postMessage(
     {
       type: 'FLOW_BRIDGE_PONG',
-      version: '1.0.3',
+      version: '1.0.4',
       installed: true,
     },
     '*'
@@ -48,7 +48,7 @@ const timer = setInterval(() => {
     return;
   }
   notifyPageReady();
-}, 3000);
+}, 2500);
 
 // Listen for requests from web page
 window.addEventListener('message', async (event) => {
@@ -160,13 +160,13 @@ window.addEventListener('message', async (event) => {
   }
 });
 
-// Listen for progress/success events from background script
+// Listen for progress/success events and OAuth captures from background script
 try {
   if (isExtensionValid()) {
     chrome.runtime.onMessage.addListener((message) => {
       if (!message || !message.type) return;
 
-      if (message.type.startsWith('FLOW_')) {
+      if (message.type.startsWith('FLOW_') || message.type.startsWith('QUOTA_')) {
         window.postMessage(message, '*');
       }
     });
