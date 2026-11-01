@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ImageTool Flow Bridge - Veo 3.1 & Quota Auto",
+  "name": "vip-imagetools",
   "version": "1.0.4",
-  "description": "Cầu nối tự động tạo video Google Veo 3.1 & tự động nạp Quota Google vào ImageTool",
+  "description": "Cầu nối tự động tạo video Google Veo 3.1 & tự động nạp Quota Google vào vip-imagetools",
   "permissions": [
     "cookies",
     "storage",
@@ -46,7 +46,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ImageTool Flow Bridge",
+    "default_title": "vip-imagetools",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

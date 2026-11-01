@@ -264,7 +264,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                         <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-3 text-xs">
                             <div className="flex items-center gap-2 text-slate-700">
                                 <span className="text-base">💡</span>
-                                <span>Tiện ích <strong>ImageTool Flow Bridge</strong> hỗ trợ tự động nạp 100% không cần copy link.</span>
+                                <span>Tiện ích <strong>vip-imagetools</strong> hỗ trợ tự động nạp 100% không cần copy link.</span>
                             </div>
                         </div>
                     )}

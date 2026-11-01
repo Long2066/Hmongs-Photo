@@ -1,5 +1,5 @@
 /**
- * Background Service Worker for ImageTool Flow Bridge Extension
+ * Background Service Worker for vip-imagetools Extension
  * 
  * Tối ưu hoá Phương án 2: Bắt trực tiếp tab Google Flow đang mở của người dùng,
  * giữ kết nối liên tục (heartbeat) để chống Chrome đóng băng ngầm (tab throttling),
