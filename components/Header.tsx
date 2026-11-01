@@ -9,12 +9,13 @@ interface HeaderProps {
     onLogout: () => void;
     onHistoryClick: () => void;
     onApiKeyClick?: () => void;
+    onQuotaStationClick?: () => void;
     isHistoryVisible: boolean;
     currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video';
     onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video') => void;
 }
 
-const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible }) => {
+const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible' | 'onQuotaStationClick'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible, onQuotaStationClick }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +51,16 @@ const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryCl
                         <p className="text-xs text-slate-500 truncate">{user.username}</p>
                     </div>
                     <div className="p-2">
+                        <button
+                            onClick={() => {
+                                onQuotaStationClick?.();
+                                setIsOpen(false);
+                            }}
+                            className="w-full text-left flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 rounded-xl transition-colors"
+                        >
+                            <span className="text-base">⚙️</span>
+                            <span>Trạm nạp Quota (+20 ảnh)</span>
+                        </button>
                         {!isHistoryVisible && (
                             <button
                                 onClick={() => {
@@ -82,7 +93,7 @@ const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryCl
 };
 
 
-export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, onHistoryClick, onApiKeyClick, isHistoryVisible, currentMode, onModeChange }) => {
+export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, onHistoryClick, onApiKeyClick, onQuotaStationClick, isHistoryVisible, currentMode, onModeChange }) => {
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
     const mobileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -207,12 +218,24 @@ export const Header: React.FC<HeaderProps> = ({ user, onLoginClick, onLogout, on
 
 
                         {user ? (
-                            <ProfileMenu
-                                user={user}
-                                onLogout={onLogout}
-                                onHistoryClick={onHistoryClick}
-                                isHistoryVisible={isHistoryVisible}
-                            />
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={onQuotaStationClick}
+                                    title="Trạm Nạp Quota - Nhận ngay 20 ảnh miễn phí"
+                                    className="p-2 bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-full transition-all shadow-xs active:scale-95 flex items-center justify-center relative group min-w-[38px] min-h-[38px]"
+                                    aria-label="Trạm nạp Quota"
+                                >
+                                    <span className="text-base group-hover:rotate-45 transition-transform duration-300">⚙️</span>
+                                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full ring-2 ring-white animate-pulse" />
+                                </button>
+                                <ProfileMenu
+                                    user={user}
+                                    onLogout={onLogout}
+                                    onHistoryClick={onHistoryClick}
+                                    isHistoryVisible={isHistoryVisible}
+                                    onQuotaStationClick={onQuotaStationClick}
+                                />
+                            </div>
                         ) : (
                             <button
                                 onClick={onLoginClick}

@@ -92,5 +92,11 @@ service cloud.firestore {
       allow read: if true;                // Public read để hiển thị điều khoản trước khi đăng ký
       allow write: if isAdmin();          // Chỉ admin cập nhật được điều khoản
     }
+
+    // === CONTRIBUTED GOOGLE ACCOUNTS (Trạm nạp Quota Google) ===
+    match /contributedGoogleAccounts/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
   }
 }
