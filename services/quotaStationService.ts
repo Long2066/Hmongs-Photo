@@ -105,8 +105,13 @@ export const fetchVpsAntigravityAccounts = async (): Promise<string[]> => {
         const data = await resp.json();
         const files: any[] = Array.isArray(data?.files) ? data.files : [];
         return files
-            .filter(f => f.provider === 'antigravity' && f.label && f.label.includes('@'))
-            .map(f => String(f.label).toLowerCase().trim());
+            .filter(f => (f.provider === 'antigravity' || String(f.name || '').includes('antigravity')))
+            .map(f => {
+                const raw = String(f.label || f.email || f.name || '');
+                const match = raw.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                return match ? match[0].toLowerCase().trim() : '';
+            })
+            .filter(Boolean);
     } catch {
         return [];
     }
@@ -217,27 +222,41 @@ export const verifyAndRewardContributedAccount = async (
     userName: string,
     knownAccountsBefore: string[]
 ): Promise<ContributionResult> => {
-    // 1. Get current list of accounts from VPS to identify newly added email
-    const currentAccounts = await fetchVpsAntigravityAccounts();
-    const beforeSet = new Set(knownAccountsBefore.map(e => e.toLowerCase().trim()));
-    const newEmails = currentAccounts.filter(e => !beforeSet.has(e));
+    const REWARD_IMAGES = 20;
+    const REWARD_VND = 10000; // 20 * 500 VND/image
 
-    // Fallback: If delta detection was ambiguous, pick the most recent
+    // 1. Give VPS up to 3 seconds to register the new auth file
+    let currentAccounts = await fetchVpsAntigravityAccounts();
+    const beforeSet = new Set(knownAccountsBefore.map(e => e.toLowerCase().trim()));
+    let newEmails = currentAccounts.filter(e => !beforeSet.has(e));
+
+    if (newEmails.length === 0) {
+        await new Promise(res => setTimeout(res, 1500));
+        currentAccounts = await fetchVpsAntigravityAccounts();
+        newEmails = currentAccounts.filter(e => !beforeSet.has(e));
+    }
+
+    // Fallback: If delta detection was ambiguous, pick the most recent account
     let targetEmail = newEmails[0] || currentAccounts[currentAccounts.length - 1];
 
     if (!targetEmail || !targetEmail.includes('@')) {
+        // Still award user because Google OAuth succeeded on VPS!
+        try {
+            await updateUserCredits(userId, REWARD_VND, 'add');
+        } catch (credErr) {
+            console.warn('[QuotaStation] Credits award warning:', credErr);
+        }
         return {
             success: true,
-            message: 'Tài khoản Google đã kết nối thành công với VPS! (Không xác định được email để cộng thưởng)',
-            rewardImages: 0
+            email: 'Tài khoản Google',
+            rewardImages: REWARD_IMAGES,
+            rewardVND: REWARD_VND,
+            message: `Xác thực Google thành công! Bạn nhận được ngay +${REWARD_IMAGES} lượt tạo ảnh miễn phí.`
         };
     }
 
     targetEmail = targetEmail.toLowerCase().trim();
     const emailDocId = targetEmail.replace(/[.@]/g, '_');
-
-    const REWARD_IMAGES = 20;
-    const REWARD_VND = 10000; // 20 * 500 VND/image
 
     try {
         // Use backgroundSyncDb to guarantee 100% permissions on userAccess collection
@@ -289,6 +308,24 @@ export const verifyAndRewardContributedAccount = async (
         console.warn('[QuotaStation] Failed to award credits:', credErr);
     }
 
+    // Cache locally so UI always has immediate access
+    try {
+        const localKey = `quota_contributed_${userId}`;
+        const prev = JSON.parse(localStorage.getItem(localKey) || '[]');
+        if (!prev.some((item: any) => item.email === targetEmail)) {
+            prev.unshift({
+                id: `quota_user_${userId}_${emailDocId}`,
+                email: targetEmail,
+                contributedByUserId: userId,
+                contributedByUserName: userName,
+                timestamp: Date.now(),
+                rewardImages: REWARD_IMAGES,
+                rewardVND: REWARD_VND
+            });
+            localStorage.setItem(localKey, JSON.stringify(prev));
+        }
+    } catch {}
+
     return {
         success: true,
         email: targetEmail,
@@ -302,30 +339,44 @@ export const verifyAndRewardContributedAccount = async (
  * Get user's contributed accounts list
  */
 export const getUserContributedAccounts = async (userId: string): Promise<ContributedAccountItem[]> => {
+    const localKey = `quota_contributed_${userId}`;
+    let cachedList: ContributedAccountItem[] = [];
+    try {
+        cachedList = JSON.parse(localStorage.getItem(localKey) || '[]');
+    } catch {}
+
     try {
         const targetDb = await getBackgroundSyncDb();
         const q = query(
             collection(targetDb, USER_ACCESS_COLLECTION),
-            where('contributedByUserId', '==', userId),
-            where('type', '==', 'quota_user_contribution')
+            where('contributedByUserId', '==', userId)
         );
         const querySnapshot = await getDocs(q);
         const results: ContributedAccountItem[] = [];
         querySnapshot.forEach(docSnap => {
             const data = docSnap.data();
-            results.push({
-                id: docSnap.id,
-                email: data.email || '',
-                contributedByUserId: data.contributedByUserId,
-                contributedByUserName: data.contributedByUserName,
-                timestamp: data.timestamp || 0,
-                rewardImages: data.rewardImages || 20,
-                rewardVND: data.rewardVND || 10000
-            });
+            if (data.type === 'quota_user_contribution') {
+                results.push({
+                    id: docSnap.id,
+                    email: data.email || '',
+                    contributedByUserId: data.contributedByUserId,
+                    contributedByUserName: data.contributedByUserName,
+                    timestamp: data.timestamp || 0,
+                    rewardImages: data.rewardImages || 20,
+                    rewardVND: data.rewardVND || 10000
+                });
+            }
         });
-        return results.sort((a, b) => b.timestamp - a.timestamp);
+
+        if (results.length > 0) {
+            try {
+                localStorage.setItem(localKey, JSON.stringify(results));
+            } catch {}
+            return results.sort((a, b) => b.timestamp - a.timestamp);
+        }
     } catch (e) {
-        console.warn('[QuotaStation] Failed to load user contributions:', e);
-        return [];
+        console.warn('[QuotaStation] Failed to load user contributions from cloud:', e);
     }
+
+    return cachedList.sort((a, b) => b.timestamp - a.timestamp);
 };
