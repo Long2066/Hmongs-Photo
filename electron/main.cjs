@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
@@ -14,6 +14,16 @@ app.userAgentFallback = CHROME_UA;
 
 app.on('web-contents-created', (_event, contents) => {
     contents.setUserAgent(CHROME_UA);
+});
+
+app.on('browser-window-created', (_event, win) => {
+    win.webContents.setUserAgent(CHROME_UA);
+    if (win !== mainWindow) {
+        win.webContents.setWindowOpenHandler(({ url }) => {
+            shell.openExternal(url);
+            return { action: 'deny' };
+        });
+    }
 });
 
 // Store for user settings
@@ -275,16 +285,42 @@ async function createWindow() {
 
     // Support Google OAuth Popups & Links in Electron
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        // If it's Quota Station OAuth or Google sign-in, open in external Chrome to avoid embedded webview block
+        // Quota Station OAuth (port 51121) or Gemini OAuth (port 8085) or Flow -> external Chrome
         if (
-            url.includes('accounts.google.com') ||
-            url.includes('flow.google.com') ||
-            url.includes('oauth')
+            url.includes('51121') ||
+            url.includes('8085') ||
+            url.includes('flow.google.com')
         ) {
-            console.log('[WindowOpenHandler] Opening in external Chrome:', url);
+            console.log('[WindowOpenHandler] Opening Quota/Flow in external Chrome:', url);
             openInChromeOrBrowser(url);
             return { action: 'deny' };
         }
+
+        // Firebase Google OAuth Sign-in Popup:
+        // MUST allow as child BrowserWindow so window.opener and postMessage remain intact!
+        if (
+            url.includes('firebaseapp.com') ||
+            url.includes('/__/auth/') ||
+            url.includes('accounts.google.com')
+        ) {
+            console.log('[WindowOpenHandler] Allowing internal OAuth popup:', url);
+            return {
+                action: 'allow',
+                overrideBrowserWindowOptions: {
+                    width: 500,
+                    height: 650,
+                    autoHideMenuBar: true,
+                    title: 'Đăng nhập Google - ImageTool',
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true,
+                        userAgent: CHROME_UA
+                    }
+                }
+            };
+        }
+
+        console.log('[WindowOpenHandler] Opening external link in browser:', url);
         shell.openExternal(url);
         return { action: 'deny' };
     });
@@ -709,7 +745,19 @@ ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, b
 });
 
 // ============ APP LIFECYCLE ============
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    // Intercept web requests to ensure Chrome headers and remove Electron markers
+    if (session && session.defaultSession) {
+        session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+            details.requestHeaders['User-Agent'] = CHROME_UA;
+            if (details.requestHeaders['sec-ch-ua']) {
+                details.requestHeaders['sec-ch-ua'] = '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"';
+            }
+            callback({ cancel: false, requestHeaders: details.requestHeaders });
+        });
+    }
+    createWindow();
+});
 
 app.on('window-all-closed', () => {
     if (localServer) {
