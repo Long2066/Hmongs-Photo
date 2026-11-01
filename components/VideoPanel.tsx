@@ -10,6 +10,11 @@ import {
     setVideoResolution,
     getVideoDuration,
     setVideoDuration,
+    isElectronApp,
+    listElectronProfiles,
+    addElectronProfile,
+    removeElectronProfile,
+    ElectronFlowProfile,
 } from '../services/geminiVideoService';
 
 import {
@@ -107,6 +112,43 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 }) => {
     // Engine State: 'flow_extension' (Default) vs 'fal_ai' vs 'flow_local'
     const [engine, setEngineState] = useState<VideoEngine>(() => getVideoEngine());
+
+    // Electron Multi-Profile State
+    const isElectron = isElectronApp();
+    const [profiles, setProfiles] = useState<ElectronFlowProfile[]>([]);
+    const [selectedProfileId, setSelectedProfileId] = useState<string>('auto');
+    const [isLoggingInGoogle, setIsLoggingInGoogle] = useState<boolean>(false);
+
+    useEffect(() => {
+        if (isElectron) {
+            listElectronProfiles().then(setProfiles);
+        }
+    }, [isElectron]);
+
+    const handleAddGoogleAccount = async () => {
+        setIsLoggingInGoogle(true);
+        try {
+            const res = await addElectronProfile();
+            if (res.success && res.profile) {
+                const updated = await listElectronProfiles();
+                setProfiles(updated);
+                setSelectedProfileId(res.profile.id);
+            }
+        } catch (e) {
+            console.error('Login error:', e);
+        } finally {
+            setIsLoggingInGoogle(false);
+        }
+    };
+
+    const handleRemoveGoogleAccount = async (profileId: string) => {
+        await removeElectronProfile(profileId);
+        const updated = await listElectronProfiles();
+        setProfiles(updated);
+        if (selectedProfileId === profileId) {
+            setSelectedProfileId('auto');
+        }
+    };
 
     // Extension Specific State
     const [isExtensionInstalled, setIsExtensionInstalled] = useState<boolean>(false);
@@ -286,13 +328,19 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         return () => window.removeEventListener('paste', handlePaste);
     }, [onImagesChange]);
 
-    const isExtensionMode = engine === 'flow_extension';
+    const isProfileMode = engine === 'flow_profile';
+    const isExtensionMode = engine === 'flow_extension' || engine === 'flow_profile';
     const isFalMode = engine === 'fal_ai';
 
     const canSubmit = !isLoading && !isDisabled && hasInputImage;
 
     const handleExecuteGenerate = () => {
-        if (isExtensionMode && !isExtensionInstalled) {
+        if (isElectron) {
+            if (profiles.length === 0 && !isFalMode) {
+                alert('Vui lòng bấm "Thêm Gmail" để kết nối tài khoản Google trước khi tạo video!');
+                return;
+            }
+        } else if (isExtensionMode && !isExtensionInstalled) {
             setShowExtensionGuide(true);
             alert('Vui lòng cài đặt Tiện ích vip-imagetools trên Chrome để tạo video tự động (hoặc nhấn F5 nếu bạn vừa cài xong). Hãy xem hướng dẫn tải và cài đặt ở khung bên trên!');
             return;
@@ -345,7 +393,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 <div className="flex items-center gap-1.5">
                     <span
                         className={`w-2.5 h-2.5 rounded-full ${
-                            isExtensionMode && isExtensionInstalled
+                            isElectron
+                                ? profiles.length > 0
+                                    ? 'bg-emerald-400'
+                                    : 'bg-amber-400 animate-pulse'
+                                : isExtensionMode && isExtensionInstalled
                                 ? 'bg-emerald-400'
                                 : isExtensionMode
                                 ? 'bg-amber-400 animate-pulse'
@@ -353,7 +405,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         }`}
                     />
                     <span className="text-[10.5px] text-slate-300 font-mono font-medium">
-                        {isExtensionMode && isExtensionInstalled
+                        {isElectron
+                            ? profiles.length > 0
+                                ? `${profiles.length} Acc sẵn sàng`
+                                : 'Cần thêm Gmail'
+                            : isExtensionMode && isExtensionInstalled
                             ? 'Extension OK'
                             : isExtensionMode
                             ? 'Cần Extension'
@@ -363,47 +419,168 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             </div>
 
             {/* Engine Segmented Bar */}
-            <div className="grid grid-cols-3 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
-                <button
-                    type="button"
-                    onClick={() => handleSwitchEngine('flow_extension')}
-                    className={`min-h-[40px] flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        isExtensionMode
-                            ? 'bg-white text-amber-600 shadow-xs ring-1 ring-slate-900/5'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span>🧩</span>
-                    <span className="truncate">Google Flow</span>
-                </button>
-                <button
-                    type="button"
-                    onClick={() => handleSwitchEngine('fal_ai')}
-                    className={`min-h-[40px] flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        isFalMode
-                            ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span>🚀</span>
-                    <span className="truncate">Fal.ai Cloud</span>
-                </button>
-                <button
-                    type="button"
-                    onClick={() => handleSwitchEngine('flow_local')}
-                    className={`min-h-[40px] flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        engine === 'flow_local'
-                            ? 'bg-white text-rose-700 shadow-xs ring-1 ring-slate-900/5'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span>💻</span>
-                    <span className="truncate">Server PC (.vbs)</span>
-                </button>
-            </div>
+            {isElectron ? (
+                <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('flow_profile')}
+                        className={`min-h-[40px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            engine === 'flow_profile' || engine === 'flow_extension'
+                                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>👤</span>
+                        <span className="truncate">Google Veo (Profile)</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('fal_ai')}
+                        className={`min-h-[40px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            isFalMode
+                                ? 'bg-white text-purple-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>🚀</span>
+                        <span className="truncate">Fal.ai Cloud</span>
+                    </button>
+                </div>
+            ) : (
+                <div className="grid grid-cols-3 p-1 bg-slate-100 rounded-xl ring-1 ring-slate-900/5">
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('flow_extension')}
+                        className={`min-h-[40px] flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            isExtensionMode
+                                ? 'bg-white text-amber-600 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>🧩</span>
+                        <span className="truncate">Google Flow</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('fal_ai')}
+                        className={`min-h-[40px] flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            isFalMode
+                                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>🚀</span>
+                        <span className="truncate">Fal.ai Cloud</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSwitchEngine('flow_local')}
+                        className={`min-h-[40px] flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            engine === 'flow_local'
+                                ? 'bg-white text-rose-700 shadow-xs ring-1 ring-slate-900/5'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <span>💻</span>
+                        <span className="truncate">Server PC (.vbs)</span>
+                    </button>
+                </div>
+            )}
+
+            {/* Electron Multi-Profile Account Manager */}
+            {isElectron && (engine === 'flow_profile' || engine === 'flow_extension') && (
+                <div className="p-3.5 rounded-2xl bg-slate-50 ring-1 ring-slate-900/5 flex flex-col gap-3 animate-fade-in shadow-xs">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm">👥</span>
+                            <span className="text-xs font-bold text-slate-900">
+                                Hồ sơ Tài khoản Google ({profiles.length})
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleAddGoogleAccount}
+                            disabled={isLoggingInGoogle}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg ring-1 ring-indigo-500/20 flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                        >
+                            <span>➕</span>
+                            <span>{isLoggingInGoogle ? 'Đang mở đăng nhập...' : 'Thêm Gmail'}</span>
+                        </button>
+                    </div>
+
+                    {profiles.length === 0 ? (
+                        <div className="p-3.5 rounded-xl bg-amber-50/80 ring-1 ring-amber-500/20 flex flex-col gap-2.5">
+                            <div className="flex items-start gap-2">
+                                <span className="text-lg shrink-0">🔑</span>
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-amber-950">Chưa kết nối tài khoản Google</span>
+                                    <span className="text-[11px] text-amber-800 leading-relaxed">
+                                        Đăng nhập 1 lần duy nhất trên máy. Ứng dụng tự động lưu hồ sơ độc lập và tạo video Veo 3.1 không lo chết cookie!
+                                    </span>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleAddGoogleAccount}
+                                disabled={isLoggingInGoogle}
+                                className="w-full py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+                            >
+                                <span>🔑</span>
+                                <span>{isLoggingInGoogle ? 'Đang mở cửa sổ đăng nhập...' : 'Bấm vào đây để đăng nhập tài khoản Google'}</span>
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedProfileId('auto')}
+                                    className={`px-2.5 py-1 text-[11px] rounded-lg font-medium transition-all cursor-pointer ${
+                                        selectedProfileId === 'auto'
+                                            ? 'bg-indigo-600 text-white shadow-xs'
+                                            : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    🔄 Tự động xoay vòng ({profiles.length})
+                                </button>
+                                {profiles.map((p) => (
+                                    <div
+                                        key={p.id}
+                                        className={`group px-2.5 py-1 text-[11px] rounded-lg font-medium flex items-center gap-1.5 transition-all ${
+                                            selectedProfileId === p.id
+                                                ? 'bg-indigo-600 text-white shadow-xs'
+                                                : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedProfileId(p.id)}
+                                            className="cursor-pointer truncate max-w-[130px]"
+                                            title={p.email}
+                                        >
+                                            {p.email.split('@')[0]}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveGoogleAccount(p.id)}
+                                            className="text-slate-400 hover:text-rose-500 cursor-pointer ml-0.5"
+                                            title="Xóa tài khoản này"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                            <span className="text-[10px] text-slate-500 italic">
+                                * Tài khoản được lưu trên máy của bạn, phiên tự động duy trì an toàn 100%.
+                            </span>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Extension Setup Notice if not connected */}
-            {isExtensionMode && !isExtensionInstalled && (
+            {!isElectron && isExtensionMode && !isExtensionInstalled && (
                 <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 ring-1 ring-amber-500/30 flex flex-col gap-3 animate-fade-in shadow-xs">
                     <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">

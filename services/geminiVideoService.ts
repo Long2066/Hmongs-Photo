@@ -5,9 +5,59 @@ import { generateFalVideo } from './falVideoService';
  * Service tích hợp Video AI: Google Flow Extension (Mới), Fal.ai Cloud, Google Flow Local & SiliconFlow
  */
 
-export type VideoEngine = 'flow_extension' | 'fal_ai' | 'flow_local' | 'siliconflow';
+export type VideoEngine = 'flow_profile' | 'flow_extension' | 'fal_ai' | 'flow_local' | 'siliconflow';
+
+export interface ElectronFlowProfile {
+    id: string;
+    email: string;
+    name: string;
+    status: 'active' | 'expired' | 'error';
+    hasValidSession?: boolean;
+    createdAt?: number;
+    lastUsedAt?: number;
+}
+
+export const isElectronApp = (): boolean => {
+    return typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
+};
+
+export const listElectronProfiles = async (): Promise<ElectronFlowProfile[]> => {
+    if (!isElectronApp()) return [];
+    try {
+        return await (window as any).electronAPI.flowProfileList();
+    } catch (e) {
+        console.error('Failed to list profiles:', e);
+        return [];
+    }
+};
+
+export const addElectronProfile = async (): Promise<{ success: boolean; profile?: ElectronFlowProfile; error?: string }> => {
+    if (!isElectronApp()) return { success: false, error: 'Chỉ hỗ trợ trên ứng dụng Electron máy tính' };
+    try {
+        return await (window as any).electronAPI.flowProfileAdd();
+    } catch (e: any) {
+        return { success: false, error: e.message || 'Lỗi mở cửa sổ đăng nhập Google' };
+    }
+};
+
+export const removeElectronProfile = async (profileId: string): Promise<boolean> => {
+    if (!isElectronApp()) return false;
+    try {
+        const res = await (window as any).electronAPI.flowProfileRemove(profileId);
+        return res?.success || false;
+    } catch (e) {
+        return false;
+    }
+};
 
 export const getVideoEngine = (): VideoEngine => {
+    if (isElectronApp()) {
+        const saved = localStorage.getItem('video_engine');
+        if (!saved || saved === 'flow_extension' || saved === 'flow_local') {
+            return 'flow_profile';
+        }
+        return saved as VideoEngine;
+    }
     return (localStorage.getItem('video_engine') as VideoEngine) || 'flow_extension';
 };
 
@@ -462,6 +512,45 @@ export const removeAccountFromFlowPool = async (accId: string): Promise<any> => 
  */
 export const generateVideo = async (params: VideoGenerationParams): Promise<{ url: string; urls: string[]; bytes?: number }> => {
     const engine = getVideoEngine();
+
+    // 0. Chế độ Native Electron Multi-Profile (Nếu đang chạy trên ứng dụng máy tính)
+    if (isElectronApp() && (engine === 'flow_profile' || engine === 'flow_extension')) {
+        const api = (window as any).electronAPI;
+        if (api?.flowProfileGenerateVideo) {
+            return new Promise(async (resolve, reject) => {
+                let currentSec = 0;
+                const timer = setInterval(() => {
+                    currentSec += 2;
+                }, 2000);
+
+                api.onFlowVideoProgress?.((data: any) => {
+                    params.onProgress?.(data.message || 'Đang tạo video...', currentSec);
+                });
+
+                try {
+                    const res = await api.flowProfileGenerateVideo({
+                        prompt: params.prompt,
+                        aspectRatio: params.aspectRatio,
+                        inputImageBase64: params.inputImageBase64,
+                        model: params.model || 'Veo 3.1 - Lite',
+                        outputCount: params.outputCount || 1,
+                    });
+                    clearInterval(timer);
+                    if (res && res.success) {
+                        resolve({
+                            url: res.url || '',
+                            urls: res.urls || (res.url ? [res.url] : []),
+                        });
+                    } else {
+                        reject(new Error(res?.error || 'Lỗi khi tạo video trên Google Flow'));
+                    }
+                } catch (err: any) {
+                    clearInterval(timer);
+                    reject(new Error(err.message || 'Lỗi xử lý video'));
+                }
+            });
+        }
+    }
 
     // 1. Chế độ Chrome Extension Bridge (Tài khoản Google Flow cá nhân - Không cần cài server)
     if (engine === 'flow_extension') {

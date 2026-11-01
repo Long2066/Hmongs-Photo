@@ -3,6 +3,7 @@ const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const oauthHandler = require('./oauth-handler.cjs');
+const flowProfileManager = require('./flow-profile-manager.cjs');
 
 // Store for user settings
 let downloadPath = app.getPath('downloads');
@@ -30,6 +31,13 @@ function createWindow() {
         show: false,
         backgroundColor: '#f8fafc'
     });
+
+    // Initialize Flow Profile Manager
+    try {
+        flowProfileManager.initFlowProfileManager(mainWindow);
+    } catch (e) {
+        console.error('[FlowProfileManager] Init error:', e);
+    }
 
     // Load the app
     if (process.env.NODE_ENV === 'development') {

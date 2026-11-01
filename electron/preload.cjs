@@ -40,6 +40,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     googleOAuthCheckCli: () => ipcRenderer.invoke('google-oauth:check-cli'),
     googleOAuthApiCall: (params) => ipcRenderer.invoke('google-oauth:api-call', params),
 
+    // ============ GOOGLE FLOW PROFILES (VEO 3.1) ============
+    flowProfileList: () => ipcRenderer.invoke('flow-profile:list'),
+    flowProfileAdd: () => ipcRenderer.invoke('flow-profile:add'),
+    flowProfileRemove: (profileId) => ipcRenderer.invoke('flow-profile:remove', profileId),
+    flowProfileGenerateVideo: (params) => ipcRenderer.invoke('flow-profile:generate-video', params),
+    onFlowVideoProgress: (callback) => ipcRenderer.on('flow-video:progress', (event, data) => callback(data)),
+
     // ============ PLATFORM INFO ============
     isElectron: true,
     platform: process.platform
