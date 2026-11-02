@@ -16,6 +16,7 @@ import { ActivityLog } from '../../components/ActivityLog';
 import { DownloadHelpModal } from '../../components/DownloadHelpModal';
 import { Marquee } from '../../components/Marquee';
 import * as storage from '../../services/storageService';
+import { downloadImage } from '../../services/downloadService';
 import { useAuth } from '../contexts/AuthContext';
 
 // Data structure for each mode to persist state
@@ -92,14 +93,9 @@ export const Dashboard: React.FC = () => {
         checkApiKey();
     }, [checkApiKey]);
 
-    const triggerDownload = (base64: string, filename: string) => {
+    const triggerDownload = async (base64: string, filename: string) => {
         try {
-            const link = document.createElement('a');
-            link.href = `data:image/png;base64,${base64}`;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            await downloadImage(base64, filename);
         } catch (e) {
             console.error("Auto download failed:", e);
         }

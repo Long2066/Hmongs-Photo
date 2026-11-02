@@ -31,6 +31,7 @@ import { CreditsConfirmDialog } from './components/CreditsConfirmDialog';
 import { BottomNavigation } from './components/BottomNavigation';
 import { MobileBottomSheet } from './components/MobileBottomSheet';
 import * as storage from './services/storageService';
+import { downloadImage } from './services/downloadService';
 import { subscribeToUserCredits, updateUserCredits } from './services/firebaseService';
 import { getSystemApiKey, getModelConfig, getSelectedImageModel, formatVND } from './services/geminiCoreService';
 import { deductBalance, getCachedBalance, addUsageRecord } from './services/balanceService';
@@ -85,7 +86,13 @@ const App: React.FC = () => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [mobileActiveTab, setMobileActiveTab] = useState<'input' | 'config' | null>(null);
     const [isMobileScreen, setIsMobileScreen] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
-    const [autoDownload, setAutoDownload] = useState(false);
+    const [autoDownload, setAutoDownload] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('auto_download_enabled') === 'true';
+        } catch {
+            return false;
+        }
+    });
     const [appVersion, setAppVersion] = useState('2.0.0'); // Default version
 
     // Loading & Error (Global mostly, but could be per mode if needed)
@@ -306,20 +313,21 @@ const App: React.FC = () => {
     }, [currentUser]);
 
     // --- UTILITY ---
-    const triggerDownload = (base64: string, filename: string) => {
+    const triggerDownload = async (base64: string, filename: string) => {
         try {
-            const byteCharacters = atob(base64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            await downloadImage(base64, filename);
+            if (false) {
+
+
+
             }
-            const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+
+
+
+
+
+
+
         } catch (e) {
             console.error("Auto download failed:", e);
         }
@@ -862,6 +870,7 @@ const App: React.FC = () => {
             updateModeState(() => ({ outputs: [result], prompts: ['Phục hồi ảnh cũ'] }));
 
             if (result) {
+                if (autoDownload) triggerDownload(result, 'restored_photo.png');
                 // Store comparison data for slider
                 setComparisonData({
                     before: inputs[0].base64,
@@ -1107,7 +1116,7 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                             <div className="relative inline-block w-9 h-5 align-middle select-none">
-                                <input type="checkbox" name="toggle" id="toggle" checked={autoDownload} onChange={(e) => setAutoDownload(e.target.checked)} className="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 right-4 checked:border-indigo-600 shadow-sm top-0.5" />
+                                <input type="checkbox" name="toggle" id="toggle" checked={autoDownload} onChange={(e) => { const val = e.target.checked; setAutoDownload(val); try { localStorage.setItem('auto_download_enabled', String(val)); } catch {} }} className="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 right-4 checked:border-indigo-600 shadow-sm top-0.5" />
                                 <label htmlFor="toggle" className={`toggle-label block overflow-hidden h-5 rounded-full cursor-pointer transition-colors ${autoDownload ? 'bg-indigo-600' : 'bg-slate-300'}`}></label>
                             </div>
                         </div>

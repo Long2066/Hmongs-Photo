@@ -1,6 +1,8 @@
 /**
- * Download Service - Handles file downloads for both web and mobile (Android/iOS)
- * Uses Capacitor Filesystem for native mobile, fallback to data URL for web
+ * Download Service - Handles file downloads for Web, Mobile (Android/iOS), and Electron Desktop
+ * - Electron Desktop: Writes directly to user's configured custom folder
+ * - Android/iOS: Uses Capacitor Filesystem to save to Documents/Downloads
+ * - Web Browser: Uses standard data URL / blob download
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -20,7 +22,15 @@ export function isNativePlatform(): boolean {
 }
 
 /**
+ * Check if running in Electron desktop
+ */
+export function isElectronPlatform(): boolean {
+    return typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
+}
+
+/**
  * Download base64 image to device
+ * - On Electron Desktop: Saves directly to configured custom folder using electronAPI.saveFile
  * - On Android/iOS: Saves to Downloads folder using Capacitor Filesystem
  * - On Web: Uses traditional data URL download
  */
@@ -30,9 +40,35 @@ export async function downloadImage(base64: string, filename: string): Promise<D
         filename = `${filename}.png`;
     }
 
-    if (isNativePlatform()) {
+    if (isElectronPlatform() && (window as any).electronAPI?.saveFile) {
+        return downloadElectron(base64, filename);
+    } else if (isNativePlatform()) {
         return downloadNative(base64, filename);
     } else {
+        return downloadWeb(base64, filename);
+    }
+}
+
+/**
+ * Electron desktop download using native Node filesystem via IPC
+ */
+async function downloadElectron(base64: string, filename: string): Promise<DownloadResult> {
+    try {
+        const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
+        const result = await (window as any).electronAPI.saveFile(cleanBase64, filename);
+        if (result && result.success) {
+            console.log('[Download] File saved to custom folder:', result.path);
+            return {
+                success: true,
+                message: `✅ Đã lưu vào thư mục: ${result.path || filename}`,
+                path: result.path
+            };
+        } else {
+            console.warn('[Download] Electron saveFile returned error, falling back to web:', result?.error);
+            return downloadWeb(base64, filename);
+        }
+    } catch (err: any) {
+        console.error('[Download] Failed to save file via Electron:', err);
         return downloadWeb(base64, filename);
     }
 }
@@ -106,8 +142,9 @@ async function downloadNative(base64: string, filename: string): Promise<Downloa
  */
 function downloadWeb(base64: string, filename: string): DownloadResult {
     try {
+        const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
         // Convert base64 to blob for better compatibility
-        const byteCharacters = atob(base64);
+        const byteCharacters = atob(cleanBase64);
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
             byteNumbers[i] = byteCharacters.charCodeAt(i);

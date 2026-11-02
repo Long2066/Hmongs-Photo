@@ -41,7 +41,7 @@ if ($confirm -eq "Y" -or $confirm -eq "y") {
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "  HOAN THANH! Version $currentVersion da duoc publish" -ForegroundColor Green
-        Write-Host "  Link: https://github.com/longk2tha-rgb/ImageTool/releases" -ForegroundColor Cyan
+        Write-Host "  Link: https://github.com/Long2066/Hmongs-Photo/releases" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Green
     }
     else {

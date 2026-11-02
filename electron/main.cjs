@@ -26,8 +26,51 @@ app.on('browser-window-created', (_event, win) => {
     }
 });
 
-// Store for user settings
-let downloadPath = app.getPath('downloads');
+// Store for user settings with persistent disk storage
+const getSettingsFilePath = () => {
+    try {
+        const userDataPath = app.getPath('userData');
+        return path.join(userDataPath, 'app_settings.json');
+    } catch {
+        return null;
+    }
+};
+
+const loadSavedDownloadPath = () => {
+    try {
+        const settingsFile = getSettingsFilePath();
+        if (settingsFile && fs.existsSync(settingsFile)) {
+            const data = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+            if (data.downloadPath && typeof data.downloadPath === 'string') {
+                return data.downloadPath;
+            }
+        }
+    } catch (e) {
+        console.warn('[Settings] Failed to load downloadPath:', e);
+    }
+    return app.getPath('downloads');
+};
+
+const saveSettings = (newSettings) => {
+    try {
+        const settingsFile = getSettingsFilePath();
+        if (!settingsFile) return;
+        let current = {};
+        if (fs.existsSync(settingsFile)) {
+            try {
+                current = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+            } catch {
+                current = {};
+            }
+        }
+        const updated = { ...current, ...newSettings };
+        fs.writeFileSync(settingsFile, JSON.stringify(updated, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[Settings] Failed to save settings:', e);
+    }
+};
+
+let downloadPath = loadSavedDownloadPath();
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -423,32 +466,69 @@ ipcMain.handle('install-update', () => {
 
 // Handle folder picker dialog
 ipcMain.handle('select-download-folder', async () => {
+    const defaultDialogPath = (downloadPath && fs.existsSync(downloadPath)) ? downloadPath : app.getPath('downloads');
     const result = await dialog.showOpenDialog(mainWindow, {
         title: 'Chọn thư mục lưu ảnh',
-        defaultPath: downloadPath,
+        defaultPath: defaultDialogPath,
         properties: ['openDirectory', 'createDirectory']
     });
 
     if (!result.canceled && result.filePaths.length > 0) {
         downloadPath = result.filePaths[0];
+        saveSettings({ downloadPath });
+        console.log('[Settings] Download folder updated & saved:', downloadPath);
         return { success: true, path: downloadPath };
     }
-    return { success: false };
+    return { success: false, path: downloadPath };
 });
 
 // Get current download path
 ipcMain.handle('get-download-path', () => {
+    if (!downloadPath) {
+        downloadPath = loadSavedDownloadPath();
+    }
     return downloadPath;
+});
+
+// Open download folder in OS file explorer
+ipcMain.handle('open-download-folder', async () => {
+    try {
+        const targetDir = downloadPath || app.getPath('downloads');
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
+        await shell.openPath(targetDir);
+        return { success: true, path: targetDir };
+    } catch (error) {
+        console.error('[open-download-folder] Error:', error);
+        return { success: false, error: error.message };
+    }
 });
 
 // Save file to custom folder
 ipcMain.handle('save-file', async (event, { base64, filename }) => {
     try {
-        const filePath = path.join(downloadPath, filename);
-        const buffer = Buffer.from(base64, 'base64');
+        const targetDir = downloadPath || loadSavedDownloadPath();
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        // Clean base64 header (e.g. data:image/png;base64, or data:image/jpeg;base64,)
+        const rawBase64 = (base64 && base64.includes(',')) ? base64.split(',')[1] : base64;
+        const buffer = Buffer.from(rawBase64, 'base64');
+
+        // Sanitise filename
+        let safeFilename = (filename || `image_${Date.now()}.png`).replace(/[\\/:\*\?"<>\|]/g, '_');
+        if (!safeFilename.endsWith('.png') && !safeFilename.endsWith('.jpg') && !safeFilename.endsWith('.jpeg')) {
+            safeFilename = `${safeFilename}.png`;
+        }
+
+        const filePath = path.join(targetDir, safeFilename);
         fs.writeFileSync(filePath, buffer);
-        return { success: true, path: filePath };
+        console.log('[save-file] File successfully saved to:', filePath);
+        return { success: true, path: filePath, filename: safeFilename };
     } catch (error) {
+        console.error('[save-file] Error saving file:', error);
         return { success: false, error: error.message };
     }
 });
@@ -769,6 +849,22 @@ app.whenReady().then(() => {
                 details.requestHeaders['sec-ch-ua'] = '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"';
             }
             callback({ cancel: false, requestHeaders: details.requestHeaders });
+        });
+
+        // Intercept all Chromium downloads to automatically route files into configured downloadPath
+        session.defaultSession.on('will-download', (event, item) => {
+            try {
+                const targetDir = downloadPath || loadSavedDownloadPath() || app.getPath('downloads');
+                if (!fs.existsSync(targetDir)) {
+                    fs.mkdirSync(targetDir, { recursive: true });
+                }
+                const fileName = item.getFilename();
+                const fullSavePath = path.join(targetDir, fileName);
+                item.setSavePath(fullSavePath);
+                console.log('[will-download] Download intercepted, routed to:', fullSavePath);
+            } catch (downloadErr) {
+                console.error('[will-download] Error setting custom save path:', downloadErr);
+            }
         });
     }
     createWindow();

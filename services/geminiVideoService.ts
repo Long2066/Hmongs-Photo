@@ -549,8 +549,12 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<{ ur
                     params.onProgress?.(data.message || 'Đang tạo video...', currentSec);
                 });
 
+                const savedAccId = localStorage.getItem('selected_flow_profile_id');
+                const accountId = savedAccId && savedAccId !== 'auto' ? savedAccId : undefined;
+
                 try {
                     const res = await api.flowProfileGenerateVideo({
+                        accountId,
                         prompt: params.prompt,
                         aspectRatio: params.aspectRatio,
                         inputImageBase64: params.inputImageBase64,

@@ -178,10 +178,16 @@ async function ensureVideoServerRunning() {
     console.log(`[FlowProfileManager] Auto-starting flow-py server using "${pyExe}" at ${pyScript}...`);
 
     try {
-        const pyProcess = spawn(pyExe, ['-X', 'utf8', 'server.py'], {
+        const logFile = path.join(serverDir, 'server.log');
+        let outFd = 'ignore';
+        try {
+            outFd = fs.openSync(logFile, 'a');
+        } catch (e) {}
+
+        const pyProcess = spawn(pyExe, ['-B', '-X', 'utf8', 'server.py'], {
             cwd: serverDir,
             detached: true,
-            stdio: 'ignore',
+            stdio: ['ignore', outFd, outFd],
             windowsHide: true
         });
         pyProcess.unref();
@@ -281,14 +287,40 @@ function parseCookies(input) {
             const arr = Array.isArray(parsed) ? parsed : [parsed];
             for (const item of arr) {
                 if (item.name && item.value) {
+                    let d = item.domain;
+                    if (!d) {
+                        if (item.name.includes('next-auth') || item.name.includes('OSID') || item.name.includes('flow')) {
+                            d = 'flow.google.com';
+                        } else if (item.name.startsWith('__Host-') || item.name.includes('LSID') || item.name.includes('GAPS')) {
+                            d = 'accounts.google.com';
+                        } else {
+                            d = '.google.com';
+                        }
+                    }
                     cookies.push({
                         name: item.name,
                         value: item.value,
-                        domain: item.domain || '.google.com',
+                        domain: d,
                         path: item.path || '/',
                         secure: item.secure !== false,
-                        httpOnly: !!item.httpOnly
+                        httpOnly: !!item.httpOnly,
+                        sameSite: item.sameSite || null,
+                        expirationDate: item.expirationDate || item.expires || null,
+                        hostOnly: !!item.hostOnly || item.name.startsWith('__Host-')
                     });
+                    if (d === 'flow.google.com') {
+                        cookies.push({
+                            name: item.name,
+                            value: item.value,
+                            domain: 'labs.google',
+                            path: item.path || '/',
+                            secure: item.secure !== false,
+                            httpOnly: !!item.httpOnly,
+                            sameSite: item.sameSite || null,
+                            expirationDate: item.expirationDate || item.expires || null,
+                            hostOnly: !!item.hostOnly || item.name.startsWith('__Host-')
+                        });
+                    }
                 }
             }
             if (cookies.length > 0) return cookies;
@@ -303,14 +335,33 @@ function parseCookies(input) {
             const name = p.substring(0, idx).trim();
             const value = p.substring(idx + 1).trim();
             if (name && value) {
+                let domain = '.google.com';
+                const isHostOnly = name.startsWith('__Host-');
+                if (name.includes('next-auth') || name.includes('OSID') || name === 'tool-theme') {
+                    domain = 'flow.google.com';
+                } else if (isHostOnly || name.includes('LSID') || name.includes('GAPS')) {
+                    domain = 'accounts.google.com';
+                }
                 cookies.push({
                     name,
                     value,
-                    domain: '.google.com',
+                    domain,
                     path: '/',
                     secure: true,
-                    httpOnly: false
+                    httpOnly: false,
+                    hostOnly: isHostOnly
                 });
+                if (domain === 'flow.google.com') {
+                    cookies.push({
+                        name,
+                        value,
+                        domain: 'labs.google',
+                        path: '/',
+                        secure: true,
+                        httpOnly: false,
+                        hostOnly: isHostOnly
+                    });
+                }
             }
         }
     }
@@ -322,21 +373,44 @@ function parseCookies(input) {
  */
 async function injectCookiesToSession(authSession, cookiesList) {
     for (const c of cookiesList) {
-        const domain = c.domain || '.google.com';
-        const cleanDomain = domain.startsWith('.') ? domain.slice(1) : domain;
+        const isHostOnly = c.name.startsWith('__Host-') || !!c.hostOnly;
+        let domain = c.domain || (isHostOnly ? 'accounts.google.com' : '.google.com');
+        let cleanDomain = domain.startsWith('.') ? domain.slice(1) : domain;
+        if (!cleanDomain) cleanDomain = 'flow.google.com';
         const url = (c.secure !== false ? 'https://' : 'http://') + cleanDomain + (c.path || '/');
 
+        const cookieDetails = {
+            url,
+            name: c.name,
+            value: c.value,
+            path: c.path || '/',
+            secure: c.secure !== false,
+            httpOnly: !!c.httpOnly
+        };
+
+        if (c.sameSite) {
+            const ss = String(c.sameSite).toLowerCase();
+            if (ss.includes('lax')) cookieDetails.sameSite = 'lax';
+            else if (ss.includes('strict')) cookieDetails.sameSite = 'strict';
+            else if (ss.includes('none') || ss.includes('no_restriction')) cookieDetails.sameSite = 'no_restriction';
+        } else {
+            cookieDetails.sameSite = 'no_restriction';
+        }
+
+        if (c.expirationDate || c.expires) {
+            const exp = parseFloat(c.expirationDate || c.expires);
+            if (!isNaN(exp) && exp > 0) {
+                cookieDetails.expirationDate = exp;
+            }
+        }
+
+        // Host-only cookies CANNOT have a domain property in Electron / Chromium
+        if (!isHostOnly) {
+            cookieDetails.domain = domain;
+        }
+
         try {
-            await authSession.cookies.set({
-                url,
-                name: c.name,
-                value: c.value,
-                domain: domain,
-                path: c.path || '/',
-                secure: c.secure !== false,
-                httpOnly: !!c.httpOnly,
-                sameSite: 'no_restriction'
-            });
+            await authSession.cookies.set(cookieDetails);
         } catch (err) {
             // Ignore minor cookie set errors
         }
@@ -368,8 +442,14 @@ function initFlowProfileManager(mainWindow) {
         for (const p of profiles) {
             try {
                 const s = session.fromPartition(p.partition);
-                const cookies = await s.cookies.get({ domain: '.google.com' });
-                const hasSession = cookies.some(c => c.name === '__Secure-1PSID' || c.name === 'SID');
+                // Retrieve ALL cookies without domain filtering to preserve flow.google.com and host cookies
+                const cookies = await s.cookies.get({});
+                const hasSession = cookies.some(c => 
+                    c.name === '__Secure-1PSID' || 
+                    c.name === 'SID' || 
+                    c.name.includes('next-auth') || 
+                    c.name === 'OSID'
+                );
                 results.push({
                     ...p,
                     hasValidSession: hasSession,
@@ -415,14 +495,19 @@ function initFlowProfileManager(mainWindow) {
 
         await injectCookiesToSession(authSession, parsed);
 
-        // Verify session
-        const stored = await authSession.cookies.get({ domain: '.google.com' });
-        const hasSession = stored.some(c => c.name === '__Secure-1PSID' || c.name === 'SID');
+        // Verify session across all captured cookies
+        const stored = await authSession.cookies.get({});
+        const hasSession = stored.some(c => 
+            c.name === '__Secure-1PSID' || 
+            c.name === 'SID' || 
+            c.name.includes('next-auth') || 
+            c.name === 'OSID'
+        );
 
         if (!hasSession) {
             return {
                 success: false,
-                error: 'Cookie chưa có __Secure-1PSID hoặc SID. Vui lòng copy đủ cookie từ flow.google.com!'
+                error: 'Cookie chưa có __Secure-1PSID, SID hoặc NextAuth token. Vui lòng copy đủ cookie từ flow.google.com!'
             };
         }
 
@@ -467,7 +552,7 @@ function initFlowProfileManager(mainWindow) {
         } catch (e) {}
 
         const cdpPort = 9222;
-        const targetUrl = 'https://accounts.google.com/ServiceLogin?continue=https://flow.google.com/';
+        const targetUrl = 'https://accounts.google.com/ServiceLogin?continue=https://labs.google/fx/tools/flow';
 
         // Notify UI that Chrome is launching
         if (activeWindow && !activeWindow.isDestroyed()) {
@@ -539,7 +624,27 @@ function initFlowProfileManager(mainWindow) {
                     });
 
                     if (flowTab) {
-                        // User has arrived at Google Flow!
+                        const curUrl = flowTab.url || '';
+
+                        // If on landing/about page, attempt auto-click to enter Flow workspace
+                        if (curUrl.includes('/about') || curUrl.endsWith('flow.google.com/') || curUrl.endsWith('labs.google/')) {
+                            if (flowTab.webSocketDebuggerUrl) {
+                                try {
+                                    await evalOnTab(
+                                        flowTab.webSocketDebuggerUrl,
+                                        `(function() {
+                                            const targets = [...document.querySelectorAll('button, a')].filter(el => {
+                                                const t = (el.textContent || '').trim().toLowerCase();
+                                                return t.includes('bắt đầu') || t.includes('create with') || t.includes('start') || t.includes('thử nghiệm');
+                                            });
+                                            if (targets.length > 0) targets[0].click();
+                                        })()`
+                                    );
+                                } catch (e) {}
+                            }
+                        }
+
+                        // Inspect CDP cookies
                         const version = await httpGetJson(`http://127.0.0.1:${cdpPort}/json/version`, 1500);
                         const browserWsUrl = version?.webSocketDebuggerUrl;
 
@@ -550,22 +655,56 @@ function initFlowProfileManager(mainWindow) {
                             } catch (e) {}
                         }
 
-                        // Check Google session cookies
-                        const googleCookies = allCookies.filter(c => c.domain && c.domain.includes('google.com'));
-                        const hasSession = googleCookies.some(c => c.name === '__Secure-1PSID' || c.name === 'SID');
+                        // Check Google & Flow session cookies
+                        const googleCookies = allCookies.filter(c => {
+                            const d = (c.domain || '').toLowerCase();
+                            return d.includes('google') || d.includes('youtube') || d.includes('gstatic') || (c.name && c.name.startsWith('__Host-'));
+                        });
 
-                        if (hasSession || googleCookies.length > 0) {
+                        const hasNextAuth = allCookies.some(c => c.name && (c.name.includes('next-auth') || c.name.includes('session-token')));
+                        const hasGoogleSession = googleCookies.some(c => c.name === '__Secure-1PSID' || c.name === 'SID');
+                        const hasOsid = googleCookies.some(c => c.name === 'OSID' || c.name === '__Secure-OSID');
+                        const isInsideWorkspace = curUrl.includes('/project/') || (curUrl.includes('/tools/flow') && !curUrl.includes('/about'));
+
+                        // Auth is truly complete ONLY when NextAuth session token exists, OR user is inside the project workspace!
+                        const isAuthComplete = hasNextAuth || (hasGoogleSession && hasOsid && isInsideWorkspace);
+
+                        if (isAuthComplete) {
+                            // Give page 2.5 seconds to settle and save all project/session state
+                            await new Promise(r => setTimeout(r, 2500));
+
+                            // Refresh tabs and cookies after delay
+                            let finalTabs = [];
+                            try {
+                                finalTabs = await httpGetJson(`http://127.0.0.1:${cdpPort}/json`, 1500) || [];
+                            } catch (e) {}
+                            const activeTab = finalTabs.find(t => (t.url || '').includes('flow') || (t.url || '').includes('project')) || flowTab;
+                            const finalUrl = activeTab.url || curUrl;
+
+                            if (browserWsUrl) {
+                                try {
+                                    const freshCookies = await getCdpCookies(browserWsUrl);
+                                    if (freshCookies && freshCookies.length > 0) {
+                                        allCookies = freshCookies;
+                                    }
+                                } catch (e) {}
+                            }
+
                             isResolved = true;
                             clearInterval(pollInterval);
 
-                            // Try to get email from tab
+                            // Extract email
                             let detectedEmail = '';
-                            if (flowTab.webSocketDebuggerUrl) {
+                            if (activeTab.webSocketDebuggerUrl) {
                                 try {
                                     detectedEmail = await evalOnTab(
-                                        flowTab.webSocketDebuggerUrl,
+                                        activeTab.webSocketDebuggerUrl,
                                         `(function() {
-                                            var el = document.querySelector('[data-email]') || document.querySelector('.gb_d') || document.querySelector('[aria-label*="@"]');
+                                            try {
+                                                const nd = window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email;
+                                                if (nd) return nd;
+                                            } catch(e) {}
+                                            const el = document.querySelector('[data-email]') || document.querySelector('.gb_d') || document.querySelector('[aria-label*="@"]');
                                             if (el) return el.getAttribute('data-email') || el.getAttribute('aria-label') || el.textContent;
                                             return '';
                                         })()`
@@ -577,14 +716,26 @@ function initFlowProfileManager(mainWindow) {
                                 detectedEmail = `google_user_${profileId.slice(-4)}@gmail.com`;
                             }
 
+                            // Extract project ID if present in URL
+                            let projectId = null;
+                            const projMatch = finalUrl.match(/\/project\/([a-f0-9\-]{8,})/);
+                            if (projMatch) {
+                                projectId = projMatch[1];
+                            }
+
                             // Inject all cookies into persistent partition
-                            await injectCookiesToSession(authSession, googleCookies);
+                            const validCookies = allCookies.filter(c => {
+                                const d = (c.domain || '').toLowerCase();
+                                return d.includes('google') || d.includes('youtube') || d.includes('gstatic') || (c.name && c.name.startsWith('__Host-'));
+                            });
+                            await injectCookiesToSession(authSession, validCookies);
 
                             const newProfile = {
                                 id: profileId,
                                 email: detectedEmail.trim(),
                                 name: detectedEmail.split('@')[0],
                                 partition: partition,
+                                projectId: projectId,
                                 createdAt: Date.now(),
                                 lastUsedAt: Date.now(),
                                 status: 'active'
@@ -676,9 +827,14 @@ function initFlowProfileManager(mainWindow) {
         const authSession = session.fromPartition(selected.partition);
         authSession.setUserAgent(CHROME_UA);
 
-        // Verify cookies
-        const cookies = await authSession.cookies.get({ domain: '.google.com' });
-        const hasSession = cookies.some(c => c.name === '__Secure-1PSID' || c.name === 'SID');
+        // Verify cookies across partition (no domain filter, so flow.google.com and host cookies are captured)
+        const cookies = await authSession.cookies.get({});
+        const hasSession = cookies.some(c => 
+            c.name === '__Secure-1PSID' || 
+            c.name === 'SID' || 
+            c.name.includes('next-auth') || 
+            c.name === 'OSID'
+        );
 
         if (!hasSession) {
             return {
@@ -717,9 +873,12 @@ function initFlowProfileManager(mainWindow) {
             name: c.name,
             value: c.value,
             domain: c.domain,
-            path: c.path,
-            secure: c.secure,
-            httpOnly: c.httpOnly
+            path: c.path || '/',
+            secure: c.secure !== false,
+            httpOnly: !!c.httpOnly,
+            sameSite: c.sameSite || null,
+            expirationDate: c.expirationDate || null,
+            hostOnly: !!c.hostOnly || c.name.startsWith('__Host-')
         }));
 
         let jobSubmitRes;
@@ -730,7 +889,8 @@ function initFlowProfileManager(mainWindow) {
                 images: inputImageBase64 ? [inputImageBase64] : [],
                 model: model,
                 count: outputCount,
-                cookies: mappedCookies
+                cookies: mappedCookies,
+                project_id: selected.projectId || undefined
             }, 25000);
         } catch (postErr) {
             return {

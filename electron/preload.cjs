@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ============ FILE SYSTEM ============
     selectDownloadFolder: () => ipcRenderer.invoke('select-download-folder'),
     getDownloadPath: () => ipcRenderer.invoke('get-download-path'),
+    openDownloadFolder: () => ipcRenderer.invoke('open-download-folder'),
     saveFile: (base64, filename) => ipcRenderer.invoke('save-file', { base64, filename }),
 
     // ============ BROWSER UTILS ============

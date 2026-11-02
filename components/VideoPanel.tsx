@@ -404,6 +404,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 alert('Vui lòng bấm "Thêm Gmail" để kết nối tài khoản Google trước khi tạo video!');
                 return;
             }
+            if (selectedProfileId && selectedProfileId !== 'auto') {
+                localStorage.setItem('selected_flow_profile_id', selectedProfileId);
+            } else {
+                localStorage.removeItem('selected_flow_profile_id');
+            }
         } else if (isExtensionMode && !isExtensionInstalled) {
             setShowExtensionGuide(true);
             alert('Vui lòng cài đặt Tiện ích vip-imagetools trên Chrome để tạo video tự động (hoặc nhấn F5 nếu bạn vừa cài xong). Hãy xem hướng dẫn tải và cài đặt ở khung bên trên!');

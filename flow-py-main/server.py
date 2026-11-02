@@ -24,6 +24,7 @@ import base64
 import json
 import logging
 import os
+import random
 import re
 import time
 import uuid
@@ -284,39 +285,124 @@ async def _ensure_in_project(page, target_pid: Optional[str] = None) -> Optional
     """Ensure browser is inside an active Google Flow project editor view (flow.google.com/project/{pid}).
     Returns valid project ID, or None if unauthenticated / sign-in required.
     """
-    # 1. If current page already has a valid project in URL, return it immediately
-    m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
-    if m:
-        pid = m.group(1)
-        if pid != "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444":
+    # 1. If current page already has a valid project in URL and not an error/about page
+    cur_url = page.url
+    if "/project/" in cur_url and "accounts.google.com" not in cur_url and "/about" not in cur_url:
+        m = re.search(r"/project/([a-f0-9\-]{8,})", cur_url)
+        if m:
+            pid = m.group(1)
             set_active_project(pid, f"https://flow.google.com/project/{pid}")
             add_project(pid, "active", f"https://flow.google.com/project/{pid}")
             return pid
 
-    # 2. Try candidate project if provided
-    candidate_pid = target_pid
-    if not candidate_pid or candidate_pid == "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444":
-        saved_pid, _ = get_active_project()
-        if saved_pid and saved_pid != "a589a2fc-8eb7-4b2e-9a39-c6ab11c28444":
-            candidate_pid = saved_pid
-
-    if candidate_pid:
+    # 2. Try candidate project if explicitly provided
+    if target_pid and len(target_pid) >= 8:
         try:
-            await page.goto(f"https://flow.google.com/project/{candidate_pid}", wait_until="domcontentloaded", timeout=20000)
+            await page.goto(f"https://flow.google.com/project/{target_pid}", wait_until="domcontentloaded", timeout=20000)
             await asyncio.sleep(2.0)
+            if "/project/" in page.url and "/about" not in page.url and "accounts.google.com" not in page.url:
+                m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+                if m:
+                    pid = m.group(1)
+                    set_active_project(pid, f"https://flow.google.com/project/{pid}")
+                    return pid
+        except Exception as e:
+            log.debug("Target candidate project notice: %s", e)
+
+    # 3. If page is blank or not on Google Flow / Labs, navigate to flow.google.com
+    if "flow.google.com" not in page.url and "labs.google" not in page.url:
+        try:
+            log.info("Navigating page to https://flow.google.com/...")
+            await page.goto("https://flow.google.com/", wait_until="domcontentloaded", timeout=25000)
+            await asyncio.sleep(2.5)
+        except Exception as e:
+            log.warning("Navigation to flow.google.com error: %s", e)
+
+    # 4. Critical check: Did Google redirect to sign-in?
+    if "accounts.google.com" in page.url or "signin" in page.url:
+        log.warning("Page is at Google sign-in: %s", page.url)
+        return None
+
+    # 5. Check if on /about landing page -> click 'Create with Google Flow' / 'Bắt đầu'
+    if "/about" in page.url or page.url.rstrip("/") in ("https://flow.google.com", "https://labs.google/fx/tools/flow"):
+        try:
+            enter_btn = page.locator('button:has-text("Create with Google Flow"), a:has-text("Create with Google Flow"), button:has-text("Bắt đầu"), a:has-text("Bắt đầu"), button:has-text("Start"), a:has-text("Start"), [data-testid*="landing"]').first
+            if await enter_btn.count() > 0:
+                log.info("Clicking CTA to enter Google Flow workspace...")
+                await enter_btn.click()
+                await asyncio.sleep(3.0)
+        except Exception as ex:
+            log.debug("Landing CTA click notice: %s", ex)
+
+    # 6. Check sign-in again
+    if "accounts.google.com" in page.url or "signin" in page.url:
+        log.warning("Page redirected to Google sign-in after CTA: %s", page.url)
+        return None
+
+    # 7. Check URL again for /project/{pid}
+    m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+    if m:
+        pid = m.group(1)
+        set_active_project(pid, f"https://flow.google.com/project/{pid}")
+        add_project(pid, "active", f"https://flow.google.com/project/{pid}")
+        return pid
+
+    # 8. Check dashboard for existing project links
+    try:
+        links = await page.evaluate("""
+            () => [...document.querySelectorAll('a[href*="/project/"]')]
+                .map(a => a.href)
+        """)
+        for link in (links or []):
+            m = re.search(r"/project/([a-f0-9\-]{8,})", link)
+            if m:
+                pid = m.group(1)
+                log.info("Found existing project link: %s", pid)
+                await page.goto(f"https://flow.google.com/project/{pid}", wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(2.0)
+                if "/project/" in page.url and "/about" not in page.url and "accounts.google.com" not in page.url:
+                    set_active_project(pid, f"https://flow.google.com/project/{pid}")
+                    add_project(pid, "discovered", f"https://flow.google.com/project/{pid}")
+                    return pid
+    except Exception as ex:
+        log.debug("Dashboard project discovery notice: %s", ex)
+
+    # 9. Click 'New project' / 'Dự án mới' button
+    try:
+        new_proj_btn = page.locator('button:has-text("Dự án mới"), button:has-text("New project"), button:has-text("Create project"), button:has-text("Tạo dự án"), [aria-label*="New project"], [aria-label*="Dự án mới"], [aria-label*="Create"]').first
+        if await new_proj_btn.count() > 0:
+            log.info("Clicking 'New project' button on Flow dashboard...")
+            await new_proj_btn.click()
+            await asyncio.sleep(3.5)
             m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
             if m:
                 pid = m.group(1)
+                log.info("Successfully created new Flow project: %s", pid)
                 set_active_project(pid, f"https://flow.google.com/project/{pid}")
+                add_project(pid, "new", f"https://flow.google.com/project/{pid}")
                 return pid
-        except Exception as e:
-            log.debug("Candidate project navigation notice: %s", e)
+    except Exception as ex:
+        log.debug("New project button notice: %s", ex)
 
-    # 3. If on /about landing page or root flow.google.com, enter workspace
-    if "accounts.google.com" in page.url or "signin" in page.url:
-        return None
+    # 10. Fallback: Initialize a brand new project canvas with a fresh UUID
+    new_uuid = str(uuid.uuid4())
+    try:
+        log.info("Navigating to new project canvas: %s", new_uuid)
+        await page.goto(f"https://flow.google.com/project/{new_uuid}", wait_until="domcontentloaded", timeout=25000)
+        await asyncio.sleep(2.5)
+        if "/about" not in page.url and "accounts.google.com" not in page.url:
+            m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
+            pid = m.group(1) if m else new_uuid
+            set_active_project(pid, f"https://flow.google.com/project/{pid}")
+            add_project(pid, "canvas", f"https://flow.google.com/project/{pid}")
+            return pid
+    except Exception as e:
+        log.debug("Canvas initialization notice: %s", e)
 
-    if "/about" in page.url or "flow.google.com" in page.url:
+    return None
+
+    # Duplicate legacy fallback - cleaned up
+    pass
         try:
             enter_btn = page.locator('button:has-text("Create with Google Flow"), a:has-text("Create with Google Flow"), button:has-text("Bắt đầu"), a:has-text("Bắt đầu")').first
             if await enter_btn.count() > 0:
@@ -592,7 +678,7 @@ async def _run_video_generation_job(
         async with _browser_lock:
             bm = await _get_or_start_bm(headless=True)
             page = await bm.page()
-            pid = active_pid or state.get("project_id") or await _extract_or_create_project_id(page)
+            pid = active_pid or state.get("project_id") or await _ensure_in_project(page)
 
             # Ensure we are on the project main view (not /edit/...)
             if "/edit/" in page.url or "/project/" not in page.url:
@@ -623,45 +709,9 @@ async def _run_video_generation_job(
                     .map(i => i.src)
             """)
 
-            from flow._flow_ui import FlowUI
-            from flow._models import GenerationMode, AspectRatio
-
-            ui = FlowUI()
-            job_entry["progress_text"] = "Đang cấu hình thông số Veo 3.1 trên Google Flow..."
-
-            await ui.open_settings_panel(page)
-            mode = GenerationMode.FRAME_TO_VIDEO if start_image_path else GenerationMode.VIDEO
-            await ui.switch_mode(page, mode)
-            ratio = AspectRatio.PORTRAIT if aspect_mode == "portrait" else AspectRatio.LANDSCAPE
-            await ui.set_aspect_ratio(page, ratio)
-            await ui.set_count(page, output_count)
-            if model_override:
-                await ui.set_model_family(page, model_override)
-
+            # Enhanced prompt to preserve all characters & subjects from the input frame
             final_prompt = prompt
             if start_image_path:
-                job_entry["progress_text"] = "Đang tải ảnh gốc lên khung Bắt đầu của Google Flow..."
-                up_ok = await ui.upload_image(page, str(start_image_path))
-                if not up_ok:
-                    if "accounts.google.com" in page.url or "signin" in page.url:
-                        if current_pool_acc_id:
-                            _flag_pool_account_error(current_pool_acc_id, "Phiên đăng nhập hết hạn")
-                        job_entry["status"] = "failed"
-                        job_entry["error"] = "Google Flow yêu cầu đăng nhập lại tài khoản trên Chrome."
-                        return
-                    job_entry["status"] = "failed"
-                    job_entry["error"] = "Không thể tải ảnh đầu vào lên Google Flow. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại."
-                    return
-                # Refresh before_srcs after uploading start-frame image so uploaded image is never mistaken for a finished video
-                before_srcs = await page.evaluate("""
-                    () => [...document.querySelectorAll('img')]
-                        .filter(i => i.src && i.src.includes('/asb/') && (
-                            (i.alt && (i.alt.includes('video') || i.alt.includes('Video'))) ||
-                            (!i.src.includes('-rw') && (!i.alt || !i.alt.includes('hình ảnh')))
-                        ))
-                        .map(i => i.src)
-                """)
-                # Enhanced prompt to preserve all characters & subjects from the input frame without cropping/dropping anyone
                 two_kw = ["2 người", "hai người", "cặp đôi", "chàng trai", "cô gái", "nam nữ", "vợ chồng", "cả hai", "couple", "two people", "both"]
                 is_two_chars = any(k in prompt.lower() for k in two_kw)
                 if is_two_chars:
@@ -678,297 +728,117 @@ async def _run_video_generation_job(
                     final_prompt = f"{prompt.rstrip('. ')};{enhancement}"
 
             # ─────────────────────────────────────────────────────────────────
-            # BÀI 3: DIRECT INTERNAL REST API (Veo 3.1) - ZERO UI / 100% HEADLESS
+            # BÀI 3: DIRECT INTERNAL REST API (Veo 3.1) - 100% HEADLESS
             # ─────────────────────────────────────────────────────────────────
             api = FlowAPI(bm, project_id=pid)
-            try:
-                start_media_id = None
-                if start_image_path:
-                    job_entry["progress_text"] = "Đang đồng bộ ảnh nguồn vào kho lưu trữ Veo 3.1..."
-                    log.info("[%s] [Bài 3] Uploading start frame image via FlowAPI...", job_id)
-                    start_media_id = await api.upload_image(start_image_path)
-                    log.info("[%s] [Bài 3] Image uploaded successfully -> media_id: %s", job_id, start_media_id)
+            start_media_id = None
+            if start_image_path:
+                job_entry["progress_text"] = "Đang đồng bộ ảnh nguồn vào kho lưu trữ Veo 3.1..."
+                log.info("[%s] [Bài 3] Uploading start frame image via FlowAPI...", job_id)
+                start_media_id = await api.upload_image(start_image_path)
+                log.info("[%s] [Bài 3] Image uploaded successfully -> media_id: %s", job_id, start_media_id)
 
-                ar_enum = VIDEO_AR_PORTRAIT if aspect_mode == "portrait" else VIDEO_AR_LANDSCAPE
+            ar_enum = VIDEO_AR_PORTRAIT if aspect_mode == "portrait" else VIDEO_AR_LANDSCAPE
+            if start_media_id:
+                model_key = VIDEO_MODEL_VEO31_I2V_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_I2V
+            else:
+                model_key = VIDEO_MODEL_VEO31_FAST_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_FAST
+
+            job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video qua Veo 3.1 REST API..."
+            requests = []
+            base_seed = random.randint(0, 2**31)
+            for i in range(output_count):
+                req_item = {
+                    "aspectRatio": ar_enum,
+                    "seed": base_seed + i,
+                    "textInput": {"structuredPrompt": {"parts": [{"text": final_prompt}]}},
+                    "videoModelKey": model_key,
+                    "metadata": {},
+                }
                 if start_media_id:
-                    model_key = VIDEO_MODEL_VEO31_I2V_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_I2V
-                else:
-                    model_key = VIDEO_MODEL_VEO31_FAST_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_FAST
+                    req_item["imageInputs"] = [{"mediaName": start_media_id, "role": "START_IMAGE"}]
+                requests.append(req_item)
 
-                job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video qua Veo 3.1 REST API..."
-                requests = []
-                base_seed = random.randint(0, 2**31)
-                for i in range(output_count):
-                    req_item = {
-                        "aspectRatio": ar_enum,
-                        "seed": base_seed + i,
-                        "textInput": {"structuredPrompt": {"parts": [{"text": final_prompt}]}},
-                        "videoModelKey": model_key,
-                        "metadata": {},
-                    }
-                    if start_media_id:
-                        req_item["imageInputs"] = [{"mediaName": start_media_id, "role": "START_IMAGE"}]
-                    requests.append(req_item)
+            log.info("[%s] [Bài 3] Calling batchAsyncGenerateVideoText (%d requests, model=%s)", job_id, len(requests), model_key)
+            video_job = await api._video_call("video:batchAsyncGenerateVideoText", requests)
 
-                log.info("[%s] [Bài 3] Calling batchAsyncGenerateVideoText (%d requests, model=%s)", job_id, len(requests), model_key)
-                video_job = await api._video_call("video:batchAsyncGenerateVideoText", requests)
+            media_list = video_job._raw.get("media", [])
+            if not media_list and "workflows" in video_job._raw:
+                media_list = [{"name": wf.get("metadata", {}).get("primaryMediaId")} for wf in video_job._raw.get("workflows", [])]
+            media_names = [m.get("name") for m in media_list if m.get("name")]
+            if not media_names and video_job.media_name:
+                media_names = [video_job.media_name]
 
-                media_list = video_job._raw.get("media", [])
-                if not media_list and "workflows" in video_job._raw:
-                    media_list = [{"name": wf.get("metadata", {}).get("primaryMediaId")} for wf in video_job._raw.get("workflows", [])]
-                media_names = [m.get("name") for m in media_list if m.get("name")]
-                if not media_names and video_job.media_name:
-                    media_names = [video_job.media_name]
+            log.info("[%s] [Bài 3] VideoJob submitted: tracking media %s", job_id, media_names)
 
-                log.info("[%s] [Bài 3] VideoJob submitted: tracking media %s", job_id, media_names)
-
-                t0 = time.monotonic()
-                max_wait = 320
-                completed_media = {}
-
-                while time.monotonic() - t0 < max_wait:
-                    await asyncio.sleep(4.0)
-                    elapsed = int(time.monotonic() - t0)
-
-                    pending = [m for m in media_names if m not in completed_media]
-                    if not pending:
-                        break
-
-                    status_payload = {"media": [{"name": mn, "projectId": pid} for mn in pending]}
-                    try:
-                        status_data = await api._fetch("POST", "video:batchCheckAsyncVideoGenerationStatus", status_payload)
-                        items = status_data.get("media", [])
-                        for itm in items:
-                            m_name = itm.get("name")
-                            meta = itm.get("mediaMetadata", {})
-                            gen_status = meta.get("mediaStatus", {}).get("mediaGenerationStatus", "")
-                            vid = itm.get("video", {}).get("generatedVideo", {})
-                            fife = vid.get("fifeUrl") or itm.get("fifeUrl") or ""
-
-                            if gen_status in ("MEDIA_GENERATION_STATUS_COMPLETE", "MEDIA_GENERATION_STATUS_SUCCESS", "MEDIA_GENERATION_STATUS_SUCCESSFUL") or fife:
-                                if fife and m_name not in completed_media:
-                                    completed_media[m_name] = fife
-                                    log.info("[%s] [Bài 3] Media %s complete! fifeUrl: %s", job_id, m_name[:8], fife[:60])
-                            elif gen_status in ("MEDIA_GENERATION_STATUS_FAILED", "MEDIA_GENERATION_STATUS_REJECTED"):
-                                log.error("[%s] [Bài 3] Media %s failed with status: %s", job_id, m_name[:8], gen_status)
-                    except Exception as poll_err:
-                        log.debug("[%s] [Bài 3] Poll notice: %s", job_id, poll_err)
-
-                    cur_done = len(completed_media)
-                    job_entry["progress_text"] = f"Veo 3.1 đang render ngầm ({cur_done}/{len(media_names)} video • {elapsed}s)..."
-
-                    if cur_done >= len(media_names):
-                        break
-
-                if completed_media:
-                    saved_urls = []
-                    total_bytes = 0
-                    for idx, (m_name, fife_url) in enumerate(completed_media.items()):
-                        suffix = "" if idx == 0 else f"_{idx + 1}"
-                        out_file = OUTPUT_DIR / f"{job_id}{suffix}.mp4"
-                        job_entry["progress_text"] = f"Đang tải video MP4 gốc ({idx + 1}/{len(completed_media)})..."
-                        try:
-                            await api.download(fife_url, out_file)
-                            if out_file.exists() and out_file.stat().st_size > 0:
-                                file_url = f"http://localhost:8100/files/{out_file.name}"
-                                saved_urls.append(file_url)
-                                total_bytes += out_file.stat().st_size
-                                log.info("[%s] [Bài 3] Downloaded MP4 #%d: %s (%d bytes)", job_id, idx + 1, out_file.name, out_file.stat().st_size)
-                        except Exception as dl_err:
-                            log.warning("[%s] [Bài 3] Download error for %s: %s", job_id, m_name, dl_err)
-
-                    if saved_urls:
-                        job_entry["status"] = "completed"
-                        job_entry["url"] = saved_urls[0]
-                        job_entry["urls"] = saved_urls
-                        job_entry["download_url"] = saved_urls[0]
-                        job_entry["bytes"] = total_bytes
-                        job_entry["progress_text"] = "Hoàn tất!"
-                        log.info("[%s] [Bài 3] Successfully completed all %d video(s) via REST API!", job_id, len(saved_urls))
-                        return
-            except Exception as api_exc:
-                log.warning("[%s] [Bài 3] Direct REST API attempt failed: %s. Falling back to Headless UI...", job_id, api_exc)
-
-            await ui.fill_prompt(page, final_prompt)
-
-            job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video Veo 3.1..."
-            submitted = await ui.click_submit(page)
-            if not submitted:
-                job_entry["status"] = "failed"
-                job_entry["error"] = "Không thể bấm nút Tạo video trên Google Flow."
-                return
-
-            log.info("[%s] Clicked submit on Google Flow (before_video_srcs=%d, count=%d)", job_id, len(before_srcs), output_count)
-
-            # Wait up to 320s for the new video thumbnail(s) to finish rendering on the project page
             t0 = time.monotonic()
             max_wait = 320
-            new_video_srcs: list[str] = []
+            completed_media = {}
+
             while time.monotonic() - t0 < max_wait:
-                await asyncio.sleep(3)
+                await asyncio.sleep(4.0)
                 elapsed = int(time.monotonic() - t0)
-                dom_state = await page.evaluate("""
-                    (beforeList) => {
-                        const pctMatch = document.body.innerText.match(/\\d+%/);
-                        const pct = pctMatch ? pctMatch[0] : null;
-                        const curImgs = [...document.querySelectorAll('img')]
-                            .filter(i => i.src && i.src.includes('/asb/') && (
-                                (i.alt && (i.alt.includes('video') || i.alt.includes('Video'))) ||
-                                (!i.src.includes('-rw') && (!i.alt || !i.alt.includes('hình ảnh')))
-                            ))
-                            .map(i => i.src);
-                        const newImgs = curImgs.filter(s => !beforeList.includes(s));
-                        return { pct, newCount: newImgs.length, newSrcs: newImgs, totalCount: curImgs.length };
-                    }
-                """, before_srcs)
 
-                pct_str = dom_state.get("pct")
-                cur_new_count = dom_state.get("newCount", 0)
-                if pct_str:
-                    job_entry["progress_text"] = f"Veo 3.1 đang render ({pct_str} • {cur_new_count}/{output_count} video • {elapsed}s)..."
-                else:
-                    job_entry["progress_text"] = f"Veo 3.1 đang xử lý ({cur_new_count}/{output_count} video • {elapsed}s)..."
-
-                # Completed when new generated video thumbnail(s) are present and no percentage spinner remains
-                if cur_new_count >= 1 and not pct_str and elapsed >= 8:
-                    new_video_srcs = dom_state.get("newSrcs") or []
+                pending = [m for m in media_names if m not in completed_media]
+                if not pending:
                     break
 
-            if not new_video_srcs:
-                job_entry["status"] = "failed"
-                job_entry["error"] = "Quá thời gian chờ hoặc Google Flow từ chối tạo video."
-                return
-
-            targets_to_download = new_video_srcs[:output_count]
-            saved_urls: list[str] = []
-            total_bytes = 0
-
-            for idx, target_src in enumerate(targets_to_download):
-                job_entry["progress_text"] = f"Đang tải file video MP4 ({idx + 1}/{len(targets_to_download)})..."
-                suffix = "" if idx == 0 else f"_{idx + 1}"
-                out_file = OUTPUT_DIR / f"{job_id}{suffix}.mp4"
-                captured_mp4_url: list[str] = []
-
-                async def _on_resp(r, _out_file=out_file, _captured=captured_mp4_url):
-                    ct = r.headers.get("content-type", "")
-                    if "video/mp4" in ct or "flow-content.google/video/" in r.url:
-                        _captured.append(r.url)
-                        try:
-                            b = await r.body()
-                            if len(b) > 10000:
-                                _out_file.write_bytes(b)
-                                log.info("[%s] Saved MP4 directly from response body (%d bytes)", job_id, len(b))
-                        except Exception:
-                            pass
-                    elif "batchexecute" in r.url and "as29s" in r.url:
-                        try:
-                            txt = await r.text()
-                            clean_txt = (
-                                txt.replace("\\\\u003d", "=")
-                                .replace("\\u003d", "=")
-                                .replace("\\\\u0026", "&")
-                                .replace("\\u0026", "&")
-                                .replace('\\"', '"')
-                            )
-                            m = re.search(r"https://flow-content\.google/video/[a-zA-Z0-9_\-\?=&%]+", clean_txt)
-                            if m:
-                                _captured.append(m.group(0))
-                        except Exception:
-                            pass
-
-                def _sync_resp(r, _fn=_on_resp):
-                    try:
-                        asyncio.get_running_loop().create_task(_fn(r))
-                    except Exception:
-                        pass
-
-                page.on("response", _sync_resp)
+                status_payload = {"media": [{"name": mn, "projectId": pid} for mn in pending]}
                 try:
+                    status_data = await api._fetch("POST", "video:batchCheckAsyncVideoGenerationStatus", status_payload)
+                    items = status_data.get("media", [])
+                    for itm in items:
+                        m_name = itm.get("name")
+                        meta = itm.get("mediaMetadata", {})
+                        gen_status = meta.get("mediaStatus", {}).get("mediaGenerationStatus", "")
+                        vid = itm.get("video", {}).get("generatedVideo", {})
+                        fife = vid.get("fifeUrl") or itm.get("fifeUrl") or ""
+
+                        if gen_status in ("MEDIA_GENERATION_STATUS_COMPLETE", "MEDIA_GENERATION_STATUS_SUCCESS", "MEDIA_GENERATION_STATUS_SUCCESSFUL") or fife:
+                            if fife and m_name not in completed_media:
+                                completed_media[m_name] = fife
+                                log.info("[%s] [Bài 3] Media %s complete! fifeUrl: %s", job_id, m_name[:8], fife[:60])
+                        elif gen_status in ("MEDIA_GENERATION_STATUS_FAILED", "MEDIA_GENERATION_STATUS_REJECTED"):
+                            log.error("[%s] [Bài 3] Media %s failed with status: %s", job_id, m_name[:8], gen_status)
+                except Exception as poll_err:
+                    log.debug("[%s] [Bài 3] Poll notice: %s", job_id, poll_err)
+
+                cur_done = len(completed_media)
+                job_entry["progress_text"] = f"Veo 3.1 đang render ngầm ({cur_done}/{len(media_names)} video • {elapsed}s)..."
+
+                if cur_done >= len(media_names):
+                    break
+
+            if completed_media:
+                saved_urls = []
+                total_bytes = 0
+                for idx, (m_name, fife_url) in enumerate(completed_media.items()):
+                    suffix = "" if idx == 0 else f"_{idx + 1}"
+                    out_file = OUTPUT_DIR / f"{job_id}{suffix}.mp4"
+                    job_entry["progress_text"] = f"Đang tải video MP4 gốc ({idx + 1}/{len(completed_media)})..."
                     try:
-                        await page.evaluate("() => performance.clearResourceTimings()")
-                    except Exception:
-                        pass
+                        await api.download(fife_url, out_file)
+                        if out_file.exists() and out_file.stat().st_size > 0:
+                            file_url = f"http://localhost:8100/files/{out_file.name}"
+                            saved_urls.append(file_url)
+                            total_bytes += out_file.stat().st_size
+                            log.info("[%s] [Bài 3] Downloaded MP4 #%d: %s (%d bytes)", job_id, idx + 1, out_file.name, out_file.stat().st_size)
+                    except Exception as dl_err:
+                        log.warning("[%s] [Bài 3] Download error for %s: %s", job_id, m_name, dl_err)
 
-                    await page.evaluate("""
-                        (targetSrc) => {
-                            const imgs = [...document.querySelectorAll('img')];
-                            const exact = imgs.find(i => i.src === targetSrc);
-                            if (exact) {
-                                exact.click();
-                                return;
-                            }
-                            const vidImg = imgs.find(i => i.src && i.src.includes('/asb/') && i.alt && (i.alt.includes('video') || i.alt.includes('Video')));
-                            if (vidImg) vidImg.click();
-                        }
-                    """, target_src)
+                if saved_urls:
+                    job_entry["status"] = "completed"
+                    job_entry["url"] = saved_urls[0]
+                    job_entry["urls"] = saved_urls
+                    job_entry["download_url"] = saved_urls[0]
+                    job_entry["bytes"] = total_bytes
+                    job_entry["progress_text"] = "Hoàn tất!"
+                    log.info("[%s] [Bài 3] Successfully completed all %d video(s) via REST API!", job_id, len(saved_urls))
+                    return
 
-                    for _ in range(16):
-                        if captured_mp4_url:
-                            break
-                        await asyncio.sleep(0.5)
-
-                    if not captured_mp4_url:
-                        play_btn = page.locator("button").filter(has_text="play_arrow").first
-                        if await play_btn.count() > 0:
-                            await play_btn.click()
-                            for _ in range(10):
-                                if captured_mp4_url:
-                                    break
-                                await asyncio.sleep(0.5)
-
-                    if not captured_mp4_url:
-                        perf_urls = await page.evaluate("""
-                            () => performance.getEntriesByType('resource')
-                                .map(r => r.name)
-                                .filter(u => u.includes('flow-content.google/video/'))
-                        """)
-                        if perf_urls:
-                            captured_mp4_url.extend(perf_urls)
-
-                    if (not out_file.exists() or out_file.stat().st_size == 0) and captured_mp4_url:
-                        mp4_url = captured_mp4_url[-1]
-                        log.info("[%s] Downloading MP4 #%d from %s", job_id, idx + 1, mp4_url[:100])
-                        try:
-                            import urllib.request
-                            req = urllib.request.Request(mp4_url, headers={"User-Agent": "Mozilla/5.0"})
-                            with urllib.request.urlopen(req, timeout=25) as uresp:
-                                out_file.write_bytes(uresp.read())
-                        except Exception as uerr:
-                            log.warning("[%s] urllib failed (%s), trying context.request.get...", job_id, uerr)
-                            resp = await bm.context.request.get(mp4_url)
-                            if resp.status == 200:
-                                out_file.write_bytes(await resp.body())
-                finally:
-                    page.remove_listener("response", _sync_resp)
-
-                # Navigate back to project page before downloading next video (or finishing)
-                try:
-                    back_btn = page.locator("button").filter(has_text="arrow_back").first
-                    if await back_btn.count() > 0:
-                        await back_btn.click()
-                        await asyncio.sleep(1.5)
-                except Exception:
-                    pass
-
-                if out_file.exists() and out_file.stat().st_size > 0:
-                    file_url = f"http://localhost:8100/files/{out_file.name}"
-                    saved_urls.append(file_url)
-                    total_bytes += out_file.stat().st_size
-
-            if not saved_urls:
-                job_entry["status"] = "failed"
-                job_entry["error"] = "Video đã tạo xong trên Google Flow nhưng chưa tự tải về được."
-                return
-
-            job_entry["status"] = "completed"
-            job_entry["url"] = saved_urls[0]
-            job_entry["urls"] = saved_urls
-            job_entry["download_url"] = saved_urls[0]
-            job_entry["bytes"] = total_bytes
-            job_entry["progress_text"] = "Hoàn tất!"
-            log.info("[%s] Completed %d video(s) (%d bytes total)", job_id, len(saved_urls), total_bytes)
+            job_entry["status"] = "failed"
+            job_entry["error"] = "Quá thời gian render video trên Google Flow hoặc yêu cầu bị từ chối."
             return
-
     except Exception as exc:
         log.exception("[%s] Video generation failed:", job_id)
         if "closed" in str(exc).lower():
@@ -1251,7 +1121,7 @@ async def notify_login_done():
 
 @app.post("/v1/auth/cookies")
 async def sync_cookies_from_extension(req: CookieSyncRequest):
-    """Receive Google & Flow cookies from the user's normal Chrome and inject into Playwright."""
+    """Receive Google & Flow cookies from the user's normal Chrome or Electron and inject into Playwright."""
     global _auth_state
     async with _browser_lock:
         bm = await _get_or_start_bm(headless=True)
@@ -1263,14 +1133,14 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
         pw_cookies = []
         cookie_names = []
         if req.cookies:
-            raw_list = req.cookies
-            for c in raw_list:
+            for c in req.cookies:
                 name = str(c.get("name", "")).strip()
                 value = c.get("value")
-                domain = str(c.get("domain", ".google.com")).strip()
                 if not name or value is None:
                     continue
-                cookie_names.append(f"{name}@{domain}")
+
+                domain = str(c.get("domain", "")).strip()
+                is_host_only = bool(c.get("hostOnly") or name.startswith("__Host-"))
 
                 raw_ss = str(c.get("sameSite", "")).lower()
                 if raw_ss in ("no_restriction", "none"):
@@ -1282,33 +1152,51 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                 else:
                     same_site = "None" if c.get("secure") else "Lax"
 
-                if name.startswith("__Host-"):
+                cookie_names.append(f"{name}@{domain or 'host'}")
+
+                if is_host_only:
                     target_url = (
                         "https://flow.google.com/"
-                        if "flow.google" in domain
+                        if "flow" in domain or "flow" in name.lower()
                         else "https://accounts.google.com/"
                     )
                     item: dict[str, Any] = {
                         "name": name,
                         "value": str(value),
                         "url": target_url,
-                        "secure": True,
+                        "path": str(c.get("path", "/")),
+                        "secure": bool(c.get("secure", True)),
                         "httpOnly": bool(c.get("httpOnly", True)),
                         "sameSite": same_site,
                     }
                 else:
+                    if "next-auth" in name.lower() or "flow" in name.lower() or "osid" in name.lower():
+                        d = domain if ("flow" in domain or "labs" in domain) else "flow.google.com"
+                    elif is_host_only or "lsid" in name.lower() or "gaps" in name.lower():
+                        d = domain if "accounts" in domain else "accounts.google.com"
+                    else:
+                        d = domain or ".google.com"
+
                     item = {
                         "name": name,
                         "value": str(value),
-                        "domain": domain,
+                        "domain": d,
                         "path": str(c.get("path", "/")),
-                        "secure": bool(c.get("secure", True)),
+                        "secure": True if same_site == "None" else bool(c.get("secure", True)),
                         "httpOnly": bool(c.get("httpOnly", False)),
                         "sameSite": same_site,
                     }
-                if c.get("expirationDate"):
+                    if "next-auth" in name.lower() or name in ("OSID", "__Secure-OSID"):
+                        labs_item = dict(item)
+                        labs_item["domain"] = "labs.google"
+                        pw_cookies.append(labs_item)
+
+                exp = c.get("expirationDate") or c.get("expires")
+                if exp:
                     try:
-                        item["expires"] = float(c["expirationDate"])
+                        exp_val = float(exp)
+                        if exp_val > 0:
+                            item["expires"] = exp_val
                     except Exception:
                         pass
                 pw_cookies.append(item)
@@ -1318,15 +1206,24 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
         # Inject via CDP Network.setCookies for native fidelity if supported
         try:
             cdp = await bm.context.new_cdp_session(page)
-            await cdp.send("Network.setCookies", {"cookies": pw_cookies})
-            log.info("Injected %d cookies via CDP Network.setCookies", len(pw_cookies))
+            cdp_cookies = []
+            for ck in pw_cookies:
+                c_copy = dict(ck)
+                if "url" not in c_copy and "domain" in c_copy:
+                    d = c_copy["domain"].lstrip(".")
+                    c_copy["url"] = f"https://{d}{c_copy.get('path', '/')}"
+                cdp_cookies.append(c_copy)
+            await cdp.send("Network.setCookies", {"cookies": cdp_cookies})
+            log.info("Injected %d cookies via CDP Network.setCookies", len(cdp_cookies))
         except Exception as cdp_err:
             log.debug("CDP Network.setCookies notice: %s", cdp_err)
-            for ck in pw_cookies:
-                try:
-                    await bm.context.add_cookies([ck])
-                except Exception as ck_err:
-                    log.debug("Skipped cookie %s: %s", ck.get("name"), ck_err)
+
+        # Also add directly to context
+        for ck in pw_cookies:
+            try:
+                await bm.context.add_cookies([ck])
+            except Exception as ck_err:
+                log.debug("Skipped cookie %s: %s", ck.get("name"), ck_err)
 
         log.info("Cleared old cookies & injected %d cookies: %s", len(pw_cookies), cookie_names)
 
@@ -1343,7 +1240,7 @@ async def sync_cookies_from_extension(req: CookieSyncRequest):
                         const acc = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');
                         if (acc) {
                             const aria = acc.getAttribute('aria-label') || '';
-                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                            const m = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+.[a-zA-Z]{2,})/);
                             if (m) return m[1];
                         }
                         return window.__NEXT_DATA__?.props?.pageProps?.session?.user?.email || null;

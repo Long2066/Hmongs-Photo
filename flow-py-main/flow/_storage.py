@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -11,14 +12,35 @@ from ._models import FlowConfig
 # Paths
 # ---------------------------------------------------------------------------
 
-STORAGE_ROOT = Path.home() / ".flow-py"
+def _resolve_storage_root() -> Path:
+    candidates = [
+        Path.home() / ".flow-py",
+        Path(__file__).resolve().parent.parent / "flow_profile_storage",
+        Path(os.environ.get("LOCALAPPDATA", ".")) / "ToolMedia" / "flow-py",
+        Path(os.environ.get("TEMP", ".")) / "flow_py_storage"
+    ]
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            test_file = c / ".test_write"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink()
+            return c
+        except Exception:
+            continue
+    return Path(__file__).resolve().parent.parent / "flow_profile_storage"
+
+STORAGE_ROOT = _resolve_storage_root()
 PROFILE_DIR   = STORAGE_ROOT / "browser-profile"   # Playwright persistent context
 CONFIG_FILE   = STORAGE_ROOT / "config.json"
 PROJECTS_FILE = STORAGE_ROOT / "projects.json"
 
 def ensure_dirs() -> None:
-    STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
