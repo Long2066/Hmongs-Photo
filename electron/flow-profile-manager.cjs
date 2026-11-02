@@ -118,6 +118,46 @@ function httpPostJson(url, postData, timeoutMs = 15000) {
     });
 }
 
+function findFlowServerDir() {
+    const candidates = [
+        path.join(process.resourcesPath || '', 'flow-py-main'),
+        path.join(__dirname, '..', 'flow-py-main'),
+        path.join(app.getAppPath(), '..', 'flow-py-main'),
+        path.join(app.getAppPath(), 'flow-py-main'),
+        path.join(process.cwd(), 'flow-py-main'),
+        'd:\\ToolMedia\\flow-py-main'
+    ];
+    for (const dir of candidates) {
+        if (dir && fs.existsSync(path.join(dir, 'server.py'))) {
+            return dir;
+        }
+    }
+    return null;
+}
+
+function findPythonExecutable() {
+    const candidates = [
+        'C:\\Python314\\python.exe',
+        'C:\\Python313\\python.exe',
+        'C:\\Python312\\python.exe',
+        'C:\\Python311\\python.exe',
+        'C:\\Python310\\python.exe',
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python310', 'python.exe'),
+        'python',
+        'py'
+    ];
+    for (const p of candidates) {
+        if (p.includes('\\') || p.includes('/')) {
+            if (fs.existsSync(p)) return p;
+        } else {
+            return p;
+        }
+    }
+    return 'python';
+}
+
 async function ensureVideoServerRunning() {
     try {
         const health = await httpGetJson(`${SERVER_URL}/health`, 1200);
@@ -127,34 +167,38 @@ async function ensureVideoServerRunning() {
     } catch (e) {}
 
     // Not running: Start server.py in background
-    const serverDir = path.join(__dirname, '..', 'flow-py-main');
+    const serverDir = findFlowServerDir();
+    if (!serverDir) {
+        console.error('[FlowProfileManager] Cannot locate flow-py-main/server.py in any candidate path!');
+        return false;
+    }
+
+    const pyExe = findPythonExecutable();
     const pyScript = path.join(serverDir, 'server.py');
+    console.log(`[FlowProfileManager] Auto-starting flow-py server using "${pyExe}" at ${pyScript}...`);
 
-    if (fs.existsSync(pyScript)) {
-        console.log('[FlowProfileManager] Auto-starting flow-py server on port 8100...');
+    try {
+        const pyProcess = spawn(pyExe, ['-X', 'utf8', 'server.py'], {
+            cwd: serverDir,
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true
+        });
+        pyProcess.unref();
+    } catch (err) {
+        console.error('[FlowProfileManager] Failed to spawn python server:', err);
+    }
+
+    // Wait up to 12 seconds for server to start
+    for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 600));
         try {
-            const pyProcess = spawn('python', ['-X', 'utf8', 'server.py'], {
-                cwd: serverDir,
-                detached: true,
-                stdio: 'ignore',
-                windowsHide: true
-            });
-            pyProcess.unref();
-        } catch (err) {
-            console.error('[FlowProfileManager] Failed to spawn python server:', err);
-        }
-
-        // Wait up to 10 seconds for server to start
-        for (let i = 0; i < 15; i++) {
-            await new Promise(r => setTimeout(r, 700));
-            try {
-                const health = await httpGetJson(`${SERVER_URL}/health`, 1000);
-                if (health && health.status === 'ok') {
-                    console.log('[FlowProfileManager] Flow server is now ready on port 8100!');
-                    return true;
-                }
-            } catch (e) {}
-        }
+            const health = await httpGetJson(`${SERVER_URL}/health`, 1000);
+            if (health && health.status === 'ok') {
+                console.log('[FlowProfileManager] Flow server is now ready on port 8100!');
+                return true;
+            }
+        } catch (e) {}
     }
     return false;
 }
@@ -304,6 +348,17 @@ async function injectCookiesToSession(authSession, cookiesList) {
  */
 function initFlowProfileManager(mainWindow) {
     activeWindow = mainWindow;
+
+    // Pre-warm Video Server 8100 immediately at app launch
+    ensureVideoServerRunning().then(ok => {
+        if (ok) console.log('[FlowProfileManager] Video Server 8100 pre-warmed successfully.');
+    }).catch(err => console.debug('[FlowProfileManager] Pre-warm notice:', err));
+
+    // 0. Ensure server IPC
+    ipcMain.handle('flow-profile:ensure-server', async () => {
+        const ok = await ensureVideoServerRunning();
+        return { success: ok };
+    });
 
     // 1. List accounts
     ipcMain.handle('flow-profile:list', async () => {

@@ -131,7 +131,14 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         if (isElectron) {
             listElectronProfiles().then(setProfiles);
 
+            // Pre-warm Video Server 8100 when opening Video panel
             const api = (window as any).electronAPI;
+            if (api?.flowProfileEnsureServer) {
+                api.flowProfileEnsureServer().catch(() => {});
+            } else if (api?.invoke) {
+                api.invoke('flow-profile:ensure-server').catch(() => {});
+            }
+
             if (api?.onFlowAuthStatus) {
                 const unsubscribe = api.onFlowAuthStatus((data: any) => {
                     if (data?.message) {
@@ -386,7 +393,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     }, [onImagesChange]);
 
     const isProfileMode = engine === 'flow_profile';
-    const isExtensionMode = engine === 'flow_extension' || engine === 'flow_profile';
+    const isExtensionMode = engine === 'flow_extension';
     const isFalMode = engine === 'fal_ai';
 
     const canSubmit = !isLoading && !isDisabled && hasInputImage;

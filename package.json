@@ -52,6 +52,19 @@
       "electron/**/*",
       "public/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "flow-py-main",
+        "to": "flow-py-main",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!flow_outputs/**",
+          "!flow_inputs/**"
+        ]
+      }
+    ],
     "win": {
       "target": [
         {

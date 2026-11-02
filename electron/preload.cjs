@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     googleOAuthApiCall: (params) => ipcRenderer.invoke('google-oauth:api-call', params),
 
     // ============ GOOGLE FLOW PROFILES (VEO 3.1) ============
+    flowProfileEnsureServer: () => ipcRenderer.invoke('flow-profile:ensure-server'),
     flowProfileList: () => ipcRenderer.invoke('flow-profile:list'),
     flowProfileAdd: () => ipcRenderer.invoke('flow-profile:add'),
     flowProfileImportCookies: (cookiesText, email) => ipcRenderer.invoke('flow-profile:import-cookies', { cookiesText, email }),
