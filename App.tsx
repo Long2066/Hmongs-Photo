@@ -97,6 +97,7 @@ const App: React.FC = () => {
 
     // Loading & Error (Global mostly, but could be per mode if needed)
     const [isLoading, setIsLoading] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const [loadingStatus, setLoadingStatus] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
 
@@ -602,6 +603,17 @@ const App: React.FC = () => {
     }, [modeStates, currentUser, autoDownload, validateSubscriptionBeforeGenerate]);
 
 
+    // Cancel creative generation handler
+    const handleCancelGenerate = useCallback(() => {
+        if (abortControllerRef.current) {
+            console.log('[App] Cancelling image generation by user request...');
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        setIsLoading(false);
+        setLoadingStatus('Đã dừng tạo ảnh theo yêu cầu.');
+    }, []);
+
     // 2. Creative Mode
     const handleCreativeGenerate = useCallback(async (
         prompts: string[],
@@ -633,6 +645,9 @@ const App: React.FC = () => {
 
         const localResults: (string | null)[] = Array(prompts.length).fill(null);
 
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         try {
             const maleParts = cInputs.male.map(img => ({ data: img.base64, mimeType: img.mimeType }));
             const femaleParts = cInputs.female.map(img => ({ data: img.base64, mimeType: img.mimeType }));
@@ -654,7 +669,8 @@ const App: React.FC = () => {
                 },
                 style,
                 shotType,
-                outputMode
+                outputMode,
+                abortController.signal
             );
 
             const validImages = localResults.filter((img): img is string => img !== null);
@@ -665,8 +681,20 @@ const App: React.FC = () => {
                 saveHistory('Creative Batch', prompts[0], validImages, outputMode);
             }
 
-        } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
-        finally { setIsLoading(false); setLoadingStatus(''); }
+        } catch (e: any) {
+            if (abortController.signal.aborted || e?.name === 'AbortError' || e?.message?.includes('aborted')) {
+                console.log('[App] Creative generation aborted cleanly by user');
+                setLoadingStatus('Đã dừng tạo ảnh theo yêu cầu.');
+            } else {
+                setError(e instanceof Error ? e.message : 'Lỗi.');
+            }
+        } finally {
+            abortControllerRef.current = null;
+            setIsLoading(false);
+            if (!abortController.signal.aborted) {
+                setLoadingStatus('');
+            }
+        }
     }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate]);
 
     // 3. Edit Image (Batch Support)
@@ -1003,7 +1031,7 @@ const App: React.FC = () => {
                 maleAccessories: creativeInputs.maleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType })),
                 femaleAccessories: creativeInputs.femaleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType }))
             };
-            return <PromptPanel onGenerate={handleCreativeGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} selectedImageCount={totalCreative} inputCounts={{ male: creativeInputs.male.length, female: creativeInputs.female.length, maleAcc: creativeInputs.maleAcc.length, femaleAcc: creativeInputs.femaleAcc.length }} refImages={creativeRefImages} />;
+            return <PromptPanel onGenerate={handleCreativeGenerate} onCancel={handleCancelGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} selectedImageCount={totalCreative} inputCounts={{ male: creativeInputs.male.length, female: creativeInputs.female.length, maleAcc: creativeInputs.maleAcc.length, femaleAcc: creativeInputs.femaleAcc.length }} refImages={creativeRefImages} />;
         }
         if (mode === 'id_photo') return <IdPhotoPanel onGenerate={handleIdPhotoGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'edit') return <EditImagePanel onGenerate={handleEditImage} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;

@@ -16,6 +16,7 @@ interface PromptPanelProps {
         style?: string,
         shotType?: string
     ) => void;
+    onCancel?: () => void;
     isLoading: boolean;
     isDisabled: boolean;
     hasApiKey: boolean;
@@ -97,7 +98,7 @@ export const parsePromptsFromText = (text: string): string[] => {
     return prompts.map(p => p.replace(/^(?:[-*•]|\d+[\.\)]|Prompt\s*\d+[:\.])\s*/i, '').trim()).filter(p => p.length > 0);
 };
 
-export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 }, refImages }) => {
+export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 }, refImages }) => {
     const [topic, setTopic] = useState('');
     const [quantity, setQuantity] = useState(2);
     const [aspectRatio, setAspectRatio] = useState('1:1');
@@ -401,24 +402,26 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, isLoading,
                             </button>
                         );
                     })()
+                ) : isLoading ? (
+                    <button
+                        onClick={onCancel}
+                        type="button"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white shadow-rose-600/25 ring-1 ring-rose-600/30 cursor-pointer animate-pulse min-h-[44px]"
+                        title="Bấm để dừng đợt tạo ảnh này ngay lập tức"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                            <rect x="5" y="5" width="14" height="14" rx="2" />
+                        </svg>
+                        <span>DỪNG TẠO ẢNH (HỦY)</span>
+                    </button>
                 ) : (
                     <button
                         onClick={handleFinalGenerate}
                         disabled={isLoading}
-                        className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
-                            isLoading
-                                ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
-                                : 'bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white shadow-emerald-600/25 ring-1 ring-emerald-600/20 cursor-pointer'
-                        }`}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white shadow-emerald-600/25 ring-1 ring-emerald-600/20 cursor-pointer min-h-[44px]"
                     >
-                        {isLoading ? (
-                            <span>Đang xử lý tạo ảnh...</span>
-                        ) : (
-                            <>
-                                <SparklesIcon className="w-4 h-4" />
-                                <span>BƯỚC 2: TIẾN HÀNH VẼ ẢNH</span>
-                            </>
-                        )}
+                        <SparklesIcon className="w-4 h-4" />
+                        <span>BƯỚC 2: TIẾN HÀNH VẼ ẢNH</span>
                     </button>
                 )}
 
