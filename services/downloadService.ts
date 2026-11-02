@@ -35,8 +35,8 @@ export function isElectronPlatform(): boolean {
  * - On Web: Uses traditional data URL download
  */
 export async function downloadImage(base64: string, filename: string): Promise<DownloadResult> {
-    // Ensure filename has extension
-    if (!filename.endsWith('.png') && !filename.endsWith('.jpg') && !filename.endsWith('.jpeg')) {
+    // Ensure filename has valid media extension
+    if (!filename.endsWith('.png') && !filename.endsWith('.jpg') && !filename.endsWith('.jpeg') && !filename.endsWith('.webp') && !filename.endsWith('.mp4')) {
         filename = `${filename}.png`;
     }
 
@@ -54,8 +54,14 @@ export async function downloadImage(base64: string, filename: string): Promise<D
  */
 async function downloadElectron(base64: string, filename: string): Promise<DownloadResult> {
     try {
-        const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
-        const result = await (window as any).electronAPI.saveFile(cleanBase64, filename);
+        let result: any;
+        if (base64.startsWith('http://') || base64.startsWith('https://')) {
+            result = await (window as any).electronAPI.saveFile('', filename, base64);
+        } else {
+            const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
+            result = await (window as any).electronAPI.saveFile(cleanBase64, filename);
+        }
+
         if (result && result.success) {
             console.log('[Download] File saved to custom folder:', result.path);
             return {

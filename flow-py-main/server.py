@@ -54,6 +54,8 @@ from flow._storage import (
     get_active_project,
     load_config,
     set_active_project,
+    STORAGE_ROOT,
+    PROFILE_DIR,
 )
 
 logging.basicConfig(
@@ -91,11 +93,24 @@ async def add_private_network_access_headers(request, call_next):
     return response
 
 # Directories for storing temporary input images and downloaded output videos
-OUTPUT_DIR = Path(__file__).parent / "flow_outputs"
-TEMP_INPUT_DIR = Path(__file__).parent / "flow_inputs"
-ACCOUNTS_POOL_FILE = Path(__file__).parent / "accounts_pool.json"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-TEMP_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = STORAGE_ROOT / "outputs"
+TEMP_INPUT_DIR = STORAGE_ROOT / "inputs"
+ACCOUNTS_POOL_FILE = STORAGE_ROOT / "accounts_pool.json"
+
+# Migrate old pool file if exists in package root and not yet in STORAGE_ROOT
+_legacy_pool = Path(__file__).parent / "accounts_pool.json"
+if _legacy_pool.exists() and not ACCOUNTS_POOL_FILE.exists():
+    try:
+        import shutil
+        shutil.copy2(_legacy_pool, ACCOUNTS_POOL_FILE)
+    except Exception:
+        pass
+
+try:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    TEMP_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+except Exception as _mk_err:
+    log.warning("Could not create directories in STORAGE_ROOT: %s", _mk_err)
 
 _pool_rotation_idx: int = 0
 
@@ -205,7 +220,7 @@ async def _ensure_cdp_chrome_running(signin: bool = False) -> bool:
     if not exe_path:
         return False
 
-    bat_path = Path(__file__).parent / "start_cdp_chrome.bat"
+    bat_path = STORAGE_ROOT / "start_cdp_chrome.bat"
     bat_content = (
         "@echo off\r\n"
         f'start "" "{exe_path}" '
@@ -432,7 +447,7 @@ async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
                 return _auth_state
 
             # Check session via DOM account badge or __NEXT_DATA__
-            session_info = await page.evaluate("""
+            session_info = await page.evaluate(r"""
                 async () => {
                     try {
                         const accLink = document.querySelector('a[aria-label*="@"], button[aria-label*="@"]');

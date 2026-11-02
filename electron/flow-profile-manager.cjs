@@ -125,7 +125,8 @@ function findFlowServerDir() {
         path.join(app.getAppPath(), '..', 'flow-py-main'),
         path.join(app.getAppPath(), 'flow-py-main'),
         path.join(process.cwd(), 'flow-py-main'),
-        'd:\\ToolMedia\\flow-py-main'
+        'd:\\ToolMedia\\flow-py-main',
+        'D:\\APP CÀI NGOÀI\\ImageTool\\resources\\flow-py-main'
     ];
     for (const dir of candidates) {
         if (dir && fs.existsSync(path.join(dir, 'server.py'))) {
@@ -158,6 +159,29 @@ function findPythonExecutable() {
     return 'python';
 }
 
+
+function killProcessOnPort(port) {
+    try {
+        const { execSync } = require('child_process');
+        if (process.platform === 'win32') {
+            const out = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+            const lines = out.split('\n');
+            for (const line of lines) {
+                if (line.includes('LISTENING') || line.includes('ESTABLISHED')) {
+                    const parts = line.trim().split(/\s+/);
+                    const pid = parts[parts.length - 1];
+                    if (pid && pid !== '0' && pid !== String(process.pid)) {
+                        try {
+                            execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+                            console.log(`[FlowProfileManager] Killed stale process on port ${port} (PID ${pid})`);
+                        } catch (e) {}
+                    }
+                }
+            }
+        }
+    } catch (e) {}
+}
+
 async function ensureVideoServerRunning() {
     try {
         const health = await httpGetJson(`${SERVER_URL}/health`, 1200);
@@ -177,26 +201,39 @@ async function ensureVideoServerRunning() {
     const pyScript = path.join(serverDir, 'server.py');
     console.log(`[FlowProfileManager] Auto-starting flow-py server using "${pyExe}" at ${pyScript}...`);
 
+    // Free up port 8100 if occupied by dead/stale process
+    killProcessOnPort(8100);
+    await new Promise(r => setTimeout(r, 400));
+
     try {
-        const logFile = path.join(serverDir, 'server.log');
+        const logFile = path.join(app.getPath('userData'), 'flow_server.log');
         let outFd = 'ignore';
         try {
             outFd = fs.openSync(logFile, 'a');
-        } catch (e) {}
+            fs.writeSync(outFd, `\n\n--- [${new Date().toISOString()}] Starting Flow Server via ${pyExe} ---\n`);
+        } catch (e) {
+            console.error('[FlowProfileManager] Error opening flow_server.log:', e);
+        }
 
-        const pyProcess = spawn(pyExe, ['-B', '-X', 'utf8', 'server.py'], {
+        const pyProcess = spawn(pyExe, ['-B', '-X', 'utf8', pyScript], {
             cwd: serverDir,
             detached: true,
             stdio: ['ignore', outFd, outFd],
-            windowsHide: true
+            windowsHide: true,
+            env: {
+                ...process.env,
+                PYTHONIOENCODING: 'utf-8',
+                PYTHONUNBUFFERED: '1',
+                FLOW_STORAGE_DIR: path.join(app.getPath('userData'), 'flow_py_storage')
+            }
         });
         pyProcess.unref();
     } catch (err) {
         console.error('[FlowProfileManager] Failed to spawn python server:', err);
     }
 
-    // Wait up to 12 seconds for server to start
-    for (let i = 0; i < 20; i++) {
+    // Wait up to 18 seconds for server to start
+    for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 600));
         try {
             const health = await httpGetJson(`${SERVER_URL}/health`, 1000);
@@ -860,9 +897,17 @@ function initFlowProfileManager(mainWindow) {
 
         const serverReady = await ensureVideoServerRunning();
         if (!serverReady) {
+            let detail = '';
+            try {
+                const logPath = path.join(app.getPath('userData'), 'flow_server.log');
+                if (fs.existsSync(logPath)) {
+                    const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(l => l.trim().length > 0);
+                    detail = lines.slice(-2).join(' | ');
+                }
+            } catch (e) {}
             return {
                 success: false,
-                error: 'Không thể khởi động bộ xử lý Google Flow (Server 8100). Vui lòng kiểm tra Python trên máy tính!'
+                error: `Không thể khởi động bộ xử lý Google Flow (Server 8100). ${detail ? 'Chi tiết: ' + detail : 'Vui lòng kiểm tra Python trên máy tính!'}`
             };
         }
 

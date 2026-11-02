@@ -73,6 +73,18 @@ const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryCl
                                 Trang cá nhân
                             </button>
                         )}
+                        {typeof window !== 'undefined' && (window as any)?.electronAPI && (
+                            <button
+                                onClick={() => {
+                                    setIsOpen(false);
+                                    (window as any).electronAPI.checkForUpdates?.();
+                                }}
+                                className="w-full text-left flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-colors"
+                            >
+                                <span className="text-base">🔄</span>
+                                <span>Kiểm tra cập nhật</span>
+                            </button>
+                        )}
                         <button
                             onClick={() => {
                                 onLogout();

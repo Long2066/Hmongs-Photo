@@ -1,5 +1,6 @@
 
-import React from 'react';
+import React, { useState } from 'react';
+import { downloadImage } from '../services/downloadService';
 import { ErrorIcon, ImageIcon } from './Icons';
 
 interface OutputDisplayProps {
@@ -19,6 +20,25 @@ const isVideoUrl = (url: string | null): boolean => {
 };
 
 const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({ url, index, prompt }) => {
+    const [downloading, setDownloading] = useState(false);
+    const [downloadMsg, setDownloadMsg] = useState<string | null>(null);
+
+    const handleDownload = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        setDownloading(true);
+        try {
+            const res = await downloadImage(url, `veo_video_${index + 1}.mp4`);
+            if (res.message) {
+                setDownloadMsg(res.message);
+                setTimeout(() => setDownloadMsg(null), 3500);
+            }
+        } catch (err: any) {
+            console.error('Download video error:', err);
+        } finally {
+            setDownloading(false);
+        }
+    };
+
     return (
         <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 animate-fade-in ring-1 ring-slate-900/5 col-span-full max-w-2xl mx-auto w-full">
             <div className="flex items-center justify-between px-1">
@@ -26,18 +46,23 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
                     <span className="text-xs font-bold text-slate-800 tracking-tight uppercase">Veo AI Video #{index + 1}</span>
                 </div>
-                <a
-                    href={url}
-                    download={`veo_video_${index + 1}.mp4`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95"
-                >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    <span>Tải Video MP4</span>
-                </a>
+                <div className="flex items-center gap-2">
+                    {downloadMsg && (
+                        <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80 animate-fade-in">
+                            {downloadMsg}
+                        </span>
+                    )}
+                    <button
+                        onClick={handleDownload}
+                        disabled={downloading}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                    >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span>{downloading ? 'Đang lưu...' : 'Tải Video MP4'}</span>
+                    </button>
+                </div>
             </div>
 
             <div className="relative w-full rounded-xl overflow-hidden bg-slate-950 aspect-video flex items-center justify-center border border-slate-900/10 shadow-inner">

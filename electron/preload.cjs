@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     selectDownloadFolder: () => ipcRenderer.invoke('select-download-folder'),
     getDownloadPath: () => ipcRenderer.invoke('get-download-path'),
     openDownloadFolder: () => ipcRenderer.invoke('open-download-folder'),
-    saveFile: (base64, filename) => ipcRenderer.invoke('save-file', { base64, filename }),
+    saveFile: (base64, filename, fileUrl) => ipcRenderer.invoke('save-file', { base64, filename, fileUrl }),
 
     // ============ BROWSER UTILS ============
     openIncognito: (url) => ipcRenderer.invoke('open-incognito', url),
@@ -25,12 +25,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     startExternalGoogleAuth: () => ipcRenderer.invoke('start-external-google-auth'),
 
     // ============ AUTO-UPDATE ============
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     downloadUpdate: () => ipcRenderer.invoke('download-update'),
     installUpdate: () => ipcRenderer.invoke('install-update'),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
     // Update event listeners
     onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
+    onUpdateNotAvailable: (callback) => ipcRenderer.on('update-not-available', (event, info) => callback(info)),
     onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (event, progress) => callback(progress)),
     onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
     onUpdateError: (callback) => ipcRenderer.on('update-error', (event, error) => callback(error)),

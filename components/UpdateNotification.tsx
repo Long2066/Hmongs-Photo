@@ -28,6 +28,7 @@ export const UpdateNotification: React.FC = () => {
     const [downloadProgress, setDownloadProgress] = useState<number>(0);
     const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState<string>('');
+    const [noUpdateToast, setNoUpdateToast] = useState(false);
 
     const isElectron = isElectronPlatform();
     const isMobile = isMobilePlatform();
@@ -42,6 +43,11 @@ export const UpdateNotification: React.FC = () => {
             api.onUpdateAvailable((info: ElectronUpdateInfo) => {
                 setUpdateAvailable(true);
                 setNewVersion(info.version);
+            });
+
+            api.onUpdateNotAvailable?.(() => {
+                setNoUpdateToast(true);
+                setTimeout(() => setNoUpdateToast(false), 3500);
             });
 
             api.onUpdateProgress((progress: ElectronUpdateProgress) => {
@@ -99,7 +105,17 @@ export const UpdateNotification: React.FC = () => {
     };
 
     // Don't render if no update or dismissed
-    if (!updateAvailable && !updateDownloaded) return null;
+    if (!updateAvailable && !updateDownloaded) {
+        if (noUpdateToast) {
+            return (
+                <div className="fixed bottom-6 right-6 z-[9999] bg-slate-900/95 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-slate-700 animate-fade-in text-sm backdrop-blur-md">
+                    <span className="text-emerald-400 text-lg">✓</span>
+                    <span>Bạn đang ở phiên bản mới nhất (<strong>v{currentVersion}</strong>)</span>
+                </div>
+            );
+        }
+        return null;
+    }
     if (dismissed && !isElectron) return null;
 
     // RENDER UPDATE MODAL

@@ -430,8 +430,11 @@ autoUpdater.on('update-available', (info) => {
     mainWindow.webContents.send('update-available', info);
 });
 
-autoUpdater.on('update-not-available', () => {
+autoUpdater.on('update-not-available', (info) => {
     console.log('App is up to date');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-not-available', info);
+    }
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
@@ -448,6 +451,16 @@ autoUpdater.on('error', (err) => {
 });
 
 // ============ IPC HANDLERS ============
+
+// Handle check for updates request
+ipcMain.handle('check-for-updates', async () => {
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        return { success: true, result };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 
 // Handle download update request
 ipcMain.handle('download-update', async () => {
@@ -505,25 +518,40 @@ ipcMain.handle('open-download-folder', async () => {
     }
 });
 
-// Save file to custom folder
-ipcMain.handle('save-file', async (event, { base64, filename }) => {
+// Save file (base64 or remote/local URL) to custom folder
+ipcMain.handle('save-file', async (event, { base64, filename, fileUrl }) => {
     try {
         const targetDir = downloadPath || loadSavedDownloadPath();
         if (!fs.existsSync(targetDir)) {
             fs.mkdirSync(targetDir, { recursive: true });
         }
 
-        // Clean base64 header (e.g. data:image/png;base64, or data:image/jpeg;base64,)
-        const rawBase64 = (base64 && base64.includes(',')) ? base64.split(',')[1] : base64;
-        const buffer = Buffer.from(rawBase64, 'base64');
+        let buffer;
+        const targetUrl = fileUrl || (base64 && (base64.startsWith('http://') || base64.startsWith('https://')) ? base64 : null);
+        if (targetUrl) {
+            const resp = await fetch(targetUrl);
+            const arrayBuffer = await resp.arrayBuffer();
+            buffer = Buffer.from(arrayBuffer);
+        } else {
+            const rawBase64 = (base64 && base64.includes(',')) ? base64.split(',')[1] : (base64 || '');
+            buffer = Buffer.from(rawBase64, 'base64');
+        }
 
         // Sanitise filename
-        let safeFilename = (filename || `image_${Date.now()}.png`).replace(/[\\/:\*\?"<>\|]/g, '_');
-        if (!safeFilename.endsWith('.png') && !safeFilename.endsWith('.jpg') && !safeFilename.endsWith('.jpeg')) {
+        let safeFilename = (filename || `file_${Date.now()}`).replace(/[\\/:\*\?"<>\|]/g, '_');
+        if (!path.extname(safeFilename)) {
             safeFilename = `${safeFilename}.png`;
         }
 
-        const filePath = path.join(targetDir, safeFilename);
+        let filePath = path.join(targetDir, safeFilename);
+        // Avoid Google Drive / Windows file locking collision if file exists
+        if (fs.existsSync(filePath)) {
+            const ext = path.extname(safeFilename);
+            const base = path.basename(safeFilename, ext);
+            safeFilename = `${base}_${Date.now()}${ext}`;
+            filePath = path.join(targetDir, safeFilename);
+        }
+
         fs.writeFileSync(filePath, buffer);
         console.log('[save-file] File successfully saved to:', filePath);
         return { success: true, path: filePath, filename: safeFilename };
