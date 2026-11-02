@@ -918,7 +918,8 @@ export const generateTextViaNineRouter = async (
     prompt: string,
     model?: string,
     systemInstruction?: string,
-    referenceImages?: NineRouterLabeledReferenceImage[]
+    referenceImages?: NineRouterLabeledReferenceImage[],
+    abortSignal?: AbortSignal
 ): Promise<string | null> => {
     const baseUrl = getNineRouterUrl();
     const apiKey = getNineRouterApiKey();
@@ -972,7 +973,7 @@ export const generateTextViaNineRouter = async (
     let lastError: any = null;
 
     for (const candidateModel of candidateModels) {
-        if (request.abortSignal?.aborted) {
+        if (abortSignal?.aborted) {
             console.log('[CLIProxyAPI] Aborted before candidate attempt');
             return null;
         }
@@ -1134,7 +1135,8 @@ export const getFriendlyTextModelName = (modelId: string, preferredModel?: strin
 export const generateChatCompletionViaNineRouter = async (
     chatMessages: ChatMessageItem[],
     preferredModel?: string,
-    systemInstruction?: string
+    systemInstruction?: string,
+    abortSignal?: AbortSignal
 ): Promise<ChatResponseResult> => {
     const baseUrl = getNineRouterUrl();
     const apiKey = getNineRouterApiKey();
@@ -1174,7 +1176,7 @@ export const generateChatCompletionViaNineRouter = async (
                 const timeoutMs = (candidateModel.includes('sol') || candidateModel.includes('opus')) ? 60000 : 35000;
                 const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                     method: 'POST',
-                    signal: request.abortSignal,
+                    signal: abortSignal,
                     headers,
                     body: JSON.stringify({
                         model: candidateModel,
@@ -1314,6 +1316,7 @@ export const generateImageViaNineRouter = async (
 ): Promise<string | null> => {
     const baseUrl = getNineRouterUrl();
     const apiKey = getNineRouterApiKey();
+    const abortSignal = request.abortSignal;
     const activeModel = (request.model || getNineRouterImageModel())
         .replace(/^ag\//i, '')
         .replace(/^openrouter\//i, '')
@@ -1609,7 +1612,7 @@ CRITICAL RULES:
                     const respJson = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                         method: 'POST',
                         headers,
-                        signal: request.abortSignal,
+                        signal: abortSignal,
                         body: JSON.stringify(editPayload)
                     }, 120000);
 
@@ -1660,7 +1663,7 @@ CRITICAL RULES:
                     const respMultipart = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                         method: 'POST',
                         headers: formHeaders,
-                        signal: request.abortSignal,
+                        signal: abortSignal,
                         body: formData
                     }, 120000);
 
@@ -1702,7 +1705,7 @@ CRITICAL RULES:
                 const respGen = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                     method: 'POST',
                     headers,
-                    signal: request.abortSignal,
+                    signal: abortSignal,
                     body: JSON.stringify(genPayload)
                 }, 90000);
 
@@ -1718,7 +1721,7 @@ CRITICAL RULES:
                     const respSquare = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                         method: 'POST',
                         headers,
-                        signal: request.abortSignal,
+                        signal: abortSignal,
                         body: JSON.stringify({
                             ...genPayload,
                             size: '1024x1024'
