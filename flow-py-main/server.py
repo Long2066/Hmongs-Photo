@@ -404,13 +404,16 @@ async def _ensure_in_project(page, target_pid: Optional[str] = None) -> Optional
     try:
         log.info("Navigating to new project canvas: %s", new_uuid)
         await page.goto(f"https://flow.google.com/project/{new_uuid}", wait_until="domcontentloaded", timeout=25000)
-        await asyncio.sleep(2.5)
-        if "/about" not in page.url and "accounts.google.com" not in page.url:
+        await asyncio.sleep(4.0)
+        if "/about" not in page.url and "accounts.google.com" not in page.url and "signin" not in page.url:
             m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
             pid = m.group(1) if m else new_uuid
             set_active_project(pid, f"https://flow.google.com/project/{pid}")
             add_project(pid, "canvas", f"https://flow.google.com/project/{pid}")
             return pid
+        else:
+            log.warning("Page redirected away from canvas to: %s", page.url)
+            return None
     except Exception as e:
         log.debug("Canvas initialization notice: %s", e)
 
@@ -814,18 +817,26 @@ async def _run_video_generation_job(
             )
         else:
             err_str = str(exc)
-            if "Failed to upload" in err_str or "inputs" in err_str:
+            if "batchAsyncGenerateVideo" in err_str or "Timed out" in err_str or "GenerationTimeout" in err_str:
+                job_entry["error"] = (
+                    "Hết thời gian chờ phản hồi từ Google Flow (Timeout 150s). "
+                    "Nguyên nhân: Tài khoản Google Flow hết hạn phiên đăng nhập hoặc Google yêu cầu chọn tài khoản/xác thực lại. "
+                    "Vui lòng vào mục 'Hồ sơ Tài khoản Google', bấm 'Dán Cookie' hoặc dùng tab 'Extension' nạp lại tài khoản mới!"
+                )
+            elif "accounts.google.com" in err_str or "signin" in err_str or "Phiên đăng nhập" in err_str or "AuthError" in type(exc).__name__:
+                job_entry["error"] = (
+                    "Tài khoản Google Flow đã hết hạn phiên làm việc (Google yêu cầu đăng nhập lại). "
+                    "Vui lòng vào mục 'Hồ sơ Tài khoản Google', bấm 'Dán Cookie' hoặc dùng tab 'Extension' để nạp lại Cookie mới!"
+                )
+            elif "Failed to upload" in err_str or "inputs" in err_str:
                 job_entry["error"] = (
                     "Không thể tải ảnh nguồn lên Google Flow. "
                     "Vui lòng kiểm tra lại tài khoản trong mục 'Hồ sơ Tài khoản Google' hoặc thử ảnh khác!"
                 )
-            elif "accounts.google.com" in err_str or "signin" in err_str:
-                job_entry["error"] = (
-                    "Tài khoản Google Flow đã hết hạn phiên làm việc. "
-                    "Vui lòng bấm 'Thêm Gmail' hoặc dán lại Cookie mới!"
-                )
-            else:
+            elif "Không thể bấm nút Tạo" in err_str:
                 job_entry["error"] = err_str
+            else:
+                job_entry["error"] = f"Lỗi tạo video: {err_str}"
         job_entry["status"] = "failed"
     finally:
         if start_image_path and start_image_path.exists():

@@ -188,6 +188,10 @@ class FlowClient:
         page = await self._bm.page()
         await self._ensure_project_page(page)
 
+        # Check authentication immediately
+        if "accounts.google.com" in page.url or "signin" in page.url or "/about" in page.url:
+            raise AuthError("Tài khoản Google Flow đã hết phiên đăng nhập hoặc bị chuyển hướng đăng nhập. Vui lòng nạp lại Cookie mới!")
+
         interceptor = UIInterceptor()
         interceptor.attach(page)
 
@@ -201,10 +205,16 @@ class FlowClient:
         await self._ui.fill_prompt(page, prompt)
 
         if start_image:
-            await self._ui.upload_image(page, start_image)
+            ok = await self._ui.upload_image(page, start_image)
+            if not ok:
+                raise GenerationError("Không thể tải ảnh nguồn lên Google Flow. Vui lòng thử lại với ảnh dung lượng nhỏ hơn hoặc kiểm tra tài khoản.")
 
         # Click submit → triggers real reCAPTCHA token generation
-        await self._ui.click_submit(page)
+        submitted = await self._ui.click_submit(page)
+        if not submitted:
+            if "accounts.google.com" in page.url or "signin" in page.url:
+                raise AuthError("Tài khoản Google Flow đã hết hạn phiên làm việc trong quá trình tạo video. Vui lòng nạp lại Cookie mới!")
+            raise GenerationError("Không thể bấm nút Tạo Video trên giao diện Google Flow (nút bị vô hiệu hóa hoặc giao diện chưa sẵn sàng).")
 
         # Wait for API response
         entry = await interceptor.wait_for(
@@ -783,7 +793,9 @@ class FlowClient:
             await page.goto(
                 self._project_url, wait_until="domcontentloaded", timeout=20_000
             )
-            await asyncio.sleep(2)
+            await asyncio.sleep(3.0)
+        if "accounts.google.com" in page.url or "signin" in page.url or "/about" in page.url:
+            raise AuthError("Tài khoản Google Flow đã hết phiên đăng nhập hoặc bị chuyển hướng đăng nhập. Vui lòng nạp lại Cookie mới!")
 
     def __repr__(self):
         return (
