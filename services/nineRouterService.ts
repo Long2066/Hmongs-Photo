@@ -44,6 +44,7 @@ export interface NineRouterImageRequest {
     hasFemaleAccessories?: boolean;
     sessionSeed?: number;
     outputMode?: 'single' | 'couple';
+    abortSignal?: AbortSignal;
 }
 
 export interface NineRouterLabeledReferenceImage {
@@ -381,6 +382,19 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutM
     const finalUrl = resolveRequestUrl(url);
     const controller = new AbortController();
     const id = setTimeout(() => { try { controller.abort(new Error(`Quá thời gian chờ phản hồi (${Math.round(timeoutMs / 1000)}s)`)); } catch { controller.abort(); } }, timeoutMs);
+
+    if (options.signal) {
+        if (options.signal.aborted) {
+            clearTimeout(id);
+            controller.abort();
+        } else {
+            options.signal.addEventListener('abort', () => {
+                clearTimeout(id);
+                controller.abort();
+            }, { once: true });
+        }
+    }
+
     try {
         const mergedHeaders: Record<string, string> = {
             'ngrok-skip-browser-warning': 'true'
@@ -958,6 +972,10 @@ export const generateTextViaNineRouter = async (
     let lastError: any = null;
 
     for (const candidateModel of candidateModels) {
+        if (request.abortSignal?.aborted) {
+            console.log('[CLIProxyAPI] Aborted before candidate attempt');
+            return null;
+        }
         try {
             console.log(`[CLIProxyAPI] Attempting prompt text generation with candidate: ${candidateModel}`);
             const timeoutMs = (candidateModel.includes('sol') || candidateModel.includes('opus')) ? 90000 : 60000;
@@ -1156,6 +1174,7 @@ export const generateChatCompletionViaNineRouter = async (
                 const timeoutMs = (candidateModel.includes('sol') || candidateModel.includes('opus')) ? 60000 : 35000;
                 const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
                     method: 'POST',
+                    signal: request.abortSignal,
                     headers,
                     body: JSON.stringify({
                         model: candidateModel,
@@ -1590,6 +1609,7 @@ CRITICAL RULES:
                     const respJson = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                         method: 'POST',
                         headers,
+                        signal: request.abortSignal,
                         body: JSON.stringify(editPayload)
                     }, 120000);
 
@@ -1640,6 +1660,7 @@ CRITICAL RULES:
                     const respMultipart = await fetchWithTimeout(`${baseUrl}/images/edits`, {
                         method: 'POST',
                         headers: formHeaders,
+                        signal: request.abortSignal,
                         body: formData
                     }, 120000);
 
@@ -1681,6 +1702,7 @@ CRITICAL RULES:
                 const respGen = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                     method: 'POST',
                     headers,
+                    signal: request.abortSignal,
                     body: JSON.stringify(genPayload)
                 }, 90000);
 
@@ -1696,6 +1718,7 @@ CRITICAL RULES:
                     const respSquare = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                         method: 'POST',
                         headers,
+                        signal: request.abortSignal,
                         body: JSON.stringify({
                             ...genPayload,
                             size: '1024x1024'

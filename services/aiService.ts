@@ -851,7 +851,8 @@ const parallelWithConcurrency = async <T>(
     tasks: (() => Promise<T>)[],
     concurrency: number,
     onProgress?: (completed: number, total: number) => void,
-    staggerDelayMs: number = 300 // Reduced to 300ms for faster start
+    staggerDelayMs: number = 300,
+    abortSignal?: AbortSignal
 ): Promise<T[]> => {
     const results: T[] = new Array(tasks.length);
     let currentIndex = 0;
@@ -860,10 +861,15 @@ const parallelWithConcurrency = async <T>(
     const executeNext = async (workerIndex: number): Promise<void> => {
         // Stagger start: each worker waits a bit before starting
         if (staggerDelayMs > 0 && workerIndex > 0) {
+            if (abortSignal?.aborted) return;
             await delay(staggerDelayMs * workerIndex);
         }
 
         while (currentIndex < tasks.length) {
+            if (abortSignal?.aborted) {
+                console.log(`[Worker ${workerIndex}] Stopping early due to abort signal.`);
+                break;
+            }
             const index = currentIndex++;
             try {
                 results[index] = await tasks[index]();
@@ -875,8 +881,8 @@ const parallelWithConcurrency = async <T>(
             if (onProgress) onProgress(completed, tasks.length);
 
             // Add small delay between tasks for same worker to spread load
-            // Reduced to 100ms for faster throughput
             if (staggerDelayMs > 0 && currentIndex < tasks.length) {
+                if (abortSignal?.aborted) break;
                 await delay(100);
             }
         }
@@ -1296,7 +1302,8 @@ export const generateImagesFromPromptsList = async (
     onImageGenerated: (index: number, base64: string | null) => void,
     style?: string,
     shotType?: string,
-    outputMode?: 'single' | 'couple'
+    outputMode?: 'single' | 'couple',
+    abortSignal?: AbortSignal
 ): Promise<void> => {
     // Check if NineRouter mode is enabled
     const useNineRouterMode = nineRouterService.isNineRouterEnabled();
@@ -1370,6 +1377,10 @@ export const generateImagesFromPromptsList = async (
 
     // Create tasks for parallel execution
     const generateSingleImage = async (index: number): Promise<string | null> => {
+        if (abortSignal?.aborted) {
+            console.log(`[Parallel] Skipping image ${index + 1} because generation was aborted.`);
+            return null;
+        }
         const prompt = prompts[index];
         try {
             console.log(`[Parallel] Starting image ${index + 1}/${prompts.length}`);
@@ -1489,7 +1500,8 @@ export const generateImagesFromPromptsList = async (
                             shotType: shotType,
                             style: style,
                             taskType: 'create',
-                            outputMode: isCouple ? 'couple' : 'single'
+                            outputMode: isCouple ? 'couple' : 'single',
+                            abortSignal: abortSignal
                         });
                         if (base64Image) {
                             usedNineRouter = true;
@@ -1725,9 +1737,13 @@ export const generateImagesFromPromptsList = async (
 
     const results = await parallelWithConcurrency(tasks, concurrency, (completed, total) => {
         onStatusUpdate(`✨ Hoàn thành ${completed}/${total} ảnh...`);
-    });
+    }, 300, abortSignal);
 
-    onStatusUpdate(`✅ Đã tạo xong ${results.filter(r => r !== null).length}/${prompts.length} ảnh!`);
+    if (abortSignal?.aborted) {
+        onStatusUpdate('⏹️ Đã dừng tạo ảnh theo yêu cầu.');
+    } else {
+        onStatusUpdate(`✅ Đã tạo xong ${results.filter(r => r !== null).length}/${prompts.length} ảnh!`);
+    }
 };
 
 // --- ID PHOTOS ---

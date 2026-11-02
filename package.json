@@ -50,7 +50,9 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/**/*"
+      "public/**/*",
+      "!**/node_modules/**/android/**",
+      "!**/node_modules/**/build/**"
     ],
     "extraResources": [
       {
