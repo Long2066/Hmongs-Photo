@@ -297,10 +297,27 @@ class FlowUI:
         import os as _os
         filename = _os.path.basename(image_path)
 
+        # 0. Ensure page has loaded its elements
+        try:
+            await page.wait_for_selector('button', timeout=15000)
+            await asyncio.sleep(1.0)
+        except Exception:
+            pass
+
+        # CRITICAL: Google Flow defaults to Text mode. We MUST switch mode to "Khung hình" (Frames)
+        # so that the Start-frame ("Bắt đầu" / "Start") slot is rendered on the UI!
+        try:
+            await self.switch_mode(page, GenerationMode.FRAME_TO_VIDEO)
+            await asyncio.sleep(0.8)
+        except Exception as sm_err:
+            log.warning("Could not switch to FRAME_TO_VIDEO mode: %s", sm_err)
+
         # Ensure settings panel is closed first so "Bắt đầu" is unobstructed
         try:
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.4)
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
         except Exception:
             pass
 
@@ -313,59 +330,128 @@ class FlowUI:
             except Exception:
                 pass
 
+        # Global file chooser listener to intercept whichever button triggers file dialog
+        fc_list = []
+        def _on_file_chooser(fc):
+            fc_list.append(fc)
+        page.on("filechooser", _on_file_chooser)
+
         # 1. Open the Start-frame ("Bắt đầu" / "Start") picker
         picker_sel = (
             'button:has-text("uploadTải nội dung"), '
             'button:has-text("Tải nội dung nghe nhìn lên"), '
-            'button:has-text("Upload media")'
+            'button:has-text("Tải nội dung"), '
+            'button:has-text("Tải tệp lên"), '
+            'button:has-text("Tải ảnh lên"), '
+            'button:has-text("Tải lên"), '
+            'button:has-text("Upload media"), '
+            'button:has-text("Upload file"), '
+            'button:has-text("Upload image"), '
+            'button:has-text("Upload"), '
+            'button[aria-label*="Tải" i], '
+            'button[aria-label*="Upload" i], '
+            'button:has-text("cloud_upload"), '
+            'button:has-text("upload")'
         )
-        for attempt in range(3):
-            if await page.locator(picker_sel).count() > 0:
+
+        start_triggers = [
+            'button:has-text("Bắt đầu"):not([aria-label*="tạo"]):not([aria-label*="Create"])',
+            'button:has-text("Start"):not([aria-label*="tạo"]):not([aria-label*="Create"])',
+            'button[aria-label*="Bắt đầu" i]:not([aria-label*="tạo"])',
+            'button[aria-label*="Start" i]:not([aria-label*="Create"])',
+            'button[aria-label*="khung hình" i]',
+            'button[aria-label*="Thêm thành phần" i]',
+            'button[aria-label*="Thêm phương tiện" i]',
+            'button[aria-label*="Thêm hình ảnh" i]',
+            'button[aria-label*="Thêm ảnh" i]',
+            'button[aria-label*="Add media" i]',
+            'button[aria-label*="Add image" i]',
+            'button:has-text("Add Media")',
+            '[data-testid*="start-frame"]',
+            '[data-testid*="startFrame"]',
+            'button:has([data-icon="add"])',
+            'button:has-text("add_photo_alternate")',
+            'button:has-text("add")',
+            'div[class*="start-frame"] button',
+            'div[class*="startFrame"] button',
+        ]
+
+        for attempt in range(4):
+            if await page.locator(picker_sel).count() > 0 or fc_list:
                 break
-            for trigger_sel in [
-                'button:has-text("Bắt đầu"):not([aria-label*="tạo"])',
-                'button:has-text("Start")',
-                'button[aria-label*="Thêm thành phần" i]',
-                'button:has-text("Add Media")',
-            ]:
+            for trigger_sel in start_triggers:
                 trig = page.locator(trigger_sel).first
                 if await trig.count() > 0:
                     try:
                         await trig.click(timeout=3000)
                         await asyncio.sleep(1.0)
-                        break
+                        if fc_list or await page.locator(picker_sel).count() > 0:
+                            break
                     except Exception:
                         continue
-            # Also try JS click fallback on "Bắt đầu"
-            if await page.locator(picker_sel).count() == 0:
+            # Also try JS click fallback on "Bắt đầu" / "Start"
+            if await page.locator(picker_sel).count() == 0 and not fc_list:
                 await page.evaluate("""
                     () => {
-                        const btn = [...document.querySelectorAll('button')].find(
-                            b => (b.textContent || '').trim() === 'Bắt đầu' || (b.textContent || '').trim() === 'Start'
-                        );
+                        const btns = [...document.querySelectorAll('button, [role=button]')];
+                        const btn = btns.find(b => {
+                            const t = (b.textContent || '').trim();
+                            const aria = (b.getAttribute('aria-label') || '').trim();
+                            return (t === 'Bắt đầu' || t === 'Start' || aria.includes('Bắt đầu') || aria.includes('Start') || aria.includes('khung hình'));
+                        });
                         if (btn) btn.click();
                     }
                 """)
                 await asyncio.sleep(1.0)
 
-        # 2. Click "uploadTải nội dung nghe nhìn lên" (NOT the sidebar "drive_folder_upload Tệp tải lên"!)
-        picker_btn = page.locator(picker_sel).last
-        if await picker_btn.count() > 0:
+        # 2. If a file chooser was already triggered by clicking the trigger button
+        if fc_list:
             try:
-                async with page.expect_file_chooser(timeout=8000) as fc_info:
-                    await picker_btn.click(timeout=4000)
-                fc = await fc_info.value
-                await fc.set_files(image_path)
-            except Exception as e:
-                log.warning("File chooser upload failed: %s", e)
-                return False
+                await fc_list[-1].set_files(image_path)
+                log.info("File uploaded via eager filechooser event")
+            except Exception as fc_err:
+                log.warning("Eager file chooser set_files failed: %s", fc_err)
         else:
-            file_input = page.locator("input[type='file']").first
-            if await file_input.count() > 0:
-                await file_input.set_input_files(image_path)
+            # Click the upload button in the picker
+            picker_btn = page.locator(picker_sel).last
+            if await picker_btn.count() > 0:
+                try:
+                    async with page.expect_file_chooser(timeout=8000) as fc_info:
+                        await picker_btn.click(timeout=4000)
+                    fc = await fc_info.value
+                    await fc.set_files(image_path)
+                except Exception as e:
+                    if fc_list:
+                        await fc_list[-1].set_files(image_path)
+                    else:
+                        log.warning("File chooser upload failed: %s", e)
             else:
-                log.warning("Could not find upload button or file input")
-                return False
+                file_input = page.locator("input[type='file']").first
+                if await file_input.count() > 0:
+                    await file_input.set_input_files(image_path)
+                else:
+                    # Final attempt: inject temporary file input and dispatch change
+                    log.warning("Could not find upload button or file input; attempting DOM input fallback")
+                    try:
+                        await page.evaluate("""
+                            () => {
+                                let inp = document.querySelector('input[type=file]');
+                                if (!inp) {
+                                    inp = document.createElement('input');
+                                    inp.type = 'file';
+                                    inp.id = 'flow-temp-file-input';
+                                    inp.style.display = 'none';
+                                    document.body.appendChild(inp);
+                                }
+                            }
+                        """)
+                        inp = page.locator('#flow-temp-file-input').first
+                        if await inp.count() > 0:
+                            await inp.set_input_files(image_path)
+                            await inp.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
+                    except Exception as inj_err:
+                        log.debug("Fallback input injection notice: %s", inj_err)
+                        return False
 
         # 3. Wait for the image upload to register and finish ("Đang tải lên" disappears)
         await asyncio.sleep(2.0)

@@ -682,45 +682,54 @@ async def _run_video_generation_job(
             # BÀI 3: DIRECT INTERNAL REST API (Veo 3.1) - 100% HEADLESS
             # ─────────────────────────────────────────────────────────────────
             api = FlowAPI(bm, project_id=pid)
-            start_media_id = None
-            if start_image_path:
-                job_entry["progress_text"] = "Đang đồng bộ ảnh nguồn vào kho lưu trữ Veo 3.1..."
-                log.info("[%s] [Bài 3] Uploading start frame image via FlowAPI...", job_id)
-                start_media_id = await api.upload_image(start_image_path)
-                log.info("[%s] [Bài 3] Image uploaded successfully -> media_id: %s", job_id, start_media_id)
+            media_names = []
 
-            ar_enum = VIDEO_AR_PORTRAIT if aspect_mode == "portrait" else VIDEO_AR_LANDSCAPE
-            if start_media_id:
-                model_key = VIDEO_MODEL_VEO31_I2V_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_I2V
+            if start_image_path:
+                job_entry["progress_text"] = "Đang tải ảnh nguồn và khởi tạo tác vụ Veo 3.1..."
+                log.info("[%s] Using FlowClient to upload image and submit I2V job...", job_id)
+                client = FlowClient(api, bm, pid)
+                jobs = await client.generate_video(
+                    prompt=final_prompt,
+                    aspect=aspect_mode,
+                    count=output_count,
+                    start_image=str(start_image_path),
+                    timeout_s=150,
+                )
+                media_names = [j.media_name for j in jobs if j.media_name]
+                log.info("[%s] FlowClient submitted I2V jobs: %s", job_id, media_names)
             else:
+                ar_enum = VIDEO_AR_PORTRAIT if aspect_mode == "portrait" else VIDEO_AR_LANDSCAPE
                 model_key = VIDEO_MODEL_VEO31_FAST_P if aspect_mode == "portrait" else VIDEO_MODEL_VEO31_FAST
 
-            job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video qua Veo 3.1 REST API..."
-            requests = []
-            base_seed = random.randint(0, 2**31)
-            for i in range(output_count):
-                req_item = {
-                    "aspectRatio": ar_enum,
-                    "seed": base_seed + i,
-                    "textInput": {"structuredPrompt": {"parts": [{"text": final_prompt}]}},
-                    "videoModelKey": model_key,
-                    "metadata": {},
-                }
-                if start_media_id:
-                    req_item["imageInputs"] = [{"mediaName": start_media_id, "role": "START_IMAGE"}]
-                requests.append(req_item)
+                job_entry["progress_text"] = f"Đang gửi lệnh tạo {output_count} video qua Veo 3.1 REST API..."
+                requests = []
+                base_seed = random.randint(0, 2**31)
+                for i in range(output_count):
+                    req_item = {
+                        "aspectRatio": ar_enum,
+                        "seed": base_seed + i,
+                        "textInput": {"structuredPrompt": {"parts": [{"text": final_prompt}]}},
+                        "videoModelKey": model_key,
+                        "metadata": {},
+                    }
+                    requests.append(req_item)
 
-            log.info("[%s] [Bài 3] Calling batchAsyncGenerateVideoText (%d requests, model=%s)", job_id, len(requests), model_key)
-            video_job = await api._video_call("video:batchAsyncGenerateVideoText", requests)
+                log.info("[%s] [Bài 3] Calling batchAsyncGenerateVideoText (%d requests, model=%s)", job_id, len(requests), model_key)
+                video_job = await api._video_call("video:batchAsyncGenerateVideoText", requests)
 
-            media_list = video_job._raw.get("media", [])
-            if not media_list and "workflows" in video_job._raw:
-                media_list = [{"name": wf.get("metadata", {}).get("primaryMediaId")} for wf in video_job._raw.get("workflows", [])]
-            media_names = [m.get("name") for m in media_list if m.get("name")]
-            if not media_names and video_job.media_name:
-                media_names = [video_job.media_name]
+                media_list = video_job._raw.get("media", [])
+                if not media_list and "workflows" in video_job._raw:
+                    media_list = [{"name": wf.get("metadata", {}).get("primaryMediaId")} for wf in video_job._raw.get("workflows", [])]
+                media_names = [m.get("name") for m in media_list if m.get("name")]
+                if not media_names and video_job.media_name:
+                    media_names = [video_job.media_name]
 
-            log.info("[%s] [Bài 3] VideoJob submitted: tracking media %s", job_id, media_names)
+                log.info("[%s] [Bài 3] VideoJob submitted: tracking media %s", job_id, media_names)
+
+            if not media_names:
+                job_entry["status"] = "failed"
+                job_entry["error"] = "Không thể khởi tạo tác vụ video trên Google Flow (không nhận được phản hồi tạo video)."
+                return
 
             t0 = time.monotonic()
             max_wait = 320
@@ -804,7 +813,19 @@ async def _run_video_generation_job(
                 "Hệ thống đã tự khởi động lại ở chế độ thu nhỏ — vui lòng bấm Tạo Video lại!"
             )
         else:
-            job_entry["error"] = str(exc)
+            err_str = str(exc)
+            if "Failed to upload" in err_str or "inputs" in err_str:
+                job_entry["error"] = (
+                    "Không thể tải ảnh nguồn lên Google Flow. "
+                    "Vui lòng kiểm tra lại tài khoản trong mục 'Hồ sơ Tài khoản Google' hoặc thử ảnh khác!"
+                )
+            elif "accounts.google.com" in err_str or "signin" in err_str:
+                job_entry["error"] = (
+                    "Tài khoản Google Flow đã hết hạn phiên làm việc. "
+                    "Vui lòng bấm 'Thêm Gmail' hoặc dán lại Cookie mới!"
+                )
+            else:
+                job_entry["error"] = err_str
         job_entry["status"] = "failed"
     finally:
         if start_image_path and start_image_path.exists():
