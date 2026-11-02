@@ -431,7 +431,7 @@ export const Dashboard: React.FC = () => {
 
                         {/* Sidebar Footer */}
                         <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
-                            <p className="text-[11px] text-slate-500 font-semibold">ImageTool © Studio Edition</p>
+                            <p className="text-[11px] text-slate-500 font-semibold">ImageTool v{APP_VERSION} © Studio Edition</p>
                         </div>
                     </aside>
                 )}

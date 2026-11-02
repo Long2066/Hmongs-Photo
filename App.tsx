@@ -36,6 +36,7 @@ import { subscribeToUserCredits, updateUserCredits } from './services/firebaseSe
 import { getSystemApiKey, getModelConfig, getSelectedImageModel, formatVND } from './services/geminiCoreService';
 import { deductBalance, getCachedBalance, addUsageRecord } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
+import { APP_VERSION } from './services/appUpdateService';
 import { checkDeviceAccountLimit, recordDeviceAccount } from './services/antiFraudService';
 import * as nineRouterService from './services/nineRouterService';
 import { auth } from './src/firebaseConfig';
@@ -93,7 +94,7 @@ const App: React.FC = () => {
             return false;
         }
     });
-    const [appVersion, setAppVersion] = useState('2.0.0'); // Default version
+    const [appVersion, setAppVersion] = useState(APP_VERSION); // Sync with package.json & Electron
 
     // Loading & Error (Global mostly, but could be per mode if needed)
     const [isLoading, setIsLoading] = useState(false);

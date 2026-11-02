@@ -3,6 +3,7 @@ import * as firebaseAuth from '../services/firebaseService';
 import { isDisposableEmail, checkDeviceAccountLimit, recordDeviceAccount } from '../services/antiFraudService';
 import { User } from '../types';
 import TermsModal from './TermsModal';
+import { APP_VERSION } from '../services/appUpdateService';
 
 interface AuthModalProps {
     onClose?: () => void;
@@ -11,7 +12,7 @@ interface AuthModalProps {
     appVersion?: string; // Dynamic version from Electron API
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, isBlocking = false, appVersion = '2.0.0' }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, isBlocking = false, appVersion = APP_VERSION }) => {
     const [view, setView] = useState<'login' | 'signup' | 'forgot' | 'verification_pending'>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -330,7 +331,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                     <h2 className="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-800 to-purple-800 tracking-tight">ImageTool</h2>
                     <p className="text-slate-500 font-medium text-xs mt-1">Professional AI Studio</p>
                     <p className="text-indigo-600 font-mono text-xs mt-2 min-h-[1.5em] font-semibold hidden sm:block">{welcomeText}</p>
-                    <p className="text-slate-400 text-xs font-medium mt-1">Phiên bản V{appVersion}</p>
+                    <p className="text-slate-400 text-xs font-medium mt-1">Phiên bản v{appVersion || APP_VERSION}</p>
                 </div>
 
                 <div className="px-6 sm:px-10 pb-6 sm:pb-10">

@@ -84,7 +84,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Hmongs Photo"
+      "shortcutName": "ImageTool AI Studio"
     },
     "publish": {
       "provider": "github",
