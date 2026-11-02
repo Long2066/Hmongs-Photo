@@ -127,7 +127,7 @@
     
     <div id="status-container" class="status-box">
       <span class="spinner"></span>
-      <span id="status-text">Đang chuẩn bị xác thực Google...</span>
+      <span id="status-text">Đang chuyển hướng sang Google...</span>
     </div>
 
     <button id="signin-btn" class="btn" style="display: none;">
@@ -143,7 +143,13 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getAuth, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { 
+      getAuth, 
+      signInWithRedirect, 
+      getRedirectResult, 
+      signInWithPopup, 
+      GoogleAuthProvider 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAUFQb3vsZPVv6i5smRTeXJkVYZuJGoQZE",
@@ -159,31 +165,23 @@
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
-    const statusText = document.getElementById('status-text');
     const signinBtn = document.getElementById('signin-btn');
     const statusBox = document.getElementById('status-container');
 
-    async function doSignIn() {
+    async function sendAuthSuccessToElectron(user, credential) {
+      statusBox.innerHTML = '<span class="spinner"></span><span>Đăng nhập thành công! Đang chuyển tiếp về ImageTool...</span>';
+      signinBtn.style.display = 'none';
+
+      const payload = {
+        uid: user.uid,
+        email: user.email || '',
+        displayName: user.displayName || user.email?.split('@')[0] || 'User',
+        photoURL: user.photoURL || '',
+        idToken: credential?.idToken || (await user.getIdToken()),
+        accessToken: credential?.accessToken || ''
+      };
+
       try {
-        statusBox.innerHTML = '<span class="spinner"></span><span>Đang mở cửa sổ tài khoản Google...</span>';
-        signinBtn.style.display = 'none';
-
-        const result = await signInWithPopup(auth, provider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const user = result.user;
-
-        statusBox.innerHTML = '<span class="spinner"></span><span>Đăng nhập thành công! Đang gửi thông tin về ImageTool...</span>';
-
-        const payload = {
-          uid: user.uid,
-          email: user.email || '',
-          displayName: user.displayName || user.email?.split('@')[0] || 'User',
-          photoURL: user.photoURL || '',
-          idToken: credential?.idToken || (await user.getIdToken()),
-          accessToken: credential?.accessToken || ''
-        };
-
-        // Send to Electron local server API
         const response = await fetch('/api/auth-complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -194,24 +192,77 @@
           statusBox.innerHTML = '<div class="success-icon">✓</div><strong style="color: #10b981; font-size: 16px;">Đăng nhập thành công!</strong><br><span style="color: #94a3b8; font-size: 13px;">Hệ thống đã nhận diện tài khoản: <strong>' + (user.email || '') + '</strong>.<br>ImageTool đang tự động đăng nhập. Tab này sẽ tự đóng sau 2 giây...</span>';
           setTimeout(() => { try { window.close(); } catch(e){} }, 2000);
         } else {
-          statusBox.innerHTML = '<span style="color: #ef4444;">Không thể gửi xác thực về ImageTool. Vui lòng thử lại.</span>';
+          statusBox.innerHTML = '<span style="color: #ef4444;">Không thể gửi xác thực về ImageTool. Vui lòng bấm thử lại bên dưới.</span>';
           signinBtn.style.display = 'inline-flex';
         }
       } catch (err) {
-        console.error('Sign-in error:', err);
-        if (err.code === 'auth/popup-closed-by-user') {
-          statusBox.innerHTML = '<span style="color: #f59e0b;">Bạn đã đóng cửa sổ Google. Hãy bấm nút dưới đây để thử lại:</span>';
-        } else {
-          statusBox.innerHTML = '<span style="color: #ef4444;">Lỗi: ' + (err.message || 'Đăng nhập thất bại') + '</span>';
-        }
+        console.error('Error posting auth to Electron:', err);
+        statusBox.innerHTML = '<span style="color: #ef4444;">Lỗi kết nối về ImageTool: ' + (err.message || '') + '</span>';
         signinBtn.style.display = 'inline-flex';
       }
     }
 
-    signinBtn.addEventListener('click', doSignIn);
+    async function triggerRedirect() {
+      try {
+        statusBox.innerHTML = '<span class="spinner"></span><span>Đang chuyển hướng sang trang đăng nhập Google...</span>';
+        signinBtn.style.display = 'none';
+        sessionStorage.setItem('auth_redirect_in_progress', '1');
+        await signInWithRedirect(auth, provider);
+      } catch (err) {
+        console.error('Redirect error:', err);
+        sessionStorage.removeItem('auth_redirect_in_progress');
+        statusBox.innerHTML = '<span style="color: #ef4444;">Lỗi chuyển hướng: ' + (err.message || 'Không thể chuyển hướng') + '</span>';
+        signinBtn.style.display = 'inline-flex';
+      }
+    }
 
-    // Auto trigger on load
-    setTimeout(doSignIn, 500);
+    async function handleManualSignIn() {
+      try {
+        statusBox.innerHTML = '<span class="spinner"></span><span>Đang kết nối Google...</span>';
+        signinBtn.style.display = 'none';
+        const result = await signInWithPopup(auth, provider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        await sendAuthSuccessToElectron(result.user, credential);
+      } catch (popupErr) {
+        console.warn('Popup failed, falling back to redirect:', popupErr);
+        await triggerRedirect();
+      }
+    }
+
+    signinBtn.addEventListener('click', handleManualSignIn);
+
+    async function init() {
+      try {
+        const wasRedirecting = sessionStorage.getItem('auth_redirect_in_progress') === '1';
+
+        // Check if returning from Google redirect
+        const result = await getRedirectResult(auth);
+        if (result && result.user) {
+          sessionStorage.removeItem('auth_redirect_in_progress');
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          await sendAuthSuccessToElectron(result.user, credential);
+          return;
+        }
+
+        if (wasRedirecting) {
+          // Returning from redirect but no user returned
+          sessionStorage.removeItem('auth_redirect_in_progress');
+          statusBox.innerHTML = '<span style="color: #f59e0b;">Chưa hoàn tất đăng nhập. Vui lòng bấm nút bên dưới để thử lại:</span>';
+          signinBtn.style.display = 'inline-flex';
+          return;
+        }
+
+        // Fresh visit: directly redirect to Google without popup blocking!
+        await triggerRedirect();
+      } catch (err) {
+        console.error('Auth redirect error:', err);
+        sessionStorage.removeItem('auth_redirect_in_progress');
+        statusBox.innerHTML = '<span style="color: #ef4444;">Lỗi: ' + (err.message || 'Đăng nhập thất bại') + '</span>';
+        signinBtn.style.display = 'inline-flex';
+      }
+    }
+
+    init();
   </script>
 </body>
 </html>
