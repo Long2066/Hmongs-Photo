@@ -377,14 +377,15 @@ async function injectCookiesToSession(authSession, cookiesList) {
         let domain = c.domain || (isHostOnly ? 'accounts.google.com' : '.google.com');
         let cleanDomain = domain.startsWith('.') ? domain.slice(1) : domain;
         if (!cleanDomain) cleanDomain = 'flow.google.com';
-        const url = (c.secure !== false ? 'https://' : 'http://') + cleanDomain + (c.path || '/');
+        const isSecure = c.secure !== false || c.name.startsWith('__Secure-') || isHostOnly;
+        const url = (isSecure ? 'https://' : 'http://') + cleanDomain + (c.path || '/');
 
         const cookieDetails = {
             url,
             name: c.name,
             value: c.value,
             path: c.path || '/',
-            secure: c.secure !== false,
+            secure: isSecure,
             httpOnly: !!c.httpOnly
         };
 
@@ -392,9 +393,10 @@ async function injectCookiesToSession(authSession, cookiesList) {
             const ss = String(c.sameSite).toLowerCase();
             if (ss.includes('lax')) cookieDetails.sameSite = 'lax';
             else if (ss.includes('strict')) cookieDetails.sameSite = 'strict';
-            else if (ss.includes('none') || ss.includes('no_restriction')) cookieDetails.sameSite = 'no_restriction';
+            else if ((ss.includes('none') || ss.includes('no_restriction')) && isSecure) cookieDetails.sameSite = 'no_restriction';
+            else cookieDetails.sameSite = 'unspecified';
         } else {
-            cookieDetails.sameSite = 'no_restriction';
+            cookieDetails.sameSite = isSecure ? 'no_restriction' : 'unspecified';
         }
 
         if (c.expirationDate || c.expires) {
@@ -405,14 +407,14 @@ async function injectCookiesToSession(authSession, cookiesList) {
         }
 
         // Host-only cookies CANNOT have a domain property in Electron / Chromium
-        if (!isHostOnly) {
-            cookieDetails.domain = domain;
+        if (!isHostOnly && cleanDomain) {
+            cookieDetails.domain = cleanDomain;
         }
 
         try {
             await authSession.cookies.set(cookieDetails);
         } catch (err) {
-            // Ignore minor cookie set errors
+            console.debug(`[FlowProfile] Cookie set notice for ${c.name}:`, err.message);
         }
     }
 }
@@ -495,13 +497,17 @@ function initFlowProfileManager(mainWindow) {
 
         await injectCookiesToSession(authSession, parsed);
 
-        // Verify session across all captured cookies
+        // Verify session across all captured cookies or parsed list
         const stored = await authSession.cookies.get({});
+        const validTokens = [
+            '__Secure-1PSID', '__Secure-3PSID', '__Secure-1PSIDTS', '__Secure-3PSIDTS',
+            'SID', 'OSID', '__Secure-OSID', 'HSID', 'SSID', 'SAPISID', 'APISID',
+            '__Secure-next-auth.session-token', 'next-auth.session-token'
+        ];
         const hasSession = stored.some(c => 
-            c.name === '__Secure-1PSID' || 
-            c.name === 'SID' || 
-            c.name.includes('next-auth') || 
-            c.name === 'OSID'
+            validTokens.includes(c.name) || c.name.includes('next-auth') || c.name.includes('PSID') || c.name.includes('OSID')
+        ) || parsed.some(c =>
+            validTokens.includes(c.name) || c.name.includes('next-auth') || c.name.includes('PSID') || c.name.includes('OSID')
         );
 
         if (!hasSession) {
@@ -552,7 +558,7 @@ function initFlowProfileManager(mainWindow) {
         } catch (e) {}
 
         const cdpPort = 9222;
-        const targetUrl = 'https://accounts.google.com/ServiceLogin?continue=https://labs.google/fx/tools/flow';
+        const targetUrl = 'https://accounts.google.com/v3/signin/identifier?continue=https://flow.google.com/&flowName=GlifWebSignIn&flowEntry=ServiceLogin';
 
         // Notify UI that Chrome is launching
         if (activeWindow && !activeWindow.isDestroyed()) {

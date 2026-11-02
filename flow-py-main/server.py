@@ -401,71 +401,7 @@ async def _ensure_in_project(page, target_pid: Optional[str] = None) -> Optional
 
     return None
 
-    # Duplicate legacy fallback - cleaned up
-    pass
-        try:
-            enter_btn = page.locator('button:has-text("Create with Google Flow"), a:has-text("Create with Google Flow"), button:has-text("Bắt đầu"), a:has-text("Bắt đầu")').first
-            if await enter_btn.count() > 0:
-                await enter_btn.click()
-                await asyncio.sleep(3.0)
-        except Exception:
-            pass
-
-    # 4. Check if redirected to Google sign-in
-    if "accounts.google.com" in page.url or "signin" in page.url:
-        return None
-
-    # 5. Check URL again for project
-    m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
-    if m:
-        pid = m.group(1)
-        set_active_project(pid, f"https://flow.google.com/project/{pid}")
-        add_project(pid, "active", f"https://flow.google.com/project/{pid}")
-        return pid
-
-    # 6. If on dashboard, find project links or click "New project"
-    try:
-        links = await page.evaluate("""
-            () => [...document.querySelectorAll('a[href*="/project/"]')]
-                .map(a => a.href)
-                .filter(h => !h.includes('a589a2fc'))
-        """)
-        for link in (links or []):
-            m = re.search(r"/project/([a-f0-9\-]{8,})", link)
-            if m:
-                pid = m.group(1)
-                await page.goto(f"https://flow.google.com/project/{pid}", wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(2.0)
-                set_active_project(pid, f"https://flow.google.com/project/{pid}")
-                add_project(pid, "discovered", f"https://flow.google.com/project/{pid}")
-                return pid
-
-        new_proj_btn = page.locator('button:has-text("Dự án mới"), button:has-text("New project"), button:has-text("Create project")').first
-        if await new_proj_btn.count() > 0:
-            await new_proj_btn.click()
-            await asyncio.sleep(3.0)
-            m = re.search(r"/project/([a-f0-9\-]{8,})", page.url)
-            if m:
-                pid = m.group(1)
-                set_active_project(pid, f"https://flow.google.com/project/{pid}")
-                add_project(pid, "new", f"https://flow.google.com/project/{pid}")
-                return pid
-    except Exception as ex:
-        log.debug("Dashboard project discovery notice: %s", ex)
-
-    # 7. Fallback to known valid project if all else fails
-    fallback_pid = "ed864f7b-0d12-4ba0-8638-b4cb2565d847"
-    try:
-        await page.goto(f"https://flow.google.com/project/{fallback_pid}", wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(2.0)
-        if "/about" not in page.url and "accounts.google.com" not in page.url:
-            set_active_project(fallback_pid, f"https://flow.google.com/project/{fallback_pid}")
-            return fallback_pid
-    except Exception:
-        pass
-
-    return None
-
+    
 
 async def refresh_auth_state(force_navigate: bool = False) -> dict[str, Any]:
     """Check if the browser profile is logged in to Google Flow and refresh credits/project."""
