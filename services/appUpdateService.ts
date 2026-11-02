@@ -11,7 +11,7 @@ const GITHUB_REPO = 'Hmongs-Photo';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
 // Current app version - should match package.json
-const APP_VERSION = '2.25.8'; // Update this when releasing new version
+const APP_VERSION = '2.25.9'; // Update this when releasing new version
 
 export interface UpdateInfo {
     hasUpdate: boolean;
