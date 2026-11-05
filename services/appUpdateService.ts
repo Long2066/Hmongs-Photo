@@ -4,14 +4,15 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { version as packageVersion } from '../package.json';
 
 // GitHub repository info
 const GITHUB_OWNER = 'Long2066';
 const GITHUB_REPO = 'Hmongs-Photo';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
-// Current app version - should match package.json
-export const APP_VERSION = '2.25.11'; // Update this when releasing new version
+// Keep the displayed version in sync with the packaged Electron app.
+export const APP_VERSION = packageVersion;
 
 export interface UpdateInfo {
     hasUpdate: boolean;

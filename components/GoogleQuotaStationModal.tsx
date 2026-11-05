@@ -31,8 +31,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [contributedList, setContributedList] = useState<ContributedAccountItem[]>([]);
-    const [isExtensionInstalled, setIsExtensionInstalled] = useState<boolean>(false);
-    const [copiedExtensionsUrl, setCopiedExtensionsUrl] = useState<boolean>(false);
 
     // Keep ref to avoid stale closures in event listeners
     const expectedStateRef = useRef(expectedState);
@@ -62,26 +60,14 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         }
     }, [isOpen, user?.id]);
 
-    // Listen for extension detection & automatic OAuth captures
+    // Listen for automatic OAuth callbacks from the browser bridge or Electron
     useEffect(() => {
         if (!isOpen) return;
-
-        // Check DOM dataset first
-        if (typeof document !== 'undefined') {
-            const hasBridge = document.documentElement.dataset.flowBridgeInstalled === 'true' ||
-                Boolean((window as any).__IMAGE_TOOL_EXTENSION_INSTALLED__);
-            if (hasBridge) setIsExtensionInstalled(true);
-        }
 
         const handleWindowMsg = async (event: MessageEvent) => {
             if (!event.data || !event.data.type) return;
 
-            // 1. Extension detection pong
-            if (event.data.type === 'FLOW_BRIDGE_PONG') {
-                setIsExtensionInstalled(true);
-            }
-
-            // 2. Extension auto-captured Google OAuth callback
+            // Extension auto-captured Google OAuth callback
             if (event.data.type === 'QUOTA_OAUTH_CAPTURED' && event.data.callbackUrl) {
                 console.log('[QuotaStation] Received auto callback from Extension:', event.data.callbackUrl);
                 const capturedUrl = String(event.data.callbackUrl).trim();
@@ -91,9 +77,8 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         };
 
         window.addEventListener('message', handleWindowMsg);
-        window.postMessage({ type: 'FLOW_BRIDGE_PING' }, '*');
 
-        // 3. Electron IPC auto-capture (handles external Google Chrome callbacks on port 51121)
+        // Electron IPC auto-capture (handles external Google Chrome callbacks on port 51121)
         let cleanupElectronIpc: (() => void) | undefined;
         if (typeof window !== 'undefined' && (window as any).electronAPI?.onQuotaOAuthCaptured) {
             cleanupElectronIpc = (window as any).electronAPI.onQuotaOAuthCaptured(async (capturedUrl: string) => {
@@ -147,18 +132,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         } finally {
             setIsLoading(false);
         }
-    };
-
-    // Open / copy chrome://extensions helper
-    const handleOpenExtensionsPage = async () => {
-        try {
-            await navigator.clipboard.writeText('chrome://extensions');
-            setCopiedExtensionsUrl(true);
-            setTimeout(() => setCopiedExtensionsUrl(false), 3500);
-        } catch {}
-        try {
-            window.open('chrome://extensions', '_blank');
-        } catch {}
     };
 
     // Core submission processing (shared by manual click and extension auto-capture)
@@ -252,126 +225,6 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
 
                 {/* Body Content */}
                 <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
-                    {/* Extension Status / Install Section */}
-                    {isExtensionInstalled ? (
-                        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 text-base font-bold">
-                                    ⚡
-                                </div>
-                                <div className="text-xs text-emerald-950">
-                                    <p className="font-bold flex items-center gap-1.5 text-emerald-900">
-                                        <span>Bổ trợ vip-imagetools: ĐANG HOẠT ĐỘNG</span>
-                                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                    </p>
-                                    <p className="text-slate-600 text-[11px] mt-0.5">
-                                        Chế độ tự động 100% đã sẵn sàng. Bạn chỉ việc bấm đăng nhập Google!
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                                <button
-                                    type="button"
-                                    onClick={handleOpenExtensionsPage}
-                                    className="px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition-all shadow-2xs flex items-center gap-1.5 active:scale-95"
-                                    title="Mở trang chrome://extensions/"
-                                >
-                                    <span>⚙️</span>
-                                    <span>{copiedExtensionsUrl ? '✓ Đã copy link' : 'Mở Tiện ích'}</span>
-                                </button>
-                                <a
-                                    href="/vip-imagetools.zip"
-                                    download="vip-imagetools.zip"
-                                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
-                                    title="Tải lại file zip bổ trợ nếu cần"
-                                >
-                                    Tải .zip
-                                </a>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 border border-indigo-200/80 shadow-xs space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-2.5">
-                                    <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 font-bold shadow-xs">
-                                        🧩
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h4 className="text-xs font-bold text-slate-900">Bổ trợ tự động (vip-imagetools)</h4>
-                                            <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-100 rounded-md">
-                                                Khuyên dùng
-                                            </span>
-                                        </div>
-                                        <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                            Tự động bắt link và nạp +10 ảnh ngay sau khi đăng nhập (không cần copy link).
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 2 Buttons Stacked: Download ZIP & Open chrome://extensions */}
-                            <div className="space-y-2 pt-0.5">
-                                <a
-                                    href="/vip-imagetools.zip"
-                                    download="vip-imagetools.zip"
-                                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-98 min-h-[42px]"
-                                >
-                                    <span>📥</span>
-                                    <span>Tải Bổ Trợ (.zip)</span>
-                                </a>
-
-                                <button
-                                    type="button"
-                                    onClick={handleOpenExtensionsPage}
-                                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-indigo-50/70 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-300 transition-all active:scale-98 min-h-[42px] shadow-2xs"
-                                >
-                                    <span>⚙️</span>
-                                    <span>
-                                        {copiedExtensionsUrl ? '✓ Đã sao chép link chrome://extensions (Mở tab mới & dán)' : 'Cài đặt (Mở trang chrome://extensions/)'}
-                                    </span>
-                                </button>
-                            </div>
-
-                            {/* Short, compact 3-step guide right underneath */}
-                            <div className="p-3.5 rounded-xl bg-white/95 border border-indigo-200/70 text-xs space-y-2 shadow-2xs">
-                                <p className="font-bold text-slate-900 text-[11px] flex items-center gap-1.5">
-                                    <span>📖 Cách đưa tệp vừa tải lên Chrome (3 bước):</span>
-                                </p>
-                                <div className="space-y-1.5 text-slate-600 text-[11px] leading-relaxed">
-                                    <div className="flex items-start gap-2">
-                                        <span className="font-bold text-indigo-600 shrink-0">①</span>
-                                        <span><strong>Giải nén</strong> file <code>vip-imagetools.zip</code> vừa tải vào máy.</span>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                        <span className="font-bold text-indigo-600 shrink-0">②</span>
-                                        <span>Bấm nút <strong>"Cài đặt"</strong> ở trên (hoặc mở tab mới gõ <code>chrome://extensions</code>) ➔ Bật công tắc <strong>"Chế độ dành cho nhà phát triển"</strong> ở góc trên bên phải.</span>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                        <span className="font-bold text-indigo-600 shrink-0">③</span>
-                                        <span>Bấm nút <strong>"Tải tiện ích đã giải nén"</strong> ở góc trái ➔ Chọn thư mục <code>vip-imagetools</code> vừa giải nén.</span>
-                                    </div>
-                                </div>
-                                <div className="pt-1.5 border-t border-slate-100 flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
-                                    <span>✓</span>
-                                    <span>Sau khi chọn xong, web sẽ tự động kết nối và nhận diện A-Z!</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {copiedExtensionsUrl && (
-                        <div className="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-950 flex items-start gap-2.5 animate-fade-in shadow-xs">
-                            <span className="text-base shrink-0">📋</span>
-                            <div className="leading-relaxed">
-                                <p className="font-bold text-indigo-900">Đã sao chép liên kết vào bộ nhớ tạm!</p>
-                                <p className="text-slate-600 text-[11px] mt-0.5">
-                                    Để bảo vệ an ninh, Google Chrome chặn trang web tự ý mở trực tiếp trang hệ thống. Bạn chỉ cần <strong>mở 1 Tab mới</strong> trên trình duyệt, nhấn <strong>Ctrl + V</strong> (Dán) rồi ấn <strong>Enter</strong> là xong!
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Value Proposition Bento Card */}
                     <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-indigo-50 border border-amber-200/60 shadow-xs">
                         <div className="flex items-start gap-3">
