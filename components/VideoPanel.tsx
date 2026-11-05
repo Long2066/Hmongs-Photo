@@ -395,6 +395,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const isProfileMode = engine === 'flow_profile';
     const isExtensionMode = engine === 'flow_extension';
     const isFalMode = engine === 'fal_ai';
+    const isElectronFlow = isElectron && !isFalMode;
 
     const canSubmit = !isLoading && !isDisabled && hasInputImage;
 
@@ -774,6 +775,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             )}
 
             {/* 1. MODEL VIDEO AI SECTION (Screenshot 3) */}
+            {isElectronFlow && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">Electron Flow chưa áp dụng lựa chọn model, độ phân giải và thời lượng vào video xuất. Các thông số thực tế do Flow quyết định.</p>}
             <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                     Model Video AI
@@ -786,7 +788,8 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 key={m.id}
                                 type="button"
                                 onClick={() => setSelectedFlowModel(m.id)}
-                                className={`p-3 rounded-2xl text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-3 ${
+                                disabled={isElectronFlow}
+                                className={`min-h-[44px] p-3 rounded-2xl text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
                                     isSelected
                                         ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm ring-2 ring-amber-400'
                                         : 'bg-white text-slate-800 ring-1 ring-slate-900/10 hover:bg-slate-50'
@@ -828,7 +831,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         <span>Ảnh nguồn tạo video (I2V)</span>
                     </span>
                     <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-mono font-bold ring-1 ring-amber-500/20">
-                        {hasInputImage ? '1/5 Ảnh' : '0/5 Ảnh'}
+                        {hasInputImage ? '1/1 Ảnh' : '0/1 Ảnh'}
                     </span>
                 </div>
 
@@ -920,7 +923,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 key={p.id}
                                 type="button"
                                 onClick={() => handleSelectPreset(p.id, p.samplePrompt)}
-                                className={`p-3 rounded-2xl text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-3 ${
+                                className={`min-h-[44px] p-3 rounded-2xl text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
                                     isSelected
                                         ? 'bg-amber-50/40 text-slate-900 ring-2 ring-amber-500 shadow-xs'
                                         : 'bg-white text-slate-800 ring-1 ring-slate-900/10 hover:bg-slate-50'
@@ -1005,6 +1008,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 </div>
             </div>
 
+            {!isElectronFlow && (<>
             {/* 5. ĐỘ PHÂN GIẢI & 6. THỜI LƯỢNG (Screenshot 5) */}
             <div className="grid grid-cols-2 gap-2.5">
                 {/* Độ phân giải */}
@@ -1081,6 +1085,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 </div>
             </div>
 
+            </>)}
             {/* 7. SỐ LƯỢNG BIẾN THỂ MỖI ẢNH (Screenshot 5) */}
             <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
@@ -1092,7 +1097,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             key={cnt}
                             type="button"
                             onClick={() => setOutputCount(cnt)}
-                            className={`min-h-[42px] rounded-xl text-xs font-bold font-mono transition-all cursor-pointer flex items-center justify-center ${
+                            className={`min-h-[44px] rounded-xl text-xs font-bold font-mono transition-all cursor-pointer flex items-center justify-center ${
                                 outputCount === cnt
                                     ? 'bg-slate-900 text-white shadow-xs'
                                     : 'bg-white text-slate-800 ring-1 ring-slate-900/10 hover:bg-slate-50'
@@ -1168,7 +1173,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     <span className="flex items-center justify-center gap-2">
                         <span>🎬</span>
                         <span>
-                            TẠO CHUYỂN ĐỘNG VIDEO ({selectedFlowModel.replace(' - ', ' ')} • {duration})
+                            {isElectronFlow ? `TẠO ${outputCount} VIDEO` : `TẠO CHUYỂN ĐỘNG VIDEO (${selectedFlowModel.replace(' - ', ' ')} • ${duration})`}
                         </span>
                     </span>
                 )}

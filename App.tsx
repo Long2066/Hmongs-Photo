@@ -9,6 +9,7 @@ import { UpscalePanel } from './components/UpscalePanel';
 import { ProfileProPanel } from './components/ProfileProPanel';
 import { RestorePhotoPanel } from './components/RestorePhotoPanel';
 import { VideoPanel } from './components/VideoPanel';
+import { VideoWorkspace, type VideoEntry } from './components/VideoWorkspace';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
 import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
@@ -119,6 +120,7 @@ const App: React.FC = () => {
     // --- MODE MANAGEMENT ---
     const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video'>('creative');
     const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('image_to_video');
+    const [videoEntries, setVideoEntries] = useState<VideoEntry[]>([]);
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -957,7 +959,20 @@ const App: React.FC = () => {
                 onProgress: (status) => setLoadingStatus(status),
             });
 
-            const finalUrls = result.urls && result.urls.length > 0 ? result.urls : [result.url];
+            const finalUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
+                .filter((url): url is string => typeof url === 'string' && url.length > 0);
+            if (finalUrls.length === 0) throw new Error('Dịch vụ chưa trả về video. Vui lòng thử lại.');
+            const source = subMode === 'image_to_video' ? inputs[0] : undefined;
+            const firstFrame = source
+                ? source.base64.startsWith('data:') || /^https?:\/\//i.test(source.base64)
+                    ? source.base64
+                    : `data:${source.mimeType};base64,${source.base64}`
+                : undefined;
+            const createdAt = Date.now();
+            setVideoEntries(previous => {
+                const next = finalUrls.map(url => ({ url, firstFrame, createdAt }));
+                return [...next, ...previous.filter(item => !finalUrls.includes(item.url))];
+            });
             updateModeState(() => ({
                 outputs: finalUrls,
                 prompts: Array(finalUrls.length).fill(prompt),
@@ -1167,7 +1182,7 @@ const App: React.FC = () => {
                                 </div>
 
                                 {/* Config Section */}
-                                <div className="space-y-2">
+                                <div className="space-y-2" data-video-config={mode === 'video' ? '' : undefined}>
                                     <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider px-1 flex items-center gap-2">
                                         <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
                                         Cấu hình AI
@@ -1212,7 +1227,7 @@ const App: React.FC = () => {
                                     </div>
 
                                     {/* Mobile Config Section */}
-                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100" data-video-config={mode === 'video' ? '' : undefined}>
                                         <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
                                             <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -1227,14 +1242,23 @@ const App: React.FC = () => {
 
                             {/* Render Results based on CURRENT MODE State */}
                             
-                            <OutputDisplay
+                            {mode === 'video' ? (
+                                <VideoWorkspace
+                                    videos={videoEntries}
+                                    isLoading={isLoading}
+                                    loadingStatus={loadingStatus}
+                                    error={error}
+                                />
+                            ) : (
+                                <OutputDisplay
                                 outputImages={currentData.outputs}
                                 prompts={currentData.prompts}
                                 isLoading={isLoading}
                                 loadingStatus={loadingStatus}
                                 error={error}
                                 onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
-                            />
+                                />
+                            )}
 
                             {/* Professional Print Button for ID Photo Mode (A4 / A5 / A6 / A7) */}
                             {mode === 'id_photo' && !isLoading && currentData.outputs.some(img => img !== null) && (
