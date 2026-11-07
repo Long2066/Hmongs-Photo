@@ -836,8 +836,6 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         price: 50000,
         costPerImage: IMAGE_COST_VND,
         maxResolution: 'FHD',
-        paymentId: '852aa89112564079b9d1658f9c517135',
-        checkoutUrl: 'https://pay.payos.vn/web/852aa89112564079b9d1658f9c517135',
         description: 'Mở khóa toàn bộ tính năng sáng tạo với mức chi phí siêu tiết kiệm.',
         features: [
             'Cộng ngay 50.000đ vào số dư (tương đương 100 ảnh)',
@@ -855,8 +853,6 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         price: 100000,
         costPerImage: IMAGE_COST_VND,
         maxResolution: '4K',
-        paymentId: 'f950f2ae3bde4c6a80345252f6c00bad',
-        checkoutUrl: 'https://pay.payos.vn/web/f950f2ae3bde4c6a80345252f6c00bad',
         description: 'Sức mạnh tối đa không giới hạn cho Studio & Designer chuyên nghiệp.',
         features: [
             'Cộng ngay 100.000đ vào số dư (tương đương 200 ảnh)',
