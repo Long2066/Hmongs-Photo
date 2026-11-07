@@ -1,5 +1,5 @@
 import { paymentCors } from '../lib/payos/cors.js';
-﻿import { randomInt } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { admin, authenticate, checkoutUrls, orderRef, payos, PLANS } from '../lib/payos/core.js';
 
 export default async function handler(req, res) {

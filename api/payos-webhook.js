@@ -1,4 +1,4 @@
-﻿import { admin, parseOrderCode, payos, verifiedOrderStatus } from '../lib/payos/core.js';
+import { admin, parseOrderCode, payos, verifiedOrderStatus } from '../lib/payos/core.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
