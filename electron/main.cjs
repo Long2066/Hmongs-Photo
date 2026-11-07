@@ -13,6 +13,12 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 app.userAgentFallback = CHROME_UA;
 
 app.on('web-contents-created', (_event, contents) => {
+    if (contents.getType() === 'webview') {
+        // Do not disguise Electron to Google in the embedded Flow guest.
+        const nativeUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Electron/${process.versions.electron} Safari/537.36`;
+        contents.setUserAgent(nativeUA);
+        return;
+    }
     contents.setUserAgent(CHROME_UA);
 });
 
@@ -361,6 +367,7 @@ async function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            webviewTag: true,
             preload: path.join(__dirname, 'preload.cjs')
         },
         icon: path.join(__dirname, '../public/icon.png'),
@@ -369,6 +376,17 @@ async function createWindow() {
         backgroundColor: '#f8fafc'
     });
 
+    // Only the fixed official Flow page may be attached as a guest. No guest preload or Node access.
+    mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+        const allowed = params.src === 'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719'
+            && params.partition === 'persist:flow-embedded';
+        if (!allowed) { event.preventDefault(); return; }
+        delete webPreferences.preload;
+        delete webPreferences.preloadURL;
+        webPreferences.nodeIntegration = false;
+        webPreferences.contextIsolation = true;
+        webPreferences.sandbox = true;
+    });
     // Open any external popups / links in default browser
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         openInChromeOrBrowser(url);

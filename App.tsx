@@ -10,6 +10,7 @@ import { ProfileProPanel } from './components/ProfileProPanel';
 import { RestorePhotoPanel } from './components/RestorePhotoPanel';
 import { VideoPanel } from './components/VideoPanel';
 import { VideoWorkspace, type VideoEntry } from './components/VideoWorkspace';
+import { FlowEmbeddedPage } from './components/FlowEmbeddedPage';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
 import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
@@ -1108,6 +1109,10 @@ const App: React.FC = () => {
                 onModeChange={setMode}
             />
 
+            {mode === 'video' && !isHistoryVisible ? (
+                <FlowEmbeddedPage />
+            ) : (
+            <>
             {/* Mobile: Vertical stacked layout. Desktop: Side by side */}
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10">
 
@@ -1280,6 +1285,8 @@ const App: React.FC = () => {
                     )}
                 </main>
             </div>
+            </>
+            )}
 
             {isQuotaStationOpen && currentUser && (
                 <GoogleQuotaStationModal
