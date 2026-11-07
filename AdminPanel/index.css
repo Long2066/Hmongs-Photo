@@ -952,3 +952,9 @@ body {
     min-width: 100%;
   }
 }
+
+/* Flow URL editor keeps a visible keyboard focus indicator. */
+.flow-tool-url-input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}

@@ -376,9 +376,10 @@ async function createWindow() {
         backgroundColor: '#f8fafc'
     });
 
-    // Only the fixed official Flow page may be attached as a guest. No guest preload or Node access.
+    // Only the official Flow home and validated shared tool URLs may be attached as guests. No guest preload or Node access.
     mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-        const allowed = params.src === 'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719'
+        const allowed = (params.src === 'https://flow.google.com/'
+            || /^https:\/\/flow\.google\.com\/shared\/tool\/[a-f0-9-]{36}$/.test(params.src))
             && params.partition === 'persist:flow-embedded';
         if (!allowed) { event.preventDefault(); return; }
         delete webPreferences.preload;

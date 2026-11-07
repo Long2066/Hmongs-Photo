@@ -1,14 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { subscribeToFlowToolUrl } from '../services/flowToolRealtimeService';
+import { DEFAULT_FLOW_TOOL_URL, normalizeFlowToolUrl } from '../services/flowToolConfig';
 
-const FLOW_URL = 'https://flow.google.com/shared/tool/c056b8dd-7c23-479d-b6c1-d452c4b5b719';
+const FLOW_HOME_URL = 'https://flow.google.com/';
 
-type FlowWebview = HTMLElement & { reload: () => void };
+type FlowWebview = HTMLElement & { reload: () => void; loadURL: (url: string) => Promise<void> };
 
 /** Shows the original Flow page in Electron, without copying credentials into ImageTool. */
 export const FlowEmbeddedPage: React.FC = () => {
     const guestRef = useRef<FlowWebview | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [page, setPage] = useState<'home' | 'tool'>('home');
+    const [flowUrl, setFlowUrl] = useState(DEFAULT_FLOW_TOOL_URL);
+    const [linkNotice, setLinkNotice] = useState('');
     const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
 
     useEffect(() => {
@@ -36,9 +41,36 @@ export const FlowEmbeddedPage: React.FC = () => {
         };
     }, [isElectron]);
 
+    useEffect(() => subscribeToFlowToolUrl(value => {
+        const valid = value ? normalizeFlowToolUrl(value) : DEFAULT_FLOW_TOOL_URL;
+        if (!valid) { setLinkNotice('Link Flow trong cấu hình Admin không hợp lệ; giữ nguyên trang đang mở.'); return; }
+        setLinkNotice('');
+        setFlowUrl(previous => previous === valid ? previous : valid);
+    }, () => setLinkNotice('Không đồng bộ được link Flow mới. Đang giữ link gần nhất.')), []);
+
+    useEffect(() => {
+        if (page !== 'tool' || !guestRef.current || !isElectron) return;
+        setError('');
+        setLoading(true);
+        guestRef.current.loadURL(flowUrl).catch(reason => {
+            setError(reason instanceof Error ? reason.message : 'Không thể mở link Flow mới.');
+            setLoading(false);
+        });
+    }, [flowUrl, isElectron]);
+
+    const navigateTo = (destination: 'home' | 'tool') => {
+        setError('');
+        setLoading(true);
+        setPage(destination);
+        guestRef.current?.loadURL(destination === 'home' ? FLOW_HOME_URL : flowUrl).catch((reason: unknown) => {
+            setError(reason instanceof Error ? reason.message : 'Không thể mở trang Flow.');
+            setLoading(false);
+        });
+    };
+
     const openExternally = () => {
-        if (isElectron) (window as any).electronAPI.openExternal(FLOW_URL);
-        else window.open(FLOW_URL, '_blank', 'noopener,noreferrer');
+        if (isElectron) (window as any).electronAPI.openExternal(flowUrl);
+        else window.open(flowUrl, '_blank', 'noopener,noreferrer');
     };
 
     return (
@@ -46,19 +78,22 @@ export const FlowEmbeddedPage: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-2 shadow-sm ring-1 ring-slate-900/5 sm:px-6">
                 <div className="min-w-0">
                     <h2 className="text-sm font-semibold leading-tight text-slate-900">Tạo Video · Flow</h2>
-                    <p className="text-xs leading-relaxed text-slate-600">Trang gốc của Google · Đăng nhập nếu Google hỗ trợ Electron</p>
+                    <p className="text-xs leading-relaxed text-slate-600">Đăng nhập trên Flow trước, sau đó mở tool đã chia sẻ</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                    {isElectron && <button type="button" onClick={() => navigateTo('home')} disabled={loading && page === 'home'} className="min-h-[44px] rounded-xl bg-slate-100 px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">Trang chủ Flow</button>}
+                    {isElectron && <button type="button" onClick={() => navigateTo('tool')} disabled={loading && page === 'tool'} className="min-h-[44px] rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">Mở tool sau đăng nhập</button>}
                     {isElectron && <button type="button" onClick={() => { setError(''); setLoading(true); guestRef.current?.reload(); }} className="min-h-[44px] rounded-xl bg-slate-100 px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98]">Tải lại</button>}
                     <button type="button" onClick={openExternally} className="min-h-[44px] rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98]">Mở trong trình duyệt</button>
                 </div>
             </div>
+            {linkNotice && <p role="alert" className="bg-amber-50 p-3 text-sm font-medium text-amber-900">{linkNotice}</p>}
             {isElectron ? (
                 <div className="relative min-h-0 flex-1 bg-white">
                     {React.createElement('webview', {
                         ref: guestRef,
                         partition: 'persist:flow-embedded',
-                        src: FLOW_URL,
+                        src: FLOW_HOME_URL,
                         style: { display: 'flex', width: '100%', height: '100%' },
                         'aria-label': 'Trang Flow chính thức'
                     })}

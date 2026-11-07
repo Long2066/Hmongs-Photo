@@ -17,6 +17,7 @@ import {
     increment
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+import { normalizeFlowToolUrl } from './flowToolConfig';
 
 // Collection names
 const USER_CREDITS_COLLECTION = "userCredits";
@@ -1122,4 +1123,20 @@ export const markAllFeedbackAsRead = async (items: FeedbackItem[]): Promise<void
         updateFeedbackStatus(item.id, 'read')
     );
     await Promise.all(promises);
+};
+
+// Flow link lives in admin-write appConfig, separate from the AI Proxy key.
+export const getFlowToolUrl = async (): Promise<string | null> => {
+    const snapshot = await getDoc(doc(db, 'appConfig', 'flowTool'));
+    return snapshot.exists() && typeof snapshot.data().url === 'string' ? snapshot.data().url : null;
+};
+
+export const saveFlowToolUrl = async (url: string, adminEmail: string): Promise<void> => {
+    const validated = normalizeFlowToolUrl(url);
+    if (!validated || !adminEmail) throw new Error('Link Flow hoặc tài khoản Admin không hợp lệ.');
+    await setDoc(doc(db, 'appConfig', 'flowTool'), {
+        url: validated,
+        updatedAt: Date.now(),
+        updatedBy: adminEmail
+    }, { merge: true });
 };

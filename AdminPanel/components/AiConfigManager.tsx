@@ -26,6 +26,7 @@ import {
     DEFAULT_AI_PROXY_CONFIG
 } from '../services/adminFirebaseService';
 import { AdminUser } from '../services/adminAuthService';
+import { FlowToolLinkManager } from './FlowToolLinkManager';
 
 interface AiConfigManagerProps {
     admin: AdminUser;
@@ -309,6 +310,8 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Đã lưu & đồng bộ thời gian thực thành công!</div>
                 </div>
             )}
+
+            <FlowToolLinkManager admin={admin} />
 
             {/* Master Toggle & Live Status Banner */}
             <div style={{
