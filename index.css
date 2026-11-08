@@ -425,8 +425,13 @@ body {
     image-rendering: optimizeSpeed;
   }
 }
-/* Auth scene: quiet H'Mong portraits and lightweight blossom motion. */
-.auth-scene { isolation: isolate; }
+/* Auth scene: soft plum between the H'Mong portraits, with visible low-cost blossoms. */
+.auth-scene {
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse 55% 85% at 50% 35%, rgba(122, 80, 130, .53), transparent 85%),
+    linear-gradient(110deg, #333452 0%, #443456 45%, #62415f 100%);
+}
 .auth-scene-photo {
   position: absolute;
   inset-block: 0;
@@ -439,35 +444,37 @@ body {
   left: 0;
   background-image: url('/auth-hmong-blossom.webp');
   background-position: center 33%;
-  -webkit-mask-image: linear-gradient(to right, #000 70%, transparent);
-  mask-image: linear-gradient(to right, #000 70%, transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 71%, transparent);
+  mask-image: linear-gradient(to right, #000 71%, transparent);
 }
 .auth-scene-photo-right {
   right: 0;
   background-image: url('/auth-hmong-harvest.webp');
   background-position: center 30%;
-  -webkit-mask-image: linear-gradient(to left, #000 70%, transparent);
-  mask-image: linear-gradient(to left, #000 70%, transparent);
+  -webkit-mask-image: linear-gradient(to left, #000 71%, transparent);
+  mask-image: linear-gradient(to left, #000 71%, transparent);
   animation-delay: .12s;
 }
 .auth-scene-shade {
-  background: linear-gradient(90deg, rgba(15,23,42,.2), rgba(15,23,42,.55) 38%, rgba(15,23,42,.55) 62%, rgba(15,23,42,.2));
+  background: linear-gradient(90deg, rgba(51,45,76,.15), rgba(67,51,85,.12) 38%, rgba(80,54,91,.12) 62%, rgba(62,48,80,.15));
 }
 .auth-form-card { animation: auth-card-arrive .65s cubic-bezier(.2,.8,.2,1) both; }
 .auth-petal {
   position: absolute;
-  top: -32px;
-  width: 13px;
-  height: 13px;
-  border-radius: 75% 5% 75% 5%;
-  background: linear-gradient(135deg, #ffe4ed 20%, #f9a8c0 90%);
-  box-shadow: 0 0 9px rgba(255,224,230,.35);
+  top: -44px;
+  display: block;
+  width: 20px;
+  height: 20px;
+  opacity: .9;
+  filter: drop-shadow(0 2px 4px rgba(90,42,76,.4));
   animation: auth-petal-fall 14s linear infinite;
   will-change: transform;
 }
+.auth-petal:nth-child(4n) { width: 16px; height: 16px; opacity: .74; }
+.auth-petal:nth-child(5n) { width: 25px; height: 25px; opacity: .94; }
 @keyframes auth-petal-fall {
-  from { transform: translate3d(0,-30px,0) rotate(0deg); }
-  to { transform: translate3d(85px,110vh,0) rotate(540deg); }
+  from { transform: translate3d(-24px,-32px,0) rotate(-22deg); }
+  to { transform: translate3d(65px,112vh,0) rotate(410deg); }
 }
 @keyframes auth-photo-arrive {
   from { opacity: 0; transform: scale(1.04); }
@@ -478,8 +485,8 @@ body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @media (max-width: 767px) {
-  .auth-scene { background: radial-gradient(circle at 50% 10%, #373075, #0f172a 70%); }
-  .auth-petal { width: 9px; height: 9px; opacity: .5; }
+  .auth-scene { background: radial-gradient(circle at 50% 12%, #635070, #302b4d 75%); }
+  .auth-petal { width: 14px; height: 14px; opacity: .55; }
 }
 @media (prefers-reduced-motion: reduce) {
   .auth-scene-photo, .auth-form-card, .auth-petal { animation: none !important; }

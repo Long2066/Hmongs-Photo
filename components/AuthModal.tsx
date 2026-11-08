@@ -288,19 +288,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     };
 
     return (
-        <div className="auth-scene fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950 px-3 py-4 safe-area-top safe-area-bottom sm:px-5">
+        <div className="auth-scene fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#342c50] px-3 py-4 safe-area-top safe-area-bottom sm:px-5">
             {/* Decorative photographs frame the form without competing with its content. */}
             <div className="auth-scene-photo auth-scene-photo-left hidden md:block" aria-hidden="true" />
             <div className="auth-scene-photo auth-scene-photo-right hidden md:block" aria-hidden="true" />
             <div className="auth-scene-shade absolute inset-0 pointer-events-none" aria-hidden="true" />
             <div className="auth-petals pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-                {Array.from({ length: 12 }, (_, index) => (
+                {Array.from({ length: 18 }, (_, index) => (
                     <span key={index} className="auth-petal" style={{
-                        left: `${(index * 37 + 7) % 100}%`,
-                        animationDelay: `-${index * 1.47}s`,
-                        animationDuration: `${10 + (index % 5) * 2}s`,
-                        opacity: 0.45 + (index % 4) * 0.1
-                    }} />
+                        left: `${index < 9 ? 4 + index * 4.5 : 61 + (index - 9) * 4.5}%`,
+                        animationDelay: `-${index * 1.23}s`,
+                        animationDuration: `${11 + (index % 5) * 1.7}s`
+                    }}>
+                        <svg viewBox="0 0 32 32" width="100%" height="100%" fill="none" aria-hidden="true">
+                            <g fill="#ffc5dc" stroke="#ffe9f1" strokeWidth="0.6">
+                                <ellipse cx="16" cy="8.5" rx="5.4" ry="7" />
+                                <ellipse cx="23.2" cy="13.7" rx="5.4" ry="7" transform="rotate(72 23.2 13.7)" />
+                                <ellipse cx="20.4" cy="22.2" rx="5.4" ry="7" transform="rotate(144 20.4 22.2)" />
+                                <ellipse cx="11.6" cy="22.2" rx="5.4" ry="7" transform="rotate(216 11.6 22.2)" />
+                                <ellipse cx="8.8" cy="13.7" rx="5.4" ry="7" transform="rotate(288 8.8 13.7)" />
+                            </g>
+                            <circle cx="16" cy="16" r="3.1" fill="#e9a558" />
+                        </svg>
+                    </span>
                 ))}
             </div>
 
