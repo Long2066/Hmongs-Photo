@@ -974,7 +974,8 @@ const App: React.FC = () => {
             saveHistory('Video Omni AI', prompt, finalUrls, subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
-            setError(e instanceof Error ? e.message : 'Lỗi tạo video OpenRouter.');
+            const msg = e instanceof Error ? e.message : 'Lỗi tạo video AI.';
+            setError(msg === 'Failed to fetch' ? 'Lỗi kết nối mạng khi tải dữ liệu video (Failed to fetch). Vui lòng thử lại.' : msg);
             setVideoEntries([]);
             updateModeState(() => ({ outputs: [] }));
         } finally {
@@ -1354,13 +1355,11 @@ const App: React.FC = () => {
             {/* Admin Notification Popup */}
             {currentUser && <NotificationPopup userId={currentUser.id} />}
 
-            {/* Support Hub - Bot + Feedback - Hidden on mobile to avoid overlap */}
-            <div className="hidden lg:block">
-                <SupportHub
-                    userName={currentUser?.name}
-                    userEmail={currentUser?.username}
-                />
-            </div>
+            {/* Support Hub - Bot + Feedback - Available on both PC and Mobile */}
+            <SupportHub
+                userName={currentUser?.name}
+                userEmail={currentUser?.username}
+            />
 
 
         </div>

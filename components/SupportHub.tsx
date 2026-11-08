@@ -588,7 +588,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
             {/* Main Bubble Button - Rotates when not expanded */}
             <button
                 onClick={handleMainClick}
-                className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-2xl transition-all duration-300 flex items-center justify-center ${isExpanded
+                className={`fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-[60] w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-2xl transition-all duration-300 flex items-center justify-center ${isExpanded
                     ? 'bg-slate-700 hover:bg-slate-800 ring-4 ring-slate-400/20'
                     : 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:scale-105 shadow-indigo-500/25 ring-4 ring-indigo-500/20'
                     }`}
@@ -596,33 +596,33 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
                 aria-label="Toggle Support Hub"
             >
                 {isExpanded ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-6 h-6 text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6 text-white">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 ) : currentIcon === 'bot' ? (
                     <div className="relative flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-6 h-6 text-white animate-fade-in">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6 text-white animate-fade-in">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                         </svg>
                         <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-indigo-600 animate-pulse"></span>
                     </div>
                 ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-6 h-6 text-white animate-fade-in">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6 text-white animate-fade-in">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                     </svg>
                 )}
                 {!isExpanded && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-500 rounded-full animate-ping opacity-75 border-2 border-white"></span>
+                    <span className="absolute -top-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-pink-500 rounded-full animate-ping opacity-75 border-2 border-white"></span>
                 )}
             </button>
 
             {/* Expanded Options - Buttons with Labels (only show when no panel is open) */}
             {isExpanded && !showBot && !showFeedback && (
-                <div className="fixed bottom-24 right-6 z-50 flex flex-col gap-3 animate-fade-in">
+                <div className="fixed bottom-34 right-4 sm:bottom-24 sm:right-6 z-[60] flex flex-col gap-2.5 sm:gap-3 animate-fade-in max-w-[calc(100vw-32px)]">
                     {/* Bot Button */}
                     <button
                         onClick={() => { setShowBot(true); setShowFeedback(false); }}
-                        className="flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl bg-white border border-slate-200/80 hover:border-indigo-400 hover:shadow-indigo-500/15 hover:scale-105 transition-all text-left group"
+                        className="flex items-center gap-3 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl shadow-xl bg-white border border-slate-200/80 hover:border-indigo-400 hover:shadow-indigo-500/15 active:scale-95 sm:hover:scale-105 transition-all text-left group"
                         title="Bot Hỗ trợ AI (Đa Model)"
                     >
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform">
@@ -642,7 +642,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
                     {/* Feedback Button */}
                     <button
                         onClick={() => { setShowFeedback(true); setShowBot(false); }}
-                        className="flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl bg-white border border-slate-200/80 hover:border-purple-400 hover:shadow-purple-500/15 hover:scale-105 transition-all text-left group"
+                        className="flex items-center gap-3 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl shadow-xl bg-white border border-slate-200/80 hover:border-purple-400 hover:shadow-purple-500/15 active:scale-95 sm:hover:scale-105 transition-all text-left group"
                         title="Góp ý & Phản hồi"
                     >
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform">
@@ -661,7 +661,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
             {/* Bot Popup Window */}
             {showBot && (
                 <div
-                    className="fixed bottom-24 right-6 z-50 w-[360px] sm:w-[410px] h-[550px] max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden animate-fade-in flex flex-col ring-1 ring-slate-900/10"
+                    className="fixed inset-x-3 bottom-20 sm:inset-auto sm:bottom-24 sm:right-6 z-[60] w-auto sm:w-[410px] max-w-[calc(100vw-24px)] h-[540px] max-h-[calc(100vh-100px)] sm:max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden animate-fade-in flex flex-col ring-1 ring-slate-900/10"
                     style={{ filter: 'drop-shadow(0 20px 25px rgba(15, 23, 42, 0.15))' }}
                 >
                     {/* Bot Header */}
@@ -977,7 +977,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
 
             {/* Feedback Popup */}
             {showFeedback && (
-                <div className="fixed bottom-24 right-6 z-50 w-84 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+                <div className="fixed inset-x-3 bottom-20 sm:inset-auto sm:bottom-24 sm:right-6 z-[60] w-auto sm:w-[360px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
                     <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-3.5 flex items-center justify-between text-white">
                         <div>
                             <h3 className="font-bold text-sm flex items-center gap-2">

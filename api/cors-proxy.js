@@ -1,5 +1,8 @@
 export const config = {
   maxDuration: 60,
+  api: {
+    bodyParser: false,
+  },
 };
 
 export default async function handler(req, res) {
@@ -17,8 +20,17 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { url } = req.query;
-  if (!url || typeof url !== 'string') {
+  let targetUrl = req.query.url;
+  if (typeof req.url === 'string' && req.url.includes('?url=')) {
+    const rawTarget = req.url.substring(req.url.indexOf('?url=') + 5);
+    try {
+      targetUrl = decodeURIComponent(rawTarget);
+    } catch {
+      targetUrl = rawTarget;
+    }
+  }
+
+  if (!targetUrl || typeof targetUrl !== 'string') {
     res.status(400).json({ error: 'Missing target url parameter' });
     return;
   }
@@ -32,14 +44,15 @@ export default async function handler(req, res) {
       }
     }
 
-    let body = undefined;
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      if (req.body) {
-        body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-      }
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
+    const body = (req.method !== 'GET' && req.method !== 'HEAD' && chunks.length > 0)
+      ? Buffer.concat(chunks)
+      : undefined;
 
-    const targetResponse = await fetch(url, {
+    const targetResponse = await fetch(targetUrl, {
       method: req.method,
       headers: forwardHeaders,
       body

@@ -237,13 +237,26 @@ const executeIdeaAiVideoCall = async (
         }
 
         options.onProgress?.(`Đang tải ảnh nguồn lên máy chủ ${meta.shortName}...`);
-        const putResp = await fetch(uploadTarget.url, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': preparedFrame.blob.type || 'image/jpeg'
-            },
-            body: preparedFrame.blob
-        });
+        const putUrl = resolveIdeaAiUrl(uploadTarget.url);
+        let putResp: Response;
+        try {
+            putResp = await fetch(putUrl, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': preparedFrame.blob.type || 'image/jpeg'
+                },
+                body: preparedFrame.blob
+            });
+        } catch (putErr) {
+            // Fallback gửi trực tiếp nếu chạy trên môi trường Electron/desktop
+            putResp = await fetch(uploadTarget.url, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': preparedFrame.blob.type || 'image/jpeg'
+                },
+                body: preparedFrame.blob
+            });
+        }
 
         if (!putResp.ok) {
             throw new Error(`[${meta.shortName}] Tải ảnh nguồn lên máy chủ thất bại (HTTP ${putResp.status}).`);
