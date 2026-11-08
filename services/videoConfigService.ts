@@ -1,8 +1,12 @@
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../src/firebaseConfig';
 
+export type VideoProviderType = 'openrouter' | 'idea_ai';
+
 export interface VideoModelMetadata {
     id: string;
+    provider: VideoProviderType;
+    providerLabel: string;
     name: string;
     shortName: string;
     badge: string;
@@ -18,17 +22,36 @@ export interface VideoModelMetadata {
 }
 
 /**
- * Danh sách 5 Mô hình Video AI tốt nhất & rẻ nhất trên OpenRouter
- * Hỗ trợ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật (first_frame)
+ * Danh sách các Mô hình Video AI trên Idea.ai & OpenRouter
+ * Hỗ trợ đầy đủ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật (first_frame)
  */
 export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
     {
+        id: 'idea.ai/vivix_w1',
+        provider: 'idea_ai',
+        providerLabel: 'idea.ai',
+        name: 'idea.ai: Vivix W1 (720p HD)',
+        shortName: 'Vivix W1 (idea.ai)',
+        badge: 'idea.ai • 260 Coins',
+        badgeColor: 'violet',
+        description: 'Mô hình tạo video chuẩn 720p HD từ idea.ai: hỗ trợ cả Ảnh sang Video (I2V) & Văn bản (T2V), đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
+        supportedAspectRatios: ['16:9', '9:16', '1:1'],
+        supportedDurations: [5, 10, 15],
+        defaultResolution: '720p',
+        supportsAudio: false,
+        costPerSecondVnd: 400,
+        baseInputFeeVnd: 0,
+        priceLabel: '~2.000đ (5s) • ~4.000đ (10s)'
+    },
+    {
         id: 'x-ai/grok-imagine-video-1.5-lite',
+        provider: 'openrouter',
+        providerLabel: 'OpenRouter',
         name: 'xAI: Grok Video 1.5 Lite',
         shortName: 'Grok 1.5 Lite',
-        badge: 'Rẻ số 1 • ~510đ/s',
+        badge: 'OpenRouter • ~510đ/s',
         badgeColor: 'emerald',
-        description: 'Tốc độ nhanh, hỗ trợ đủ 9:16 / 16:9 / 1:1 và thời lượng 3s–15s, không chặn mặt người.',
+        description: 'Tốc độ nhanh qua OpenRouter, hỗ trợ đủ 9:16 / 16:9 / 1:1 và thời lượng 3s–15s, không chặn mặt người.',
         supportedAspectRatios: ['16:9', '9:16', '1:1'],
         supportedDurations: [3, 5, 10, 15],
         defaultResolution: '480p',
@@ -39,11 +62,13 @@ export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
     },
     {
         id: 'alibaba/wan-3.0',
+        provider: 'openrouter',
+        providerLabel: 'OpenRouter',
         name: 'Alibaba: Wan 3.0 (Có Âm Thanh)',
         shortName: 'Alibaba Wan 3.0',
-        badge: 'Có Audio • ~1.275đ/s',
+        badge: 'OpenRouter • Có Audio',
         badgeColor: 'amber',
-        description: 'Tối ưu khuôn mặt và trang phục Á Đông, tích hợp âm thanh gốc sống động, hỗ trợ 3s–15s.',
+        description: 'Tối ưu khuôn mặt và trang phục Á Đông qua OpenRouter, tích hợp âm thanh gốc sống động, hỗ trợ 3s–15s.',
         supportedAspectRatios: ['16:9', '9:16', '1:1'],
         supportedDurations: [3, 5, 10, 15],
         defaultResolution: '480p',
@@ -51,51 +76,6 @@ export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
         costPerSecondVnd: 1400, // $0.05/s + 10% markup
         baseInputFeeVnd: 0,
         priceLabel: '~4.200đ (3s) • ~7.000đ (5s)'
-    },
-    {
-        id: 'minimax/hailuo-3-max',
-        name: 'MiniMax: Hailuo 3 Max',
-        shortName: 'Hailuo 3 Max',
-        badge: 'Điện ảnh • ~1.275đ/s',
-        badgeColor: 'indigo',
-        description: 'Chuyển động cơ thể và biểu cảm tự nhiên mượt mà (Yêu cầu thời lượng tối thiểu từ 5s trở lên).',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [5, 10, 15], // Không hỗ trợ 3s -> Khóa nút 3s trên UI
-        defaultResolution: '480p',
-        supportsAudio: false,
-        costPerSecondVnd: 1400, // $0.05/s + 10% markup
-        baseInputFeeVnd: 0,
-        priceLabel: '~7.000đ (5s) • Tối thiểu 5s'
-    },
-    {
-        id: 'x-ai/grok-imagine-video',
-        name: 'xAI: Grok Video 1.0 (Bản Chuẩn)',
-        shortName: 'Grok 1.0 Chuẩn',
-        badge: 'Sắc nét • ~1.275đ/s',
-        badgeColor: 'violet',
-        description: 'Bản tiêu chuẩn giữ chi tiết gương mặt và trang phục sắc nét cao, hỗ trợ 3s–15s.',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [3, 5, 10, 15],
-        defaultResolution: '480p',
-        supportsAudio: false,
-        costPerSecondVnd: 1400, // $0.05/s + 10% markup
-        baseInputFeeVnd: 60,
-        priceLabel: '~4.300đ (3s) • ~7.100đ (5s)'
-    },
-    {
-        id: 'kwaivgi/kling-v3.0-std',
-        name: 'Kuaishou: Kling v3.0 Standard',
-        shortName: 'Kling v3.0 Std',
-        badge: 'Cao cấp HD • ~2.140đ/s',
-        badgeColor: 'rose',
-        description: 'Đỉnh cao chuyển động người thật chuẩn 720p HD, hỗ trợ mọi tỷ lệ 9:16 / 16:9 / 1:1 và 3s–15s.',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [3, 5, 10, 15],
-        defaultResolution: '720p',
-        supportsAudio: false,
-        costPerSecondVnd: 2350, // $0.084/s + 10% markup
-        baseInputFeeVnd: 0,
-        priceLabel: '~7.100đ (3s) • ~11.800đ (5s)'
     }
 ];
 
@@ -104,6 +84,21 @@ export const getVideoModelMeta = (modelId?: string): VideoModelMetadata => {
         return OPENROUTER_VIDEO_MODELS[0];
     }
     return OPENROUTER_VIDEO_MODELS.find(m => m.id === modelId) || OPENROUTER_VIDEO_MODELS[0];
+};
+
+/**
+ * Kiểm tra xem nhà cung cấp (OpenRouter hoặc idea.ai) của một model có đang được bật trên Admin hay không
+ */
+export const isVideoModelProviderEnabled = (
+    modelId: string,
+    config: OpenRouterVideoConfig
+): boolean => {
+    if (config.enabled === false) return false;
+    const meta = getVideoModelMeta(modelId);
+    if (meta.provider === 'idea_ai') {
+        return config.ideaAiEnabled !== false;
+    }
+    return config.openRouterEnabled !== false;
 };
 
 /**
@@ -120,9 +115,12 @@ export const calculateVideoPriceVnd = (modelId: string | undefined, durationSeco
 
 export interface OpenRouterVideoConfig {
     enabled: boolean;
-    openRouterApiKey: string;
-    primaryModel: string;         // 'x-ai/grok-imagine-video-1.5-lite'
-    fallbackModel: string;        // 'alibaba/wan-3.0'
+    openRouterEnabled: boolean;   // Bật/tắt các model thuộc OpenRouter
+    openRouterApiKey: string;     // sk-or-v1-...
+    ideaAiEnabled: boolean;       // Bật/tắt các model thuộc idea.ai
+    ideaAiApiKey: string;         // cfak_...
+    primaryModel: string;         // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
+    fallbackModel: string;        // 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
     pricePerVideoVnd: number;     // Giá mặc định tham chiếu
     costPerVideoVnd: number;
     profitMarkupPercent: number;  // Tỷ lệ lợi nhuận (+10%)
@@ -134,9 +132,12 @@ export interface OpenRouterVideoConfig {
 
 export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     enabled: true,
+    openRouterEnabled: true,
     openRouterApiKey: '',
-    primaryModel: 'x-ai/grok-imagine-video-1.5-lite',
-    fallbackModel: 'alibaba/wan-3.0',
+    ideaAiEnabled: true,
+    ideaAiApiKey: '',
+    primaryModel: 'idea.ai/vivix_w1',
+    fallbackModel: 'x-ai/grok-imagine-video-1.5-lite',
     pricePerVideoVnd: 2000,
     costPerVideoVnd: 1785,
     profitMarkupPercent: 10,
@@ -145,17 +146,22 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
 };
 
 /**
- * Chuẩn hóa model ID từ Firestore: tự động thay thế model gemini-omni cũ (bị chặn mặt người) sang Grok 1.5 Lite / Wan 3.0
+ * Chuẩn hóa model ID và trạng thái bật/tắt provider từ Firestore
  */
 const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVideoConfig => {
     const merged: OpenRouterVideoConfig = {
         ...DEFAULT_VIDEO_CONFIG,
-        ...raw
+        ...raw,
+        openRouterEnabled: raw.openRouterEnabled !== undefined ? Boolean(raw.openRouterEnabled) : true,
+        ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
+        openRouterApiKey: raw.openRouterApiKey || '',
+        ideaAiApiKey: raw.ideaAiApiKey || ''
     };
-    if (!merged.primaryModel || merged.primaryModel.includes('gemini-omni')) {
+    const validModelIds = OPENROUTER_VIDEO_MODELS.map(m => m.id);
+    if (!merged.primaryModel || !validModelIds.includes(merged.primaryModel)) {
         merged.primaryModel = DEFAULT_VIDEO_CONFIG.primaryModel;
     }
-    if (!merged.fallbackModel || merged.fallbackModel.includes('gemini-omni')) {
+    if (!merged.fallbackModel || !validModelIds.includes(merged.fallbackModel)) {
         merged.fallbackModel = DEFAULT_VIDEO_CONFIG.fallbackModel;
     }
     return merged;
@@ -172,10 +178,10 @@ let cachedConfig: OpenRouterVideoConfig = { ...DEFAULT_VIDEO_CONFIG };
 let isInitialized = false;
 
 /**
- * Lấy cấu hình OpenRouter Video hiện tại (từ cache realtime hoặc fetch Firestore)
+ * Lấy cấu hình Video AI hiện tại (từ cache realtime hoặc fetch Firestore)
  */
 export const getVideoConfig = async (): Promise<OpenRouterVideoConfig> => {
-    if (isInitialized && cachedConfig.openRouterApiKey) {
+    if (isInitialized && (cachedConfig.openRouterApiKey || cachedConfig.ideaAiApiKey)) {
         return cachedConfig;
     }
 

@@ -12,11 +12,13 @@ import {
     ShieldCheck,
     Coins,
     Sliders,
-    Layers,} from 'lucide-react';
+    Layers
+} from 'lucide-react';
 import {
     getVideoConfig,
     saveVideoConfig,
     testOpenRouterApiKey,
+    testIdeaAiApiKey,
     OpenRouterVideoConfig,
     DEFAULT_VIDEO_CONFIG
 } from '../services/videoConfigService';
@@ -28,18 +30,25 @@ interface OpenRouterVideoConfigManagerProps {
 
 const SUPPORTED_VIDEO_MODELS = [
     {
-        id: 'google/gemini-omni-1.2-flash',
-        name: 'Google Gemini Omni 1.2 Flash (Chính)',
-        badge: 'Ưu tiên 1 - Bản mới nhất',
-        desc: 'Hỗ trợ video dài tới 15s, có âm thanh gốc, tạo từ ảnh và văn bản',
-        costEstimate: '~450đ – 600đ / video'
+        id: 'idea.ai/vivix_w1',
+        name: 'idea.ai: Vivix W1 (720p HD • 260 Coins)',
+        badge: 'idea.ai - Rẻ & Nét 720p',
+        desc: 'Hỗ trợ cả Image-to-Video & Text-to-Video, đủ tỷ lệ 9:16 / 16:9 / 1:1, thời lượng 5s–15s',
+        costEstimate: '260 Coins/video'
     },
     {
-        id: 'google/gemini-omni-1.1-flash',
-        name: 'Google Gemini Omni 1.1 Flash (Dự phòng)',
-        badge: 'Ưu tiên 2 - Tự động Failover',
-        desc: 'Tự động kích hoạt thay thế khi bản 1.2 bận, lỗi 429 hoặc quá tải',
-        costEstimate: '~450đ – 600đ / video'
+        id: 'x-ai/grok-imagine-video-1.5-lite',
+        name: 'OpenRouter: xAI Grok Video 1.5 Lite',
+        badge: 'OpenRouter - Rẻ & Nhanh',
+        desc: 'Tốc độ cực nhanh, không chặn mặt người thật, hỗ trợ 3s–15s',
+        costEstimate: '~560đ/giây'
+    },
+    {
+        id: 'alibaba/wan-3.0',
+        name: 'OpenRouter: Alibaba Wan 3.0 (Có âm thanh)',
+        badge: 'OpenRouter - Có âm thanh',
+        desc: 'Tối ưu gương mặt Á Đông, có âm thanh gốc, hỗ trợ 3s–15s',
+        costEstimate: '~1.400đ/giây'
     }
 ];
 
@@ -47,12 +56,11 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
     const [config, setConfig] = useState<OpenRouterVideoConfig>(DEFAULT_VIDEO_CONFIG);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [testing, setTesting] = useState(false);
-    const [showKey, setShowKey] = useState(false);
-    const [saveSuccess, setSaveSuccess] = useState(false);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    const [testResult, setTestResult] = useState<{
+    // OpenRouter test states
+    const [testingOr, setTestingOr] = useState(false);
+    const [showOrKey, setShowOrKey] = useState(false);
+    const [orTestResult, setOrTestResult] = useState<{
         valid: boolean;
         label?: string;
         usage?: number;
@@ -61,6 +69,19 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
         checkedAt?: number;
     } | null>(null);
 
+    // idea.ai test states
+    const [testingIdea, setTestingIdea] = useState(false);
+    const [showIdeaKey, setShowIdeaKey] = useState(false);
+    const [ideaTestResult, setIdeaTestResult] = useState<{
+        valid: boolean;
+        label?: string;
+        error?: string;
+        checkedAt?: number;
+    } | null>(null);
+
+    const [saveSuccess, setSaveSuccess] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
     useEffect(() => {
         let mounted = true;
         getVideoConfig()
@@ -68,7 +89,10 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                 if (mounted) {
                     setConfig(res);
                     if (res.openRouterApiKey) {
-                        handleTestKey(res.openRouterApiKey);
+                        handleTestOpenRouterKey(res.openRouterApiKey);
+                    }
+                    if (res.ideaAiApiKey) {
+                        handleTestIdeaAiKey(res.ideaAiApiKey);
                     }
                 }
             })
@@ -84,10 +108,10 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
         };
     }, []);
 
-    const handleTestKey = async (keyToTest?: string) => {
+    const handleTestOpenRouterKey = async (keyToTest?: string) => {
         const key = (keyToTest !== undefined ? keyToTest : config.openRouterApiKey).trim();
         if (!key) {
-            setTestResult({
+            setOrTestResult({
                 valid: false,
                 error: 'Vui lòng nhập API Key OpenRouter trước khi kiểm tra',
                 checkedAt: Date.now()
@@ -95,10 +119,10 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
             return;
         }
 
-        setTesting(true);
+        setTestingOr(true);
         try {
             const res = await testOpenRouterApiKey(key);
-            setTestResult({
+            setOrTestResult({
                 valid: res.valid,
                 label: res.label,
                 usage: res.usage,
@@ -107,13 +131,44 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                 checkedAt: Date.now()
             });
         } catch (err: any) {
-            setTestResult({
+            setOrTestResult({
                 valid: false,
-                error: err?.message || 'Lỗi kiểm tra kết nối',
+                error: err?.message || 'Lỗi kiểm tra kết nối OpenRouter',
                 checkedAt: Date.now()
             });
         } finally {
-            setTesting(false);
+            setTestingOr(false);
+        }
+    };
+
+    const handleTestIdeaAiKey = async (keyToTest?: string) => {
+        const key = (keyToTest !== undefined ? keyToTest : config.ideaAiApiKey).trim();
+        if (!key) {
+            setIdeaTestResult({
+                valid: false,
+                error: 'Vui lòng nhập API Key idea.ai (cfak_...) trước khi kiểm tra',
+                checkedAt: Date.now()
+            });
+            return;
+        }
+
+        setTestingIdea(true);
+        try {
+            const res = await testIdeaAiApiKey(key);
+            setIdeaTestResult({
+                valid: res.valid,
+                label: res.label,
+                error: res.error,
+                checkedAt: Date.now()
+            });
+        } catch (err: any) {
+            setIdeaTestResult({
+                valid: false,
+                error: err?.message || 'Lỗi kiểm tra kết nối idea.ai',
+                checkedAt: Date.now()
+            });
+        } finally {
+            setTestingIdea(false);
         }
     };
 
@@ -134,7 +189,6 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
         }
     };
 
-    // Tự động tính giá bán đề xuất khi thay đổi giá vốn hoặc % markup
     const handleCostChange = (cost: number) => {
         const markup = config.profitMarkupPercent || 10;
         const suggestedPrice = Math.round((cost * (1 + markup / 100)) / 10) * 10;
@@ -161,7 +215,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
         return (
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', marginBottom: '24px', textAlign: 'center' }}>
                 <div className="loading-spinner" style={{ width: '28px', height: '28px', margin: '0 auto 10px' }} />
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Đang tải cấu hình OpenRouter Video AI...</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Đang tải cấu hình Video AI (idea.ai & OpenRouter)...</p>
             </div>
         );
     }
@@ -182,19 +236,19 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                         width: '42px',
                         height: '42px',
                         borderRadius: '12px',
-                        background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                        background: 'linear-gradient(135deg, #7c3aed 0%, #ea580c 100%)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: '#ffffff',
-                        boxShadow: '0 4px 14px rgba(245, 158, 11, 0.3)'
+                        boxShadow: '0 4px 14px rgba(124, 58, 237, 0.28)'
                     }}>
                         <Video size={22} />
                     </div>
                     <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <h2 id="openrouter-video-config-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
-                                Cấu hình OpenRouter Video AI
+                                Cấu hình Video AI (idea.ai & OpenRouter)
                             </h2>
                             <span style={{
                                 display: 'inline-flex',
@@ -214,7 +268,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                             </span>
                         </div>
                         <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.84rem' }}>
-                            Đồng bộ API Key OpenRouter và cấu hình giá bán trực tiếp sang công cụ Tạo Video ImageTool.
+                            Bật/tắt độc lập từng nguồn (idea.ai hoặc OpenRouter). Nguồn nào tắt thì model của nguồn đó bên Tool chính sẽ tự động chuyển xám (khóa).
                         </p>
                     </div>
                 </div>
@@ -222,7 +276,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                 {/* Master Toggle */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: config.enabled ? '#047857' : '#94a3b8' }}>
-                        {config.enabled ? 'Tính năng đang BẬT' : 'Tính năng đang TẮT'}
+                        {config.enabled ? 'Toàn bộ Video AI: BẬT' : 'Toàn bộ Video AI: TẮT'}
                     </span>
                     <button
                         type="button"
@@ -289,41 +343,93 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     marginBottom: '16px'
                 }}>
                     <CheckCircle2 size={18} style={{ color: '#059669', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600 }}>Đã lưu và đồng bộ thành công sang ImageTool!</span>
+                    <span style={{ fontWeight: 600 }}>Đã lưu và đồng bộ trạng thái nguồn + API Key sang ImageTool!</span>
                 </div>
             )}
 
             <form onSubmit={handleSave} style={{ display: 'grid', gap: '20px' }}>
-                {/* 1. OpenRouter API Key Input */}
+                {/* 1. IDEA.AI API KEY & PROVIDER TOGGLE */}
                 <div style={{
-                    background: '#f8fafc',
+                    background: config.ideaAiEnabled !== false ? '#f5f3ff' : '#f8fafc',
                     borderRadius: '16px',
                     padding: '18px 20px',
-                    border: '1px solid #e2e8f0'
+                    border: `1.5px solid ${config.ideaAiEnabled !== false ? '#c4b5fd' : '#e2e8f0'}`,
+                    transition: 'all 0.2s ease'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-                        <label htmlFor="openrouter-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Key size={16} style={{ color: '#f59e0b' }} />
-                            <span>OpenRouter API Key (sk-or-v1-...)</span>
-                        </label>
-                        <button
-                            type="button"
-                            onClick={() => handleTestKey()}
-                            disabled={testing || !config.openRouterApiKey}
-                            className="btn btn-secondary"
-                            style={{
-                                padding: '6px 14px',
-                                fontSize: '0.78rem',
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label htmlFor="idea-ai-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Key size={16} style={{ color: '#7c3aed' }} />
+                                <span>Nguồn 1: idea.ai API Key (cfak_...)</span>
+                            </label>
+                            <span style={{
+                                fontSize: '0.72rem',
                                 fontWeight: 700,
-                                minHeight: '34px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}
-                        >
-                            <RefreshCw size={14} className={testing ? 'loading-spinner' : ''} />
-                            Kiểm tra kết nối
-                        </button>
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: config.ideaAiEnabled !== false ? '#ede9fe' : '#e2e8f0',
+                                color: config.ideaAiEnabled !== false ? '#6d28d9' : '#64748b'
+                            }}>
+                                Model: Vivix W1 (720p • 9:16 / 16:9 / 1:1 • 5s–15s)
+                            </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button
+                                type="button"
+                                onClick={() => handleTestIdeaAiKey()}
+                                disabled={testingIdea || !config.ideaAiApiKey}
+                                className="btn btn-secondary"
+                                style={{
+                                    padding: '6px 14px',
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    minHeight: '34px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <RefreshCw size={14} className={testingIdea ? 'loading-spinner' : ''} />
+                                Kiểm tra khóa
+                            </button>
+
+                            {/* Toggle idea.ai */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: config.ideaAiEnabled !== false ? '#6d28d9' : '#64748b' }}>
+                                    {config.ideaAiEnabled !== false ? 'Đang BẬT' : 'Đang TẮT (Khóa xám)'}
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={config.ideaAiEnabled !== false}
+                                    onClick={() => setConfig(prev => ({ ...prev, ideaAiEnabled: !(prev.ideaAiEnabled !== false) }))}
+                                    style={{
+                                        width: '46px',
+                                        height: '24px',
+                                        borderRadius: '9999px',
+                                        background: config.ideaAiEnabled !== false ? '#7c3aed' : '#cbd5e1',
+                                        border: 'none',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s ease',
+                                        padding: '2px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center'
+                                    }}
+                                >
+                                    <span style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: '#ffffff',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        transform: config.ideaAiEnabled !== false ? 'translateX(22px)' : 'translateX(0px)',
+                                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                                    }} />
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div style={{
@@ -333,20 +439,21 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                         border: '1px solid #cbd5e1',
                         borderRadius: '12px',
                         padding: '0 14px',
-                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)'
+                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+                        opacity: config.ideaAiEnabled !== false ? 1 : 0.65
                     }}>
                         <input
-                            id="openrouter-api-key"
-                            type={showKey ? 'text' : 'password'}
-                            value={config.openRouterApiKey}
-                            onChange={e => setConfig(prev => ({ ...prev, openRouterApiKey: e.target.value }))}
-                            placeholder="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            id="idea-ai-api-key"
+                            type={showIdeaKey ? 'text' : 'password'}
+                            value={config.ideaAiApiKey || ''}
+                            onChange={e => setConfig(prev => ({ ...prev, ideaAiApiKey: e.target.value }))}
+                            placeholder="cfak_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                             style={{
                                 width: '100%',
                                 padding: '12px 0',
                                 border: 'none',
                                 outline: 'none',
-                                fontFamily: showKey ? 'monospace' : undefined,
+                                fontFamily: showIdeaKey ? 'monospace' : undefined,
                                 fontSize: '0.88rem',
                                 color: '#0f172a',
                                 background: 'transparent'
@@ -354,7 +461,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                         />
                         <button
                             type="button"
-                            onClick={() => setShowKey(!showKey)}
+                            onClick={() => setShowIdeaKey(!showIdeaKey)}
                             style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -364,20 +471,19 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                 display: 'flex',
                                 alignItems: 'center'
                             }}
-                            title={showKey ? 'Ẩn khóa' : 'Hiện khóa'}
+                            title={showIdeaKey ? 'Ẩn khóa' : 'Hiện khóa'}
                         >
-                            {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                            {showIdeaKey ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                     </div>
 
-                    {/* Test Key Status Display */}
-                    {testResult && (
+                    {ideaTestResult && (
                         <div style={{
                             marginTop: '12px',
                             padding: '10px 14px',
                             borderRadius: '10px',
-                            background: testResult.valid ? '#ecfdf5' : '#fef2f2',
-                            border: `1px solid ${testResult.valid ? '#a7f3d0' : '#fecaca'}`,
+                            background: ideaTestResult.valid ? '#ecfdf5' : '#fef2f2',
+                            border: `1px solid ${ideaTestResult.valid ? '#a7f3d0' : '#fecaca'}`,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
@@ -385,7 +491,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                             gap: '8px'
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {testResult.valid ? (
+                                {ideaTestResult.valid ? (
                                     <CheckCircle2 size={16} style={{ color: '#059669' }} />
                                 ) : (
                                     <XCircle size={16} style={{ color: '#dc2626' }} />
@@ -393,21 +499,182 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                 <span style={{
                                     fontSize: '0.82rem',
                                     fontWeight: 600,
-                                    color: testResult.valid ? '#047857' : '#991b1b'
+                                    color: ideaTestResult.valid ? '#047857' : '#991b1b'
                                 }}>
-                                    {testResult.valid ? 'API Key hợp lệ và sẵn sàng tạo video!' : (testResult.error || 'API Key không hợp lệ')}
+                                    {ideaTestResult.valid ? (ideaTestResult.label || 'Khóa idea.ai hợp lệ!') : (ideaTestResult.error || 'Khóa idea.ai không hợp lệ')}
                                 </span>
                             </div>
-                            {testResult.valid && testResult.usage !== undefined && (
+                        </div>
+                    )}
+                </div>
+
+                {/* 2. OPENROUTER API KEY & PROVIDER TOGGLE */}
+                <div style={{
+                    background: config.openRouterEnabled !== false ? '#fffbeb' : '#f8fafc',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
+                    border: `1.5px solid ${config.openRouterEnabled !== false ? '#fde68a' : '#e2e8f0'}`,
+                    transition: 'all 0.2s ease'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label htmlFor="openrouter-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Key size={16} style={{ color: '#f59e0b' }} />
+                                <span>Nguồn 2: OpenRouter API Key (sk-or-v1-...)</span>
+                            </label>
+                            <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: config.openRouterEnabled !== false ? '#fef3c7' : '#e2e8f0',
+                                color: config.openRouterEnabled !== false ? '#b45309' : '#64748b'
+                            }}>
+                                Model: Grok 1.5 Lite & Alibaba Wan 3.0 (3s–15s)
+                            </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button
+                                type="button"
+                                onClick={() => handleTestOpenRouterKey()}
+                                disabled={testingOr || !config.openRouterApiKey}
+                                className="btn btn-secondary"
+                                style={{
+                                    padding: '6px 14px',
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    minHeight: '34px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <RefreshCw size={14} className={testingOr ? 'loading-spinner' : ''} />
+                                Kiểm tra khóa
+                            </button>
+
+                            {/* Toggle OpenRouter */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: config.openRouterEnabled !== false ? '#b45309' : '#64748b' }}>
+                                    {config.openRouterEnabled !== false ? 'Đang BẬT' : 'Đang TẮT (Khóa xám)'}
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={config.openRouterEnabled !== false}
+                                    onClick={() => setConfig(prev => ({ ...prev, openRouterEnabled: !(prev.openRouterEnabled !== false) }))}
+                                    style={{
+                                        width: '46px',
+                                        height: '24px',
+                                        borderRadius: '9999px',
+                                        background: config.openRouterEnabled !== false ? '#f59e0b' : '#cbd5e1',
+                                        border: 'none',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s ease',
+                                        padding: '2px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center'
+                                    }}
+                                >
+                                    <span style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: '#ffffff',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        transform: config.openRouterEnabled !== false ? 'translateX(22px)' : 'translateX(0px)',
+                                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                                    }} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '12px',
+                        padding: '0 14px',
+                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+                        opacity: config.openRouterEnabled !== false ? 1 : 0.65
+                    }}>
+                        <input
+                            id="openrouter-api-key"
+                            type={showOrKey ? 'text' : 'password'}
+                            value={config.openRouterApiKey}
+                            onChange={e => setConfig(prev => ({ ...prev, openRouterApiKey: e.target.value }))}
+                            placeholder="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            style={{
+                                width: '100%',
+                                padding: '12px 0',
+                                border: 'none',
+                                outline: 'none',
+                                fontFamily: showOrKey ? 'monospace' : undefined,
+                                fontSize: '0.88rem',
+                                color: '#0f172a',
+                                background: 'transparent'
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowOrKey(!showOrKey)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#64748b',
+                                cursor: 'pointer',
+                                padding: '6px',
+                                display: 'flex',
+                                alignItems: 'center'
+                            }}
+                            title={showOrKey ? 'Ẩn khóa' : 'Hiện khóa'}
+                        >
+                            {showOrKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                    </div>
+
+                    {/* Test Key Status Display */}
+                    {orTestResult && (
+                        <div style={{
+                            marginTop: '12px',
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            background: orTestResult.valid ? '#ecfdf5' : '#fef2f2',
+                            border: `1px solid ${orTestResult.valid ? '#a7f3d0' : '#fecaca'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '8px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {orTestResult.valid ? (
+                                    <CheckCircle2 size={16} style={{ color: '#059669' }} />
+                                ) : (
+                                    <XCircle size={16} style={{ color: '#dc2626' }} />
+                                )}
+                                <span style={{
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600,
+                                    color: orTestResult.valid ? '#047857' : '#991b1b'
+                                }}>
+                                    {orTestResult.valid ? 'API Key OpenRouter hợp lệ và sẵn sàng tạo video!' : (orTestResult.error || 'API Key không hợp lệ')}
+                                </span>
+                            </div>
+                            {orTestResult.valid && orTestResult.usage !== undefined && (
                                 <span style={{ fontSize: '0.78rem', color: '#047857', fontFamily: 'monospace' }}>
-                                    Đã dùng: ${(testResult.usage).toFixed(3)} {testResult.limit ? `/ Giới hạn: $${testResult.limit}` : ''}
+                                    Đã dùng: ${(orTestResult.usage).toFixed(3)} {orTestResult.limit ? `/ Giới hạn: $${orTestResult.limit}` : ''}
                                 </span>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* 2. Dual Model Architecture (Primary & Failover) */}
+                {/* 3. Model Priority (Primary & Failover) */}
                 <div style={{
                     background: '#ffffff',
                     borderRadius: '16px',
@@ -416,17 +683,17 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Layers size={18} style={{ color: '#f59e0b' }} />
+                            <Layers size={18} style={{ color: '#7c3aed' }} />
                             <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-                                Kiến trúc 2 Mô hình (Chính & Tự động Dự phòng)
+                                Mô hình Mặc định & Tự động Dự phòng (Failover)
                             </h3>
                         </div>
                         <span style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '4px',
-                            background: '#fef3c7',
-                            color: '#b45309',
+                            background: '#ede9fe',
+                            color: '#6d28d9',
                             padding: '3px 9px',
                             borderRadius: '999px',
                             fontSize: '0.72rem',
@@ -440,16 +707,16 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
                         {/* Primary Model */}
                         <div style={{
-                            background: '#fffbeb',
+                            background: '#f5f3ff',
                             borderRadius: '12px',
                             padding: '14px',
-                            border: '1px solid #fde68a'
+                            border: '1px solid #ddd6fe'
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase' }}>
                                     ① Mô hình chính
                                 </span>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '1px 6px', borderRadius: '4px' }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6d28d9', background: '#ede9fe', padding: '1px 6px', borderRadius: '4px' }}>
                                     Mặc định
                                 </span>
                             </div>
@@ -460,7 +727,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                     width: '100%',
                                     padding: '8px 12px',
                                     borderRadius: '8px',
-                                    border: '1px solid #f59e0b',
+                                    border: '1px solid #8b5cf6',
                                     background: '#ffffff',
                                     color: '#0f172a',
                                     fontSize: '0.85rem',
@@ -473,8 +740,8 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                     <option key={m.id} value={m.id}>{m.name}</option>
                                 ))}
                             </select>
-                            <p style={{ margin: 0, fontSize: '0.76rem', color: '#78350f', lineHeight: 1.5 }}>
-                                Tạo clip 15s có âm thanh gốc, hỗ trợ Text-to-Video và Image-to-Video cực nét.
+                            <p style={{ margin: 0, fontSize: '0.76rem', color: '#5b21b6', lineHeight: 1.5 }}>
+                                Mô hình được ưu tiên chọn sẵn khi người dùng mở bảng Tạo Video.
                             </p>
                         </div>
 
@@ -514,13 +781,13 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                 ))}
                             </select>
                             <p style={{ margin: 0, fontSize: '0.76rem', color: '#475569', lineHeight: 1.5 }}>
-                                Tự động chuyển qua khi bản 1.2 bận, gặp lỗi 429 hoặc đang bảo trì, đảm bảo người dùng không bị gián đoạn.
+                                Tự động chuyển qua khi mô hình chính bận hoặc đang bảo trì (nếu nguồn dự phòng đang bật).
                             </p>
                         </div>
                     </div>
                 </div>
 
-                {/* 3. Pricing & Profit Margin (+10%) */}
+                {/* 4. Pricing & Profit Margin (+10%) */}
                 <div style={{
                     background: '#ffffff',
                     borderRadius: '16px',
@@ -535,10 +802,9 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
-                        {/* Giá vốn OpenRouter */}
                         <div>
                             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
-                                Giá vốn gốc OpenRouter (VND / video)
+                                Giá vốn gốc tham chiếu (VND / video)
                             </label>
                             <input
                                 type="number"
@@ -557,10 +823,9 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                     color: '#0f172a'
                                 }}
                             />
-                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Gốc ~450đ – 600đ ($0.024)</span>
+                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Vivix W1: 260 Coins • Grok: ~560đ/s</span>
                         </div>
 
-                        {/* Tỷ lệ lời % */}
                         <div>
                             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
                                 Tỷ lệ lợi nhuận (+%)
@@ -585,7 +850,6 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                             <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Mặc định +10%</span>
                         </div>
 
-                        {/* Giá bán niêm yết người dùng ImageTool trả */}
                         <div>
                             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#047857', marginBottom: '6px' }}>
                                 Giá bán trên ImageTool (VND / video)
@@ -612,7 +876,6 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                         </div>
                     </div>
 
-                    {/* Summary Profit Pill */}
                     <div style={{
                         background: '#f0fdf4',
                         borderRadius: '10px',
@@ -636,7 +899,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     </div>
                 </div>
 
-                {/* 4. Default Parameters (Duration & Aspect Ratio) */}
+                {/* 5. Default Parameters (Duration & Aspect Ratio) */}
                 <div style={{
                     background: '#ffffff',
                     borderRadius: '16px',
@@ -668,9 +931,10 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                     outline: 'none'
                                 }}
                             >
-                                <option value={5}>5 Giây (Tiết kiệm & Nhanh)</option>
+                                <option value={3}>3 Giây (Chỉ OpenRouter Grok/Wan)</option>
+                                <option value={5}>5 Giây (Tương thích cả idea.ai & OpenRouter)</option>
                                 <option value={10}>10 Giây (Cân bằng tiêu chuẩn)</option>
-                                <option value={15}>15 Giây (Tối đa của Omni 1.2)</option>
+                                <option value={15}>15 Giây (Thời lượng dài tối đa)</option>
                             </select>
                         </div>
 
@@ -714,11 +978,11 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                             fontSize: '0.9rem',
                             fontWeight: 700,
                             borderRadius: '12px',
-                            background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                            background: 'linear-gradient(135deg, #7c3aed 0%, #ea580c 100%)',
                             border: 'none',
                             color: '#ffffff',
                             cursor: 'pointer',
-                            boxShadow: '0 4px 12px rgba(234, 88, 12, 0.3)'
+                            boxShadow: '0 4px 12px rgba(124, 58, 237, 0.28)'
                         }}
                     >
                         <Save size={18} />

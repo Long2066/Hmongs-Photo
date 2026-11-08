@@ -90,7 +90,7 @@ const executeOpenRouterVideoCall = async (
         ? aspectRatio
         : meta.supportedAspectRatios[0];
 
-    // Đảm bảo thời lượng nằm trong danh sách hỗ trợ của model (vd: Hailuo 3 Max tối thiểu 5s)
+    // Đảm bảo thời lượng nằm trong danh sách hỗ trợ của model
     const validDuration = meta.supportedDurations.includes(duration)
         ? duration
         : meta.supportedDurations.reduce((prev, curr) =>
@@ -263,7 +263,7 @@ const executeOpenRouterVideoCall = async (
 };
 
 /**
- * Tạo video chất lượng cao qua OpenRouter với 5 mô hình được tuyển chọn & cơ chế Auto-Failover
+ * Tạo video chất lượng cao qua OpenRouter với 2 mô hình được tuyển chọn & cơ chế Auto-Failover
  */
 export const generateOpenRouterVideo = async (
     options: GenerateOpenRouterVideoOptions

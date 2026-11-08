@@ -3,13 +3,16 @@ import { db } from '../firebaseConfig';
 
 export interface OpenRouterVideoConfig {
     enabled: boolean;
-    openRouterApiKey: string;
-    primaryModel: string;         // 'google/gemini-omni-1.2-flash'
-    fallbackModel: string;        // 'google/gemini-omni-1.1-flash'
-    pricePerVideoVnd: number;     // Giá bán trên ImageTool (+10% lợi nhuận, vd: 700đ)
-    costPerVideoVnd: number;      // Giá gốc OpenRouter (~450đ - 600đ)
+    openRouterEnabled: boolean;   // Bật/tắt cụm model OpenRouter
+    openRouterApiKey: string;     // sk-or-v1-...
+    ideaAiEnabled: boolean;       // Bật/tắt cụm model idea.ai
+    ideaAiApiKey: string;         // cfak_...
+    primaryModel: string;         // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
+    fallbackModel: string;        // 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
+    pricePerVideoVnd: number;     // Giá bán trên ImageTool (+10% lợi nhuận, vd: 2000đ)
+    costPerVideoVnd: number;      // Giá gốc
     profitMarkupPercent: number;  // Tỷ lệ lợi nhuận (+10%)
-    defaultDuration: number;      // 5, 10, hoặc 15s
+    defaultDuration: number;      // 3, 5, 10, hoặc 15s
     defaultAspectRatio: '16:9' | '9:16' | '1:1';
     updatedAt?: number;
     updatedBy?: string;
@@ -17,14 +20,41 @@ export interface OpenRouterVideoConfig {
 
 export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     enabled: true,
+    openRouterEnabled: true,
     openRouterApiKey: '',
-    primaryModel: 'google/gemini-omni-1.2-flash',
-    fallbackModel: 'google/gemini-omni-1.1-flash',
-    pricePerVideoVnd: 700,
-    costPerVideoVnd: 600,
+    ideaAiEnabled: true,
+    ideaAiApiKey: '',
+    primaryModel: 'idea.ai/vivix_w1',
+    fallbackModel: 'x-ai/grok-imagine-video-1.5-lite',
+    pricePerVideoVnd: 2000,
+    costPerVideoVnd: 1785,
     profitMarkupPercent: 10,
     defaultDuration: 5,
     defaultAspectRatio: '16:9'
+};
+
+const VALID_MODEL_IDS = [
+    'idea.ai/vivix_w1',
+    'x-ai/grok-imagine-video-1.5-lite',
+    'alibaba/wan-3.0'
+];
+
+const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVideoConfig => {
+    const merged: OpenRouterVideoConfig = {
+        ...DEFAULT_VIDEO_CONFIG,
+        ...raw,
+        openRouterEnabled: raw.openRouterEnabled !== undefined ? Boolean(raw.openRouterEnabled) : true,
+        ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
+        openRouterApiKey: raw.openRouterApiKey || '',
+        ideaAiApiKey: raw.ideaAiApiKey || ''
+    };
+    if (!merged.primaryModel || !VALID_MODEL_IDS.includes(merged.primaryModel)) {
+        merged.primaryModel = DEFAULT_VIDEO_CONFIG.primaryModel;
+    }
+    if (!merged.fallbackModel || !VALID_MODEL_IDS.includes(merged.fallbackModel)) {
+        merged.fallbackModel = DEFAULT_VIDEO_CONFIG.fallbackModel;
+    }
+    return merged;
 };
 
 const PRIMARY_COLLECTION = 'appConfig';
@@ -35,17 +65,14 @@ const BACKUP_COLLECTION = 'userAccess';
 const BACKUP_DOC = 'videoConfig';
 
 /**
- * Lấy cấu hình OpenRouter Video hiện tại từ Firestore (đa tầng dự phòng)
+ * Lấy cấu hình Video AI hiện tại từ Firestore (đa tầng dự phòng)
  */
 export const getVideoConfig = async (): Promise<OpenRouterVideoConfig> => {
     // 1. Thử đọc từ appConfig/videoConfig
     try {
         const snap = await getDoc(doc(db, PRIMARY_COLLECTION, PRIMARY_DOC));
         if (snap.exists()) {
-            return {
-                ...DEFAULT_VIDEO_CONFIG,
-                ...(snap.data() as Partial<OpenRouterVideoConfig>)
-            };
+            return sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
         }
     } catch (err) {
         console.warn('[VideoConfig] Không đọc được appConfig/videoConfig, thử fallback:', err);
@@ -55,10 +82,7 @@ export const getVideoConfig = async (): Promise<OpenRouterVideoConfig> => {
     try {
         const snap = await getDoc(doc(db, FALLBACK_COLLECTION, FALLBACK_DOC));
         if (snap.exists()) {
-            return {
-                ...DEFAULT_VIDEO_CONFIG,
-                ...(snap.data() as Partial<OpenRouterVideoConfig>)
-            };
+            return sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
         }
     } catch (err) {
         console.warn('[VideoConfig] Không đọc được systemSettings/videoAiConfig:', err);
@@ -68,10 +92,7 @@ export const getVideoConfig = async (): Promise<OpenRouterVideoConfig> => {
     try {
         const snap = await getDoc(doc(db, BACKUP_COLLECTION, BACKUP_DOC));
         if (snap.exists()) {
-            return {
-                ...DEFAULT_VIDEO_CONFIG,
-                ...(snap.data() as Partial<OpenRouterVideoConfig>)
-            };
+            return sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
         }
     } catch (err) {
         console.warn('[VideoConfig] Không đọc được userAccess/videoConfig:', err);
@@ -81,7 +102,7 @@ export const getVideoConfig = async (): Promise<OpenRouterVideoConfig> => {
 };
 
 /**
- * Lưu cấu hình OpenRouter Video vào Firestore (đồng bộ tức thì sang toàn bộ client)
+ * Lưu cấu hình Video AI vào Firestore (đồng bộ tức thì sang toàn bộ client)
  */
 export const saveVideoConfig = async (
     config: Partial<OpenRouterVideoConfig>,
@@ -135,10 +156,7 @@ export const subscribeToVideoConfig = (
             doc(db, PRIMARY_COLLECTION, PRIMARY_DOC),
             (snap) => {
                 if (snap.exists()) {
-                    callback({
-                        ...DEFAULT_VIDEO_CONFIG,
-                        ...(snap.data() as Partial<OpenRouterVideoConfig>)
-                    });
+                    callback(sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>));
                 } else {
                     callback(DEFAULT_VIDEO_CONFIG);
                 }
@@ -149,10 +167,7 @@ export const subscribeToVideoConfig = (
                 try {
                     const fallbackUnsub = onSnapshot(doc(db, BACKUP_COLLECTION, BACKUP_DOC), (fSnap) => {
                         if (fSnap.exists()) {
-                            callback({
-                                ...DEFAULT_VIDEO_CONFIG,
-                                ...(fSnap.data() as Partial<OpenRouterVideoConfig>)
-                            });
+                            callback(sanitizeVideoConfig(fSnap.data() as Partial<OpenRouterVideoConfig>));
                         }
                     });
                     return fallbackUnsub;
@@ -228,5 +243,63 @@ export const testOpenRouterApiKey = async (
             return { valid: false, error: 'Hết thời gian chờ kết nối (Timeout 12s)' };
         }
         return { valid: false, error: err.message || 'Lỗi mạng khi kiểm tra API Key' };
+    }
+};
+
+/**
+ * Kiểm tra kết nối và tính hợp lệ của idea.ai API Key (cfak_...) hoàn toàn miễn phí (không tốn Coin)
+ */
+export const testIdeaAiApiKey = async (
+    apiKey: string
+): Promise<{
+    valid: boolean;
+    label?: string;
+    error?: string;
+}> => {
+    const key = apiKey.trim();
+    if (!key) {
+        return { valid: false, error: 'Chưa nhập API Key idea.ai (cfak_...)' };
+    }
+
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+
+        const resp = await fetch(
+            'https://studio-media-matrix.creativefabrica.com/creativefabrica.studiomediamatrix.v1.StudioMediaMatrixService/ListSessions',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    serviceType: 'SERVICE_TYPE_VIDEO_GENERATOR',
+                    pagination: { take: 1 }
+                }),
+                signal: controller.signal
+            }
+        );
+        clearTimeout(timeout);
+
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+            return {
+                valid: false,
+                error: data?.message || data?.error?.message || `Khóa idea.ai không hợp lệ (HTTP ${resp.status})`
+            };
+        }
+
+        return {
+            valid: true,
+            label: 'Khóa idea.ai (Vivix W1) hợp lệ và sẵn sàng tạo video!'
+        };
+    } catch (err: any) {
+        if (err.name === 'AbortError') {
+            return { valid: false, error: 'Hết thời gian chờ kết nối idea.ai (Timeout 12s)' };
+        }
+        return { valid: false, error: err.message || 'Lỗi mạng khi kiểm tra API Key idea.ai' };
     }
 };

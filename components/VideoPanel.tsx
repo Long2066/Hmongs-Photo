@@ -176,7 +176,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     return (
         <div className="flex flex-col gap-4 select-none animate-fade-in">
-            {/* 1. MODEL SELECTION (5 Models) */}
+            {/* 1. MODEL SELECTION (2 Models) */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 transition-all">
                 <div className="flex items-center justify-between">
                     <button
@@ -186,7 +186,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     >
                         <span className="text-indigo-600"><LayersIcon /></span>
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider group-hover:text-indigo-600 transition-colors">
-                            Chọn Mô Hình Video AI (5 Model)
+                            Chọn Mô Hình Video AI (2 Model)
                         </span>
                         <svg
                             className={`w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200 ${
@@ -214,7 +214,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     <div
                         onClick={() => setIsModelCollapsed(false)}
                         className="mt-3 p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-200 flex items-center justify-between cursor-pointer transition-all group"
-                        title="Nhấp để mở rộng danh sách 5 mô hình"
+                        title="Nhấp để mở rộng danh sách mô hình"
                     >
                         <div className="flex items-center gap-2 min-w-0">
                             <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
@@ -230,7 +230,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         </span>
                     </div>
                 ) : (
-                    /* Expanded 5 Models */
+                    /* Expanded 2 Models */
                     <div className="space-y-2 mt-3 animate-fade-in">
                         {OPENROUTER_VIDEO_MODELS.map((model) => {
                             const isSelected = selectedModel === model.id;
