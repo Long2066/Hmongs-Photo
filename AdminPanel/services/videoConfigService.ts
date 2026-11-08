@@ -248,6 +248,7 @@ export const testOpenRouterApiKey = async (
 
 /**
  * Kiểm tra kết nối và tính hợp lệ của idea.ai API Key (cfak_...) hoàn toàn miễn phí (không tốn Coin)
+ * Tự động qua proxy để tránh chặn CORS trên trình duyệt
  */
 export const testIdeaAiApiKey = async (
     apiKey: string
@@ -261,13 +262,16 @@ export const testIdeaAiApiKey = async (
         return { valid: false, error: 'Chưa nhập API Key idea.ai (cfak_...)' };
     }
 
+    const targetUrl = 'https://studio-media-matrix.creativefabrica.com/creativefabrica.studiomediamatrix.v1.StudioMediaMatrixService/ListSessions';
+    const proxyUrl = 'https://vip-imagetools.vercel.app/api/cors-proxy?url=' + encodeURIComponent(targetUrl);
+
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 12000);
 
-        const resp = await fetch(
-            'https://studio-media-matrix.creativefabrica.com/creativefabrica.studiomediamatrix.v1.StudioMediaMatrixService/ListSessions',
-            {
+        let resp: Response;
+        try {
+            resp = await fetch(proxyUrl, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${key}`,
@@ -279,8 +283,22 @@ export const testIdeaAiApiKey = async (
                     pagination: { take: 1 }
                 }),
                 signal: controller.signal
-            }
-        );
+            });
+        } catch (proxyErr) {
+            resp = await fetch(targetUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    serviceType: 'SERVICE_TYPE_VIDEO_GENERATOR',
+                    pagination: { take: 1 }
+                }),
+                signal: controller.signal
+            });
+        }
         clearTimeout(timeout);
 
         const data = await resp.json().catch(() => ({}));
