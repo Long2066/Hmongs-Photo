@@ -34,3 +34,6 @@ flow-py-main/**/__pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+browser-main/
+giao dien dang nhap/

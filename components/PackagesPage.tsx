@@ -219,7 +219,7 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Mở khóa 4 model: GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2 (cùng các model miễn phí)</span>
+                                    <span>Mở khóa các Model AI: <strong className="text-slate-900 font-semibold">GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2</strong> (cùng các model miễn phí)</span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -310,7 +310,7 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Mở khóa toàn bộ model AI, bao gồm tất cả model của Plus và mọi model khác</span>
+                                    <span>Mở khóa <strong className="text-indigo-700 font-semibold">Full toàn bộ Model AI</strong> (không giới hạn bất kỳ model nào)</span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

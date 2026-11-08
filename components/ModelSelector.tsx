@@ -280,13 +280,19 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                                     {model.name}
                                                 </span>
                                                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 uppercase tracking-wider ${
-                                                    !isPaid
-                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                        : isLocked
-                                                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                                    isLocked
+                                                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                                        : !isPaid
+                                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                                             : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                                                 }`}>
-                                                    {effectivePlan !== 'free' ? 'Trong gói' : !isPaid ? 'Miễn phí' : 'Cần gói'}
+                                                    {isLocked
+                                                        ? (effectivePlan === 'plus' ? 'Cần Gói Pro' : 'Cần gói')
+                                                        : effectivePlan !== 'free'
+                                                            ? 'Trong gói'
+                                                            : !isPaid
+                                                                ? 'Miễn phí'
+                                                                : 'Cần gói'}
                                                 </span>
                                             </div>
 

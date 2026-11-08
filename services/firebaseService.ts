@@ -840,7 +840,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         features: [
             'Nhận 100 ảnh trong 30 ngày từ lúc kích hoạt',
             'Sử dụng full tất cả các tính năng trên công cụ',
-            'Mở khóa GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2 và model miễn phí',
+            'Mở khóa các Model AI: GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2 (cùng các model miễn phí)',
             'Tạo ảnh độ phân giải tối đa mức FHD (Full HD)',
             'Hết lượt hoặc hết hạn sau 30 ngày sẽ quay về Free'
         ]
@@ -857,7 +857,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         features: [
             'Nhận 200 ảnh trong 30 ngày từ lúc kích hoạt',
             'Sử dụng full toàn bộ tính năng có trên Tool',
-            'Mở khóa toàn bộ model AI, bao gồm tất cả model của Plus',
+            'Mở khóa Full toàn bộ Model AI (không giới hạn model)',
             'Mở khóa mọi mức độ phân giải: HD, FHD, 2K, 4K Ultra',
             'Hết lượt hoặc hết hạn sau 30 ngày sẽ quay về Free'
         ]
