@@ -22,34 +22,17 @@ export interface VideoModelMetadata {
 }
 
 /**
- * Danh sách các Mô hình Video AI trên Idea.ai & OpenRouter
+ * Danh sách 2 Mô hình Video AI tốt nhất trên OpenRouter
  * Hỗ trợ đầy đủ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật (first_frame)
  */
 export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
-    {
-        id: 'idea.ai/vivix_w1',
-        provider: 'idea_ai',
-        providerLabel: 'idea.ai',
-        name: 'idea.ai: Vivix W1 (720p HD)',
-        shortName: 'Vivix W1 (idea.ai)',
-        badge: 'idea.ai • 260 Coins',
-        badgeColor: 'violet',
-        description: 'Mô hình tạo video chuẩn 720p HD từ idea.ai: hỗ trợ cả Ảnh sang Video (I2V) & Văn bản (T2V), đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [5, 10, 15],
-        defaultResolution: '720p',
-        supportsAudio: false,
-        costPerSecondVnd: 400,
-        baseInputFeeVnd: 0,
-        priceLabel: '~2.000đ (5s) • ~4.000đ (10s)'
-    },
     {
         id: 'x-ai/grok-imagine-video-1.5-lite',
         provider: 'openrouter',
         providerLabel: 'OpenRouter',
         name: 'xAI: Grok Video 1.5 Lite',
         shortName: 'Grok 1.5 Lite',
-        badge: 'OpenRouter • ~510đ/s',
+        badge: 'Rẻ số 1 • ~510đ/s',
         badgeColor: 'emerald',
         description: 'Tốc độ nhanh qua OpenRouter, hỗ trợ đủ 9:16 / 16:9 / 1:1 và thời lượng 3s–15s, không chặn mặt người.',
         supportedAspectRatios: ['16:9', '9:16', '1:1'],
@@ -66,7 +49,7 @@ export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
         providerLabel: 'OpenRouter',
         name: 'Alibaba: Wan 3.0 (Có Âm Thanh)',
         shortName: 'Alibaba Wan 3.0',
-        badge: 'OpenRouter • Có Audio',
+        badge: 'Có Audio • ~1.275đ/s',
         badgeColor: 'amber',
         description: 'Tối ưu khuôn mặt và trang phục Á Đông qua OpenRouter, tích hợp âm thanh gốc sống động, hỗ trợ 3s–15s.',
         supportedAspectRatios: ['16:9', '9:16', '1:1'],
@@ -134,10 +117,10 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     enabled: true,
     openRouterEnabled: true,
     openRouterApiKey: '',
-    ideaAiEnabled: true,
+    ideaAiEnabled: false,
     ideaAiApiKey: '',
-    primaryModel: 'idea.ai/vivix_w1',
-    fallbackModel: 'x-ai/grok-imagine-video-1.5-lite',
+    primaryModel: 'x-ai/grok-imagine-video-1.5-lite',
+    fallbackModel: 'alibaba/wan-3.0',
     pricePerVideoVnd: 2000,
     costPerVideoVnd: 1785,
     profitMarkupPercent: 10,
