@@ -15,7 +15,7 @@ import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
 import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
 import { generateOpenRouterVideo } from './services/openRouterVideoService';
-import { getVideoConfig } from './services/videoConfigService';
+import { getVideoConfig, calculateVideoPriceVnd, getVideoModelMeta } from './services/videoConfigService';
 import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
 import { ProfilePage } from './components/ProfilePage';
@@ -899,12 +899,12 @@ const App: React.FC = () => {
         }
 
         const count = Math.max(1, Math.min(3, outputCount || 1));
-        const vConfig = await getVideoConfig();
-        const pricePerVideo = vConfig.pricePerVideoVnd || 700;
+        const modelMeta = getVideoModelMeta(model);
+        const pricePerVideo = calculateVideoPriceVnd(model, duration);
         const totalCostVnd = pricePerVideo * count;
 
         if (!storage.isAdmin() && userBalance < totalCostVnd) {
-            setError(`Số dư không đủ (${userBalance.toLocaleString('vi-VN')}đ). Cần ${totalCostVnd.toLocaleString('vi-VN')}đ để tạo ${count} video. Vui lòng nạp tiền vào tài khoản.`);
+            setError(`Số dư không đủ (${userBalance.toLocaleString('vi-VN')}đ). Cần ${totalCostVnd.toLocaleString('vi-VN')}đ để tạo ${count} video (${modelMeta.shortName} • ${duration}s). Vui lòng nạp tiền vào tài khoản.`);
             setPackagesVisible(true);
             return;
         }
@@ -912,7 +912,7 @@ const App: React.FC = () => {
         setIsLoading(true);
         setError(null);
         setIsMenuOpen(false);
-        setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới OpenRouter Gemini Omni Engine...`);
+        setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới ${modelMeta.shortName} (${duration}s • ${aspectRatio})...`);
         setVideoEntries([]);
         updateModeState(() => ({
             outputs: Array(count).fill(null),

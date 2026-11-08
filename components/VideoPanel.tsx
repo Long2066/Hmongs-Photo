@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { subscribeToVideoConfig, getVideoConfig, OpenRouterVideoConfig, DEFAULT_VIDEO_CONFIG } from '../services/videoConfigService';
+import {
+    subscribeToVideoConfig,
+    getVideoConfig,
+    OpenRouterVideoConfig,
+    DEFAULT_VIDEO_CONFIG,
+    OPENROUTER_VIDEO_MODELS,
+    getVideoModelMeta,
+    calculateVideoPriceVnd
+} from '../services/videoConfigService';
 
 // Vector SVG Icons
 const SparklesIcon = () => (
@@ -22,9 +30,9 @@ const PlayIcon = () => (
     </svg>
 );
 
-const ShieldCheckIcon = () => (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+const LockClosedIcon = () => (
+    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
     </svg>
 );
 
@@ -61,6 +69,14 @@ export interface VideoPanelProps {
     onRequestTopUp?: () => void;
 }
 
+const BADGE_STYLE_MAP: Record<string, string> = {
+    emerald: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    amber: 'bg-amber-100 text-amber-800 border-amber-200',
+    indigo: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    violet: 'bg-violet-100 text-violet-800 border-violet-200',
+    rose: 'bg-rose-100 text-rose-800 border-rose-200'
+};
+
 export const VideoPanel: React.FC<VideoPanelProps> = ({
     subMode,
     onSubModeChange: _onSubModeChange,
@@ -73,20 +89,21 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     userBalance = 0,
     onRequestTopUp
 }) => {
-    const [videoConfig, setVideoConfig] = useState<OpenRouterVideoConfig>(DEFAULT_VIDEO_CONFIG);
+    const [_videoConfig, setVideoConfig] = useState<OpenRouterVideoConfig>(DEFAULT_VIDEO_CONFIG);
 
-    const [selectedModel, setSelectedModel] = useState<string>('auto');
+    const [selectedModel, setSelectedModel] = useState<string>(OPENROUTER_VIDEO_MODELS[0].id);
     const [isModelCollapsed, setIsModelCollapsed] = useState<boolean>(false);
     const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
     const [duration, setDuration] = useState<number>(5);
     const [outputCount, setOutputCount] = useState<number>(1);
     const [prompt, setPrompt] = useState<string>('');
 
+    const activeModelMeta = getVideoModelMeta(selectedModel);
+
     // Subscribe to video configuration changes
     useEffect(() => {
         getVideoConfig().then(cfg => {
             setVideoConfig(cfg);
-            if (cfg.defaultDuration) setDuration(cfg.defaultDuration);
             if (cfg.defaultAspectRatio) setAspectRatio(cfg.defaultAspectRatio);
         });
 
@@ -97,7 +114,17 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         return () => unsub();
     }, []);
 
-    // Auto-detect aspect ratio from uploaded preview image
+    // Khi người dùng đổi Model: tự động kiểm tra và khóa/chuyển về Tỷ lệ & Thời lượng được hỗ trợ
+    useEffect(() => {
+        if (!activeModelMeta.supportedAspectRatios.includes(aspectRatio)) {
+            setAspectRatio(activeModelMeta.supportedAspectRatios[0]);
+        }
+        if (!activeModelMeta.supportedDurations.includes(duration)) {
+            setDuration(activeModelMeta.supportedDurations[0]);
+        }
+    }, [selectedModel, activeModelMeta, aspectRatio, duration]);
+
+    // Auto-detect aspect ratio from uploaded preview image (chỉ chọn tỷ lệ nếu model hiện tại hỗ trợ)
     useEffect(() => {
         if (!inputImagePreview) return;
         const src = inputImagePreview.startsWith('data:')
@@ -106,19 +133,23 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         const img = new Image();
         img.onload = () => {
             const ratio = img.naturalWidth / img.naturalHeight;
+            let detected: '16:9' | '9:16' | '1:1' = '16:9';
             if (ratio > 1.25) {
-                setAspectRatio('16:9');
+                detected = '16:9';
             } else if (ratio < 0.8) {
-                setAspectRatio('9:16');
+                detected = '9:16';
             } else {
-                setAspectRatio('1:1');
+                detected = '1:1';
+            }
+            if (activeModelMeta.supportedAspectRatios.includes(detected)) {
+                setAspectRatio(detected);
             }
         };
         img.src = src;
-    }, [inputImagePreview]);
+    }, [inputImagePreview, activeModelMeta]);
 
-    // Calculate total cost
-    const pricePerVideo = videoConfig.pricePerVideoVnd || 700;
+    // Calculate dynamic cost based on selected model & duration
+    const pricePerVideo = calculateVideoPriceVnd(selectedModel, duration);
     const totalCost = pricePerVideo * outputCount;
     const hasEnoughBalance = userBalance >= totalCost;
 
@@ -139,15 +170,13 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             return;
         }
 
-        const finalPrompt = prompt.trim() || 'Chuyển động tự nhiên mượt mà điện ảnh 4K';
-        const modelToUse = selectedModel === 'auto' ? videoConfig.primaryModel : selectedModel;
-
-        onGenerate(finalPrompt, aspectRatio, subMode, modelToUse, outputCount, duration);
+        const finalPrompt = prompt.trim() || 'Chuyển động tự nhiên mượt mà điện ảnh, giữ nét khuôn mặt chân thực';
+        onGenerate(finalPrompt, aspectRatio, subMode, activeModelMeta.id, outputCount, duration);
     };
 
     return (
         <div className="flex flex-col gap-4 select-none animate-fade-in">
-            {/* 1. MODEL SELECTION (Collapsible / Thu gọn được) */}
+            {/* 1. MODEL SELECTION (5 Models) */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 transition-all">
                 <div className="flex items-center justify-between">
                     <button
@@ -157,7 +186,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     >
                         <span className="text-indigo-600"><LayersIcon /></span>
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider group-hover:text-indigo-600 transition-colors">
-                            Mô hình Video AI
+                            Chọn Mô Hình Video AI (5 Model)
                         </span>
                         <svg
                             className={`w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200 ${
@@ -171,19 +200,13 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         </svg>
                     </button>
 
-                    <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 flex items-center gap-1">
-                            <ShieldCheckIcon />
-                            Auto-Failover
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => setIsModelCollapsed(!isModelCollapsed)}
-                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
-                        >
-                            {isModelCollapsed ? 'Mở rộng ▾' : 'Thu gọn ▴'}
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIsModelCollapsed(!isModelCollapsed)}
+                        className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                    >
+                        {isModelCollapsed ? 'Đổi model ▾' : 'Thu gọn ▴'}
+                    </button>
                 </div>
 
                 {/* Collapsed Compact State */}
@@ -191,84 +214,69 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     <div
                         onClick={() => setIsModelCollapsed(false)}
                         className="mt-3 p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-200 flex items-center justify-between cursor-pointer transition-all group"
-                        title="Nhấp để mở rộng và đổi mô hình"
+                        title="Nhấp để mở rộng danh sách 5 mô hình"
                     >
-                        <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-indigo-600" />
-                            <span className="text-xs font-bold text-slate-800">
-                                {selectedModel === 'auto'
-                                    ? 'Tự động tối ưu (Omni 1.2 → 1.1)'
-                                    : 'Gemini Omni 1.2 Flash (Chính)'}
+                        <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
+                            <span className="text-xs font-bold text-slate-800 truncate">
+                                {activeModelMeta.name}
                             </span>
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
-                                selectedModel === 'auto' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
-                            }`}>
-                                {selectedModel === 'auto' ? 'Khuyên dùng' : '15s + Audio'}
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border shrink-0 ${BADGE_STYLE_MAP[activeModelMeta.badgeColor]}`}>
+                                {activeModelMeta.badge}
                             </span>
                         </div>
-                        <span className="text-[11px] font-medium text-slate-500 group-hover:text-indigo-600 flex items-center gap-0.5">
-                            Đổi mô hình ▾
+                        <span className="text-[11px] font-medium text-indigo-600 shrink-0 ml-2">
+                            Đổi ▾
                         </span>
                     </div>
                 ) : (
-                    /* Expanded 2 Models */
+                    /* Expanded 5 Models */
                     <div className="space-y-2 mt-3 animate-fade-in">
-                        {/* Auto Mode */}
-                        <button
-                            type="button"
-                            onClick={() => setSelectedModel('auto')}
-                            className={`w-full min-h-[44px] p-3 rounded-xl text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                                selectedModel === 'auto'
-                                    ? 'bg-indigo-50/80 border-2 border-indigo-600 text-indigo-950 shadow-xs'
-                                    : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
-                            }`}
-                        >
-                            <div className="flex flex-col min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold">Tự động tối ưu (Khuyến dùng)</span>
-                                    <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-700">
-                                        Omni 1.2 &rarr; 1.1
+                        {OPENROUTER_VIDEO_MODELS.map((model) => {
+                            const isSelected = selectedModel === model.id;
+                            return (
+                                <button
+                                    key={model.id}
+                                    type="button"
+                                    onClick={() => setSelectedModel(model.id)}
+                                    className={`w-full min-h-[44px] p-3 rounded-xl text-left transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                                        isSelected
+                                            ? 'bg-indigo-50/85 border-2 border-indigo-600 text-indigo-950 shadow-xs'
+                                            : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <div className="flex flex-col min-w-0 flex-1">
+                                        <div className="flex items-center flex-wrap gap-1.5">
+                                            <span className="text-xs font-bold text-slate-900">
+                                                {model.name}
+                                            </span>
+                                            <span className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold border ${BADGE_STYLE_MAP[model.badgeColor]}`}>
+                                                {model.badge}
+                                            </span>
+                                        </div>
+                                        <span className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                                            {model.description}
+                                        </span>
+                                        <div className="mt-1.5 flex items-center flex-wrap gap-1.5 text-[10px] font-mono">
+                                            <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-700 font-semibold">
+                                                Tỷ lệ: {model.supportedAspectRatios.join(' / ')}
+                                            </span>
+                                            <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-700 font-semibold">
+                                                Thời lượng: {model.supportedDurations.map(d => `${d}s`).join(', ')}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span className="text-indigo-600 font-bold text-sm shrink-0">
+                                        {isSelected ? '✓' : ''}
                                     </span>
-                                </div>
-                                <span className="text-[11px] text-slate-500 mt-0.5">
-                                    Ưu tiên Gemini Omni 1.2 Flash, tự động đổi sang 1.1 Flash nếu bận
-                                </span>
-                            </div>
-                            <span className="text-indigo-600 font-bold text-sm shrink-0">
-                                {selectedModel === 'auto' ? '✓' : ''}
-                            </span>
-                        </button>
-
-                        {/* Direct Omni 1.2 Flash */}
-                        <button
-                            type="button"
-                            onClick={() => setSelectedModel('google/gemini-omni-1.2-flash')}
-                            className={`w-full min-h-[44px] p-3 rounded-xl text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                                selectedModel === 'google/gemini-omni-1.2-flash'
-                                    ? 'bg-amber-50/80 border-2 border-amber-600 text-amber-950 shadow-xs'
-                                    : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
-                            }`}
-                        >
-                            <div className="flex flex-col min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold">Gemini Omni 1.2 Flash (Chính)</span>
-                                    <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-800">
-                                        Max 15s + Audio
-                                    </span>
-                                </div>
-                                <span className="text-[11px] text-slate-500 mt-0.5">
-                                    Bản nâng cấp mới nhất, render video sắc nét kèm âm thanh sống động
-                                </span>
-                            </div>
-                            <span className="text-amber-600 font-bold text-sm shrink-0">
-                                {selectedModel === 'google/gemini-omni-1.2-flash' ? '✓' : ''}
-                            </span>
-                        </button>
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
             </div>
 
-            {/* 2. MOTION PROMPT (No presets as requested) */}
+            {/* 2. MOTION PROMPT */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -293,84 +301,110 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Nhập mô tả hành động, góc lia máy hoặc chuyển động (ví dụ: Làn tóc khẽ bay trong gió, mỉm cười nhìn ống kính, camera lia chậm tạo chiều sâu cinematic...)"
-                    rows={4}
+                    rows={3}
                     className="w-full p-3 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none bg-slate-50/50 leading-relaxed"
                 />
             </div>
 
-            {/* 3. ASPECT RATIO & DURATION */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
-                <div className="grid grid-cols-2 gap-3">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+            {/* 3. ASPECT RATIO & DURATION (Khóa tự động các mục model không hỗ trợ) */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3.5">
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                             Tỷ lệ khung hình
                         </label>
-                        <div className="grid grid-cols-3 gap-1.5">
-                            {[
-                                { id: '16:9', label: '16:9', sub: 'Ngang' },
-                                { id: '9:16', label: '9:16', sub: 'TikTok' },
-                                { id: '1:1', label: '1:1', sub: 'Vuông' }
-                            ].map((ratio) => (
+                        <span className="text-[11px] font-mono font-bold text-indigo-600">
+                            {aspectRatio}
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        {[
+                            { id: '16:9' as const, label: '16:9', sub: 'Ngang' },
+                            { id: '9:16' as const, label: '9:16', sub: 'TikTok' },
+                            { id: '1:1' as const, label: '1:1', sub: 'Vuông' }
+                        ].map((ratio) => {
+                            const isSupported = activeModelMeta.supportedAspectRatios.includes(ratio.id);
+                            const isSelected = aspectRatio === ratio.id;
+                            return (
                                 <button
                                     key={ratio.id}
                                     type="button"
-                                    onClick={() => setAspectRatio(ratio.id as any)}
-                                    className={`min-h-[44px] py-1.5 px-2 rounded-xl text-center transition-all cursor-pointer flex flex-col items-center justify-center border ${
-                                        aspectRatio === ratio.id
-                                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
-                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                    disabled={!isSupported}
+                                    onClick={() => isSupported && setAspectRatio(ratio.id)}
+                                    title={isSupported ? `Tỷ lệ ${ratio.label} (${ratio.sub})` : `Mô hình ${activeModelMeta.shortName} không hỗ trợ tỷ lệ ${ratio.label}`}
+                                    className={`min-h-[44px] py-1.5 px-2 rounded-xl text-center transition-all flex flex-col items-center justify-center border ${
+                                        !isSupported
+                                            ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-50 cursor-not-allowed'
+                                            : isSelected
+                                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs cursor-pointer'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer'
                                     }`}
                                 >
-                                    <span className="text-xs font-mono font-bold">{ratio.label}</span>
-                                    <span className={`text-[9.5px] ${aspectRatio === ratio.id ? 'text-indigo-100' : 'text-slate-500'}`}>
-                                        {ratio.sub}
+                                    <span className="text-xs font-mono font-bold flex items-center gap-1">
+                                        {!isSupported && <LockClosedIcon />}
+                                        {ratio.label}
+                                    </span>
+                                    <span className={`text-[9.5px] ${isSelected && isSupported ? 'text-indigo-100' : 'text-slate-500'}`}>
+                                        {isSupported ? ratio.sub : 'Đã khóa'}
                                     </span>
                                 </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                                Thời lượng
-                            </label>
-                            <span className="text-xs font-bold text-amber-600 font-mono">
-                                {duration}s
-                            </span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-1.5">
-                            {[
-                                { sec: 5, label: '5 Giây' },
-                                { sec: 10, label: '10 Giây' },
-                                { sec: 15, label: '15 Giây' }
-                            ].map((dur) => (
-                                <button
-                                    key={dur.sec}
-                                    type="button"
-                                    onClick={() => setDuration(dur.sec)}
-                                    className={`min-h-[44px] py-1.5 px-2 rounded-xl text-center transition-all cursor-pointer flex flex-col items-center justify-center border ${
-                                        duration === dur.sec
-                                            ? 'bg-amber-500 text-white border-amber-500 font-bold shadow-xs'
-                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                                    }`}
-                                >
-                                    <span className="text-xs font-mono font-bold">{dur.sec}s</span>
-                                    <span className={`text-[9.5px] ${duration === dur.sec ? 'text-amber-100' : 'text-slate-500'}`}>
-                                        {dur.sec === 15 ? 'Max' : dur.sec === 5 ? 'Nhanh' : 'Chuẩn'}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
+                            );
+                        })}
                     </div>
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                            Thời lượng video
+                        </label>
+                        <span className="text-xs font-bold text-amber-600 font-mono tabular-nums">
+                            {duration} giây ({calculateVideoPriceVnd(selectedModel, duration).toLocaleString('vi-VN')}đ)
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                        {[
+                            { sec: 3, sub: 'Siêu rẻ' },
+                            { sec: 5, sub: 'Nhanh' },
+                            { sec: 10, sub: 'Chuẩn' },
+                            { sec: 15, sub: 'Dài' }
+                        ].map((dur) => {
+                            const isSupported = activeModelMeta.supportedDurations.includes(dur.sec);
+                            const isSelected = duration === dur.sec;
+                            return (
+                                <button
+                                    key={dur.sec}
+                                    type="button"
+                                    disabled={!isSupported}
+                                    onClick={() => isSupported && setDuration(dur.sec)}
+                                    title={isSupported ? `Thời lượng ${dur.sec} giây` : `Mô hình ${activeModelMeta.shortName} không hỗ trợ mức ${dur.sec} giây`}
+                                    className={`min-h-[44px] py-1.5 px-1.5 rounded-xl text-center transition-all flex flex-col items-center justify-center border ${
+                                        !isSupported
+                                            ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-50 cursor-not-allowed'
+                                            : isSelected
+                                            ? 'bg-amber-500 text-white border-amber-500 font-bold shadow-xs cursor-pointer'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer'
+                                    }`}
+                                >
+                                    <span className="text-xs font-mono font-bold flex items-center gap-0.5 tabular-nums">
+                                        {!isSupported && <LockClosedIcon />}
+                                        {dur.sec}s
+                                    </span>
+                                    <span className={`text-[9.5px] ${isSelected && isSupported ? 'text-amber-100' : 'text-slate-500'}`}>
+                                        {isSupported ? dur.sub : 'Khóa'}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                             Số lượng video render
                         </span>
-                        <span className="text-xs font-bold text-indigo-600 font-mono">
+                        <span className="text-xs font-bold text-indigo-600 font-mono tabular-nums">
                             {outputCount} video
                         </span>
                     </div>
@@ -380,7 +414,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 key={cnt}
                                 type="button"
                                 onClick={() => setOutputCount(cnt)}
-                                className={`min-h-[40px] rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center border ${
+                                className={`min-h-[44px] rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center border ${
                                     outputCount === cnt
                                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                                         : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
@@ -394,13 +428,20 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             </div>
 
             {/* 4. PRICING & BALANCE SUMMARY */}
-            <div className="bg-gradient-to-br from-slate-50 to-indigo-50/40 rounded-2xl p-4 border border-indigo-100 shadow-sm flex flex-col gap-3">
+            <div className="bg-gradient-to-br from-slate-50 to-indigo-50/40 rounded-2xl p-4 border border-indigo-100 shadow-sm flex flex-col gap-2.5">
+                <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600">Mô hình đang chọn:</span>
+                    <span className="font-bold text-slate-900">
+                        {activeModelMeta.shortName} ({duration}s • {aspectRatio})
+                    </span>
+                </div>
+
                 <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5 text-slate-600">
                         <span className="text-amber-500"><CoinsIcon /></span>
-                        <span>Đơn giá niêm yết:</span>
+                        <span>Đơn giá ({duration}s):</span>
                     </div>
-                    <span className="font-mono font-bold text-slate-900">
+                    <span className="font-mono font-bold tabular-nums text-slate-900">
                         {pricePerVideo.toLocaleString('vi-VN')}đ / video
                     </span>
                 </div>
@@ -414,7 +455,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
                 <div className="flex items-center justify-between pt-2 border-t border-indigo-100 text-xs font-bold">
                     <span className="text-slate-900">Tổng thanh toán:</span>
-                    <span className="font-mono text-sm text-indigo-700">
+                    <span className="font-mono text-sm tabular-nums text-indigo-700">
                         {totalCost.toLocaleString('vi-VN')}đ ({outputCount} video)
                     </span>
                 </div>
@@ -453,12 +494,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     {isLoading ? (
                         <>
                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            <span>Đang dựng video qua Omni 1.2...</span>
+                            <span>Đang kết xuất qua {activeModelMeta.shortName}...</span>
                         </>
                     ) : !hasEnoughBalance ? (
                         <>
                             <CoinsIcon />
-                            <span>Nạp thêm { (totalCost - userBalance).toLocaleString('vi-VN') }đ để tạo video</span>
+                            <span>Nạp thêm {(totalCost - userBalance).toLocaleString('vi-VN')}đ để tạo video</span>
                         </>
                     ) : !hasInputImage && subMode === 'image_to_video' ? (
                         <span>Chờ tải ảnh nguồn ở trên...</span>

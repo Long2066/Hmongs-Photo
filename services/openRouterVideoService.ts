@@ -1,9 +1,13 @@
-import { getVideoConfig, OpenRouterVideoConfig } from './videoConfigService';
+import {
+    getVideoConfig,
+    getVideoModelMeta,
+    OPENROUTER_VIDEO_MODELS
+} from './videoConfigService';
 
 export interface GenerateOpenRouterVideoOptions {
     prompt: string;
     aspectRatio?: '16:9' | '9:16' | '1:1';
-    duration?: number; // 5, 10, 15
+    duration?: number; // 3, 5, 10, 15
     modelOverride?: string;
     inputImageBase64?: string;
     outputCount?: number;
@@ -27,12 +31,10 @@ const OPENROUTER_VIDEOS_ENDPOINT = 'https://openrouter.ai/api/v1/videos';
 export const extractVideoFromResponse = (data: any): string | null => {
     if (!data) return null;
 
-    // 1. Chuẩn OpenRouter /api/v1/videos (signed urls ưu tiên số 1 vì phát trực tiếp không cần header)
     if (Array.isArray(data.urls) && data.urls.length > 0 && typeof data.urls[0] === 'string') {
         return data.urls[0];
     }
 
-    // 2. Fallback: cấu trúc data array
     if (Array.isArray(data.data) && data.data.length > 0) {
         const item = data.data[0];
         if (typeof item.url === 'string') return item.url;
@@ -41,7 +43,6 @@ export const extractVideoFromResponse = (data: any): string | null => {
         }
     }
 
-    // 3. Fallback: unsigned_urls
     if (Array.isArray(data.unsigned_urls) && data.unsigned_urls.length > 0 && typeof data.unsigned_urls[0] === 'string') {
         return data.unsigned_urls[0];
     }
@@ -78,36 +79,41 @@ const executeOpenRouterVideoCall = async (
     modelId: string,
     apiKey: string,
     options: GenerateOpenRouterVideoOptions,
-    aspectRatio: string,
+    aspectRatio: '16:9' | '9:16' | '1:1',
     duration: number
 ): Promise<string> => {
-    const cleanPrompt = options.prompt.trim();
+    const meta = getVideoModelMeta(modelId);
+    const cleanPrompt = options.prompt.trim() || 'Smooth cinematic camera motion, natural movement, high quality';
 
-    // Theo OpenAPI spec của OpenRouter (/api/v1/videos/models):
-    // google/gemini-omni-1.2-flash và google/gemini-omni-1.1-flash chỉ nhận aspect_ratio: "16:9" | "9:16"
-    // Nếu người dùng chọn 1:1, truyền 16:9 cho schema và bổ sung chỉ dẫn khung hình vào prompt
-    const supportedAspectRatio: '16:9' | '9:16' = aspectRatio === '9:16' ? '9:16' : '16:9';
-    const finalPrompt = aspectRatio === '1:1'
-        ? `${cleanPrompt}. Centered square composition, smooth cinematic motion, high quality render.`
-        : cleanPrompt;
+    // Đảm bảo tỷ lệ khung hình nằm trong danh sách hỗ trợ của model
+    const validAspectRatio = meta.supportedAspectRatios.includes(aspectRatio)
+        ? aspectRatio
+        : meta.supportedAspectRatios[0];
 
-    // Thời lượng hỗ trợ: Omni 1.2 Flash hỗ trợ 3..15s; Omni 1.1 Flash hỗ trợ 3..10s
-    const maxDurationForModel = modelId.includes('1.1') ? 10 : 15;
-    const clampedDuration = Math.max(3, Math.min(maxDurationForModel, Math.round(duration || 5)));
+    // Đảm bảo thời lượng nằm trong danh sách hỗ trợ của model (vd: Hailuo 3 Max tối thiểu 5s)
+    const validDuration = meta.supportedDurations.includes(duration)
+        ? duration
+        : meta.supportedDurations.reduce((prev, curr) =>
+            Math.abs(curr - duration) < Math.abs(prev - duration) ? curr : prev
+        );
 
     const payload: Record<string, any> = {
-        model: modelId,
-        prompt: finalPrompt,
-        aspect_ratio: supportedAspectRatio,
-        duration: clampedDuration,
-        resolution: '720p',
-        generate_audio: true
+        model: meta.id,
+        prompt: cleanPrompt,
+        aspect_ratio: validAspectRatio,
+        duration: validDuration,
+        resolution: meta.defaultResolution
     };
+
+    if (meta.supportsAudio) {
+        payload.generate_audio = true;
+    }
 
     if (options.inputImageBase64) {
         let imageUrl = options.inputImageBase64.trim();
         if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
-            imageUrl = `data:image/png;base64,${imageUrl}`;
+            const detectedMime = imageUrl.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
+            imageUrl = `data:${detectedMime};base64,${imageUrl}`;
         }
         payload.frame_images = [
             {
@@ -149,27 +155,26 @@ const executeOpenRouterVideoCall = async (
             } catch {
                 // Ignore json parse error
             }
-            throw new Error(`[OpenRouter ${modelId}] ${errorDetail}`);
+            throw new Error(`[${meta.shortName}] ${errorDetail}`);
         }
 
-        submitData = await submitResp.json();
+        const rawText = await submitResp.text();
+        submitData = JSON.parse(rawText.trim());
     } catch (err: any) {
         clearTimeout(submitTimeout);
         if (err.name === 'AbortError') {
-            throw new Error(`Quá thời gian chờ khi gửi yêu cầu tới ${modelId}.`);
+            throw new Error(`Quá thời gian chờ khi gửi yêu cầu tới ${meta.shortName}.`);
         }
         throw err;
     }
 
-    // Nếu trả về kết quả ngay lập tức
-    const immediateUrl = extractVideoFromResponse(submitData);
-    if (submitData?.status === 'completed' && immediateUrl) {
-        return immediateUrl;
+    if (submitData?.status === 'completed' && Array.isArray(submitData.urls) && submitData.urls[0]) {
+        return submitData.urls[0];
     }
 
     const jobId = submitData?.id;
     if (!jobId) {
-        throw new Error(`OpenRouter (${modelId}) không trả về mã tiến trình tạo video (Job ID).`);
+        throw new Error(`OpenRouter (${meta.shortName}) không trả về mã tiến trình tạo video (Job ID).`);
     }
 
     const pollUrl = submitData?.polling_url
@@ -180,12 +185,11 @@ const executeOpenRouterVideoCall = async (
 
     // Bước 2: Poll trạng thái tiến trình (GET /api/v1/videos/{id})
     const maxAttempts = 75; // 75 * 4s = 300s (5 phút tối đa)
-    const modelShortName = modelId.split('/').pop() || modelId;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         await sleep(4000);
         const elapsedSec = attempt * 4;
-        options.onProgress?.(`Đang kết xuất video trên ${modelShortName} (${elapsedSec}s)...`);
+        options.onProgress?.(`Đang kết xuất video trên ${meta.shortName} (${elapsedSec}s)...`);
 
         const pollResp = await fetch(pollUrl, {
             method: 'GET',
@@ -207,19 +211,40 @@ const executeOpenRouterVideoCall = async (
             } catch {
                 // Ignore
             }
-            throw new Error(`[OpenRouter ${modelId}] Lỗi kiểm tra tiến trình: ${pollErrDetail}`);
+            throw new Error(`[${meta.shortName}] Lỗi kiểm tra tiến trình: ${pollErrDetail}`);
         }
 
         const pollData = await pollResp.json();
         const status = pollData?.status;
 
         if (status === 'completed') {
-            // Ưu tiên signed URL trong pollData.urls[0]
             if (Array.isArray(pollData.urls) && pollData.urls.length > 0 && typeof pollData.urls[0] === 'string') {
                 return pollData.urls[0];
             }
 
-            // Nếu chỉ có unsigned_urls hoặc cần tải qua /content
+            // Đợi ngắn 1-2 nhịp để OpenRouter kịp điền signed URL Google Cloud Storage vào urls[0]
+            for (let retrySigned = 0; retrySigned < 3; retrySigned++) {
+                await sleep(2000);
+                try {
+                    const confirmResp = await fetch(pollUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${apiKey.trim()}`,
+                            'HTTP-Referer': 'https://vip-imagetools.vercel.app',
+                            'X-Title': 'ImageTool Video AI Studio'
+                        }
+                    });
+                    if (confirmResp.ok) {
+                        const confirmData = await confirmResp.json();
+                        if (Array.isArray(confirmData?.urls) && typeof confirmData.urls[0] === 'string') {
+                            return confirmData.urls[0];
+                        }
+                    }
+                } catch {
+                    // Ignore and fallback below
+                }
+            }
+
             const contentEndpoint = (Array.isArray(pollData.unsigned_urls) && pollData.unsigned_urls[0])
                 ? pollData.unsigned_urls[0]
                 : `${OPENROUTER_VIDEOS_ENDPOINT}/${encodeURIComponent(jobId)}/content`;
@@ -230,15 +255,15 @@ const executeOpenRouterVideoCall = async (
 
         if (status === 'failed' || status === 'cancelled' || status === 'expired') {
             const failReason = pollData?.error?.message || pollData?.error || `Tiến trình tạo video kết thúc với trạng thái: ${status}`;
-            throw new Error(`[OpenRouter ${modelId}] ${failReason}`);
+            throw new Error(`[${meta.shortName}] ${failReason}`);
         }
     }
 
-    throw new Error(`Quá thời gian chờ kết xuất video (300s) từ ${modelId}.`);
+    throw new Error(`Quá thời gian chờ kết xuất video (300s) từ ${meta.shortName}.`);
 };
 
 /**
- * Tạo video chất lượng cao qua OpenRouter với cơ chế Auto-Failover (Omni 1.2 -> Omni 1.1)
+ * Tạo video chất lượng cao qua OpenRouter với 5 mô hình được tuyển chọn & cơ chế Auto-Failover
  */
 export const generateOpenRouterVideo = async (
     options: GenerateOpenRouterVideoOptions
@@ -250,49 +275,47 @@ export const generateOpenRouterVideo = async (
     }
 
     const apiKey = config.openRouterApiKey.trim();
-    const primaryModel = options.modelOverride || config.primaryModel || 'google/gemini-omni-1.2-flash';
-    const fallbackModel = config.fallbackModel || 'google/gemini-omni-1.1-flash';
-    const aspectRatio = options.aspectRatio || config.defaultAspectRatio || '16:9';
+    const requestedModel = (!options.modelOverride || options.modelOverride === 'auto' || options.modelOverride.includes('gemini-omni'))
+        ? (config.primaryModel || OPENROUTER_VIDEO_MODELS[0].id)
+        : options.modelOverride;
+
+    const primaryMeta = getVideoModelMeta(requestedModel);
+    const aspectRatio: '16:9' | '9:16' | '1:1' = options.aspectRatio || config.defaultAspectRatio || '16:9';
     const duration = options.duration || config.defaultDuration || 5;
+
+    // Chọn mô hình dự phòng tương thích với tỷ lệ và thời lượng người dùng đã chọn
+    const fallbackCandidate = OPENROUTER_VIDEO_MODELS.find(
+        m => m.id !== primaryMeta.id &&
+             m.supportedAspectRatios.includes(aspectRatio) &&
+             m.supportedDurations.includes(duration)
+    ) || OPENROUTER_VIDEO_MODELS.find(m => m.id !== primaryMeta.id);
 
     const count = Math.max(1, Math.min(3, options.outputCount || 1));
     const urls: string[] = [];
+    let finalModelUsed = primaryMeta.id;
 
     for (let i = 0; i < count; i++) {
         if (count > 1) {
-            options.onProgress?.(`Đang tạo video ${i + 1}/${count} qua mô hình ${primaryModel.split('/').pop()}...`);
+            options.onProgress?.(`Đang tạo video ${i + 1}/${count} qua mô hình ${primaryMeta.shortName}...`);
         } else {
-            options.onProgress?.(`Đang kết nối OpenRouter (${primaryModel.split('/').pop()})...`);
+            options.onProgress?.(`Đang kết nối OpenRouter (${primaryMeta.shortName})...`);
         }
 
-        let modelUsed = primaryModel;
         let videoUrl: string | null = null;
 
         try {
-            // 1. Thử gọi mô hình chính (google/gemini-omni-1.2-flash)
-            videoUrl = await executeOpenRouterVideoCall(primaryModel, apiKey, options, aspectRatio, duration);
+            videoUrl = await executeOpenRouterVideoCall(primaryMeta.id, apiKey, options, aspectRatio, duration);
+            finalModelUsed = primaryMeta.id;
         } catch (primaryErr: any) {
-            console.warn(`[OpenRouter] Mô hình chính ${primaryModel} gặp lỗi:`, primaryErr);
+            console.warn(`[OpenRouter] Mô hình chính ${primaryMeta.id} gặp lỗi:`, primaryErr);
 
-            // Kiểm tra xem có nên tự động chuyển sang mô hình dự phòng (Omni 1.1 Flash) không
-            const isRecoverableError =
-                primaryErr.message?.includes('429') ||
-                primaryErr.message?.includes('500') ||
-                primaryErr.message?.includes('502') ||
-                primaryErr.message?.includes('503') ||
-                primaryErr.message?.includes('504') ||
-                primaryErr.message?.includes('rate limit') ||
-                primaryErr.message?.includes('overloaded') ||
-                primaryErr.message?.includes('Timeout') ||
-                primaryErr.message?.includes('capacity');
-
-            if (fallbackModel && fallbackModel !== primaryModel) {
-                options.onProgress?.(`Mô hình chính bận (${primaryErr.message?.slice(0, 50)}...). Đang tự động chuyển sang ${fallbackModel.split('/').pop()}...`);
+            if (fallbackCandidate && (!options.modelOverride || options.modelOverride === 'auto')) {
+                options.onProgress?.(`Mô hình ${primaryMeta.shortName} bận. Đang tự động chuyển sang ${fallbackCandidate.shortName}...`);
                 try {
-                    videoUrl = await executeOpenRouterVideoCall(fallbackModel, apiKey, options, aspectRatio, duration);
-                    modelUsed = fallbackModel;
+                    videoUrl = await executeOpenRouterVideoCall(fallbackCandidate.id, apiKey, options, aspectRatio, duration);
+                    finalModelUsed = fallbackCandidate.id;
                 } catch (fallbackErr: any) {
-                    throw new Error(`Tạo video thất bại cả 2 mô hình:\n- ${primaryModel}: ${primaryErr.message}\n- ${fallbackModel}: ${fallbackErr.message}`);
+                    throw new Error(`Tạo video thất bại:\n- ${primaryMeta.shortName}: ${primaryErr.message}\n- ${fallbackCandidate.shortName}: ${fallbackErr.message}`);
                 }
             } else {
                 throw primaryErr;
@@ -311,7 +334,7 @@ export const generateOpenRouterVideo = async (
     return {
         url: urls[0],
         urls,
-        modelUsed: primaryModel,
+        modelUsed: finalModelUsed,
         duration,
         aspectRatio,
         prompt: options.prompt
