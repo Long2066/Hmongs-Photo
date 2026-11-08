@@ -293,13 +293,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     };
 
     return (
-        <div className="auth-scene fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#342c50] px-3 py-4 safe-area-top safe-area-bottom sm:px-5">
+        <div className="auth-scene fixed inset-0 z-[100] flex items-center justify-center bg-[#342c50] px-3 py-4 safe-area-top safe-area-bottom sm:px-5">
             {/* Decorative photographs frame the form without competing with its content. */}
             <div className="auth-scene-photo auth-scene-photo-left hidden md:block" aria-hidden="true" />
             <div className="auth-scene-photo auth-scene-photo-right hidden md:block" aria-hidden="true" />
             <div className="auth-scene-shade absolute inset-0 pointer-events-none" aria-hidden="true" />
             <div className="auth-ambient auth-ambient-left" aria-hidden="true" />
             <div className="auth-ambient auth-ambient-right" aria-hidden="true" />
+            <div className="auth-sakura-branch" aria-hidden="true" />
+            <div className="auth-bloom-foreground" aria-hidden="true" />
+            <svg className="auth-light-ribbons" viewBox="0 0 1024 490" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                    <linearGradient id="auth-ribbon" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#f0aeff" /><stop offset=".35" stopColor="#b5caff" /><stop offset=".65" stopColor="#eeaaff" /><stop offset="1" stopColor="#aaafff" /></linearGradient>
+                    <filter id="auth-ribbon-glow"><feGaussianBlur stdDeviation="5" /></filter>
+                </defs>
+                <path d="M-40 325 C 150 298, 285 493, 452 411 S 680 383, 752 408 S 890 320, 1064 370" fill="none" stroke="url(#auth-ribbon)" strokeWidth="13" opacity=".85" filter="url(#auth-ribbon-glow)" />
+                <path d="M-40 325 C 150 298, 285 493, 452 411 S 680 383, 752 408 S 890 320, 1064 370" fill="none" stroke="url(#auth-ribbon)" strokeWidth="2" opacity=".96" />
+                <path d="M-30 346 C 155 286, 275 472, 448 423 S 662 397, 745 420 S 885 342, 1060 392" fill="none" stroke="#dcc4ff" strokeWidth="1" opacity=".7" />
+            </svg>
+            <div className="auth-halo-floor" aria-hidden="true" />
+            <div className="auth-feature-list" aria-hidden="true">
+                <div className="auth-feature"><span className="auth-feature-icon">▧</span><span>Tạo ảnh AI<br />chất lượng cao</span></div>
+                <div className="auth-feature"><span className="auth-feature-icon">▷</span><span>Chuyển ảnh<br />sang video</span></div>
+                <div className="auth-feature"><span className="auth-feature-icon">✧</span><span>Chỉnh sửa ảnh<br />thông minh</span></div>
+                <div className="auth-feature"><span className="auth-feature-icon">▦</span><span>Bộ công cụ<br />đa năng</span></div>
+            </div>
+            <svg className="auth-paper-plane" viewBox="0 0 76 74" fill="none" aria-hidden="true"><path d="M7 26 70 4 42 68 33 41 7 26Z M33 41 70 4 M33 41 22 51 23 34" stroke="white" strokeWidth="2.2" strokeLinejoin="round"/><path d="M14 60Q-6 76 4 46" stroke="white" strokeWidth="1.3" strokeDasharray="5 4"/></svg>
             <div className="auth-petals pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
                 {Array.from({ length: 18 }, (_, index) => (
                     <span key={index} className="auth-petal" style={{
@@ -321,7 +340,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                 ))}
             </div>
 
-            <div className="auth-form-card relative z-10 w-full max-w-[390px] overflow-y-auto rounded-2xl bg-white/95 shadow-2xl ring-1 ring-white/60 max-h-[calc(100dvh-32px)]" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <div className="auth-form-card relative overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="auth-title">
                 {/* Close Button Top Right */}
                 {!isBlocking && onClose && (
                     <button
@@ -537,7 +556,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                 {infoMessage && <div role="status" className="text-green-600 text-sm font-medium bg-green-50 p-3 rounded-lg text-center animate-pulse">{infoMessage}</div>}
 
                                 <button type="submit" disabled={isSubmitting || isGoogleLoading} aria-busy={isSubmitting} className="auth-submit mt-1 min-h-[46px] w-full rounded-xl bg-indigo-700 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-indigo-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.98] disabled:cursor-wait disabled:opacity-65">
-                                    {isSubmitting ? <span className="auth-submit-loading"><span className="auth-spinner" aria-hidden="true" />Đang xử lý...</span> : view === 'login' ? 'Truy cập ngay' : view === 'signup' ? 'Tạo tài khoản' : 'Đổi mật khẩu'}
+                                    {isSubmitting ? <span className="auth-submit-loading"><span className="auth-spinner" aria-hidden="true" />Đang xử lý...</span> : view === 'login' ? <><span className="auth-submit-plane" aria-hidden="true">➤</span> Truy cập ngay</> : view === 'signup' ? 'Tạo tài khoản' : 'Đổi mật khẩu'}
                                 </button>
                             </form>
 
