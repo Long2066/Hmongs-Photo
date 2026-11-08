@@ -24,6 +24,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [showTermsModal, setShowTermsModal] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
     const [copiedDomain, setCopiedDomain] = useState(false);
 
@@ -197,6 +199,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
             return;
         }
 
+        setIsSubmitting(true);
         try {
             if (view === 'login') {
                 const fbUser = await firebaseAuth.loginUser(email, password);
@@ -284,6 +287,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                 msg += ` Chi tiết: ${err.message}`;
             }
             setError(msg);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -293,6 +298,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
             <div className="auth-scene-photo auth-scene-photo-left hidden md:block" aria-hidden="true" />
             <div className="auth-scene-photo auth-scene-photo-right hidden md:block" aria-hidden="true" />
             <div className="auth-scene-shade absolute inset-0 pointer-events-none" aria-hidden="true" />
+            <div className="auth-ambient auth-ambient-left" aria-hidden="true" />
+            <div className="auth-ambient auth-ambient-right" aria-hidden="true" />
             <div className="auth-petals pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
                 {Array.from({ length: 18 }, (_, index) => (
                     <span key={index} className="auth-petal" style={{
@@ -314,7 +321,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                 ))}
             </div>
 
-            <div className="auth-form-card relative z-10 w-full max-w-[390px] overflow-y-auto rounded-2xl bg-white/95 shadow-2xl ring-1 ring-white/60 max-h-[calc(100dvh-32px)]">
+            <div className="auth-form-card relative z-10 w-full max-w-[390px] overflow-y-auto rounded-2xl bg-white/95 shadow-2xl ring-1 ring-white/60 max-h-[calc(100dvh-32px)]" role="dialog" aria-modal="true" aria-labelledby="auth-title">
                 {/* Close Button Top Right */}
                 {!isBlocking && onClose && (
                     <button
@@ -333,9 +340,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                     <img 
                         src="/icon.png" 
                         alt="ImageTool Logo" 
-                        className="mx-auto mb-1 h-10 w-10 rounded-xl object-contain shadow-md shadow-indigo-500/20 motion-safe:transition-transform hover:scale-105"
+                        className="mx-auto mb-1 h-10 w-10 rounded-xl object-contain"
                     />
-                    <h2 className="text-2xl font-bold leading-tight tracking-tight text-slate-900">ImageTool</h2>
+                    <h2 id="auth-title" className="text-2xl font-bold leading-tight tracking-tight text-slate-900">ImageTool</h2>
                     <p className="mt-1 text-xs font-medium text-slate-600">Professional AI Studio <span className="mx-1 text-slate-400">·</span> v{appVersion || APP_VERSION}</p>
                 </div>
 
@@ -386,7 +393,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                         <>
                             {/* View Switcher */}
                             {view !== 'forgot' && (
-                                <div className="mb-4 flex rounded-xl bg-slate-100 p-1">
+                                <div className="auth-view-switch mb-4 flex rounded-xl bg-slate-100 p-1">
                                     <button type="button" aria-pressed={view === 'login'} onClick={() => setView('login')} className={`min-h-[44px] flex-1 rounded-lg text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 active:scale-[0.98] ${view === 'login' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>Đăng nhập</button>
                                     <button type="button" aria-pressed={view === 'signup'} onClick={() => setView('signup')} className={`min-h-[44px] flex-1 rounded-lg text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 active:scale-[0.98] ${view === 'signup' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>Đăng ký</button>
                                 </div>
@@ -398,7 +405,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                     <button
                                         type="button"
                                         onClick={handleGoogleSignIn}
-                                        disabled={isGoogleLoading}
+                                        disabled={isGoogleLoading || isSubmitting}
                                         className="flex min-h-[46px] w-full items-center justify-center gap-3 rounded-xl bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-900/10 transition-all hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                                     >
                                         {isGoogleLoading ? (
@@ -455,7 +462,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                         </div>
                                         <div>
                                             <label htmlFor="auth-password" className="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-600">Mật khẩu</label>
-                                            <input id="auth-password" type="password" autoComplete={view === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                            <div className="auth-password-field"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={view === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                                <button type="button" className="auth-password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} aria-pressed={showPassword}>{showPassword ? 'Ẩn' : 'Hiện'}</button></div>
                                         </div>
                                     </>
                                 )}
@@ -492,7 +500,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                     </div>
                                 )}
 
-                                {error && <div className="text-red-600 text-xs sm:text-sm font-medium bg-red-50/90 border border-red-200/80 p-3.5 rounded-xl text-left whitespace-pre-line leading-relaxed shadow-sm animate-fade-in">{error}</div>}
+                                {error && <div role="alert" className="text-red-600 text-xs sm:text-sm font-medium bg-red-50/90 border border-red-200/80 p-3.5 rounded-xl text-left whitespace-pre-line leading-relaxed shadow-sm animate-fade-in">{error}</div>}
 
                                 {unauthorizedDomain && (
                                     <div className="p-3.5 bg-amber-50/95 border border-amber-200/90 rounded-xl text-left text-xs text-amber-900 leading-relaxed shadow-xs animate-fade-in">
@@ -526,10 +534,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                         </div>
                                     </div>
                                 )}
-                                {infoMessage && <div className="text-green-600 text-sm font-medium bg-green-50 p-3 rounded-lg text-center animate-pulse">{infoMessage}</div>}
+                                {infoMessage && <div role="status" className="text-green-600 text-sm font-medium bg-green-50 p-3 rounded-lg text-center animate-pulse">{infoMessage}</div>}
 
-                                <button type="submit" className="mt-1 min-h-[46px] w-full rounded-xl bg-indigo-700 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-indigo-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.98]">
-                                    {view === 'login' ? 'Truy cập ngay' : view === 'signup' ? 'Tạo tài khoản' : 'Đổi mật khẩu'}
+                                <button type="submit" disabled={isSubmitting || isGoogleLoading} aria-busy={isSubmitting} className="auth-submit mt-1 min-h-[46px] w-full rounded-xl bg-indigo-700 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-indigo-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.98] disabled:cursor-wait disabled:opacity-65">
+                                    {isSubmitting ? <span className="auth-submit-loading"><span className="auth-spinner" aria-hidden="true" />Đang xử lý...</span> : view === 'login' ? 'Truy cập ngay' : view === 'signup' ? 'Tạo tài khoản' : 'Đổi mật khẩu'}
                                 </button>
                             </form>
 
