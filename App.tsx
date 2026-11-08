@@ -405,7 +405,7 @@ const App: React.FC = () => {
         if (storage.isAdmin()) return true;
         if (currentSubscriptionPlan !== 'free') {
             let entitlement;
-            try { entitlement = await refreshSubscription(); } catch (error) {
+            try { entitlement = (await refreshSubscription()) ?? { plan: currentSubscriptionPlan, remainingImages: remainingPaidImages, planStartedAt: null, planExpiresAt: subscriptionExpiresAt, planAllowanceImages: firebaseService.SUBSCRIPTION_PLANS[currentSubscriptionPlan].totalImages }; } catch (error) {
                 setError(error instanceof Error ? error.message : 'Không xác minh được lượt ảnh của gói. Vui lòng thử lại.');
                 return false;
             }

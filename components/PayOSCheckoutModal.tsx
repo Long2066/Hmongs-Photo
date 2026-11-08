@@ -19,7 +19,7 @@ type OrderStatus = { status: string; balance?: number; plan?: SubscriptionPlan; 
 const paymentRequest = async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const user = auth.currentUser;
     if (!user) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
-    const configuredOrigin = (import.meta.env.VITE_PAYOS_API_ORIGIN || (!import.meta.env.DEV && window.location.protocol === 'file:' ? 'https://vip-imagetools.vercel.app' : '')).replace(/\/$/, '');
+    const configuredOrigin = (import.meta.env.VITE_PAYOS_API_ORIGIN || (typeof window !== 'undefined' && window.location.hostname === 'vip-imagetools.vercel.app' ? '' : 'https://vip-imagetools.vercel.app')).replace(/\/$/, '');
     if (configuredOrigin && !/^https:\/\/[^/]+$/.test(configuredOrigin)) {
         throw new Error('Cấu hình máy chủ thanh toán HTTPS không hợp lệ.');
     }
@@ -29,7 +29,7 @@ const paymentRequest = async <T,>(url: string, init?: RequestInit): Promise<T> =
         headers: { Authorization: `Bearer ${await user.getIdToken()}`, ...(init?.headers || {}) }
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error(result.error || 'Không kết nối được API thanh toán local. Hãy chạy backend local trước khi thử mua gói.');
+    if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error(result.error || 'Không kết nối được máy chủ thanh toán PayOS. Vui lòng thử lại.');
     return result as T;
 };
 
