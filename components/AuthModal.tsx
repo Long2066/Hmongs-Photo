@@ -26,8 +26,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [showAuthVideo, setShowAuthVideo] = useState(() => typeof window !== 'undefined' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
     const [copiedDomain, setCopiedDomain] = useState(false);
+
+    useEffect(() => {
+        const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+        const updateMotion = () => setShowAuthVideo(!motionPreference.matches);
+        motionPreference.addEventListener('change', updateMotion);
+        return () => motionPreference.removeEventListener('change', updateMotion);
+    }, []);
 
     // Countdown for verification pending view
     useEffect(() => {
@@ -294,51 +302,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
 
     return (
         <div className="auth-scene fixed inset-0 z-[100] flex items-center justify-center bg-[#342c50] px-3 py-4 safe-area-top safe-area-bottom sm:px-5">
-            {/* Decorative photographs frame the form without competing with its content. */}
-            <div className="auth-scene-photo auth-scene-photo-left hidden md:block" aria-hidden="true" />
-            <div className="auth-scene-photo auth-scene-photo-right hidden md:block" aria-hidden="true" />
-            <div className="auth-scene-shade absolute inset-0 pointer-events-none" aria-hidden="true" />
-            <div className="auth-ambient auth-ambient-left" aria-hidden="true" />
-            <div className="auth-ambient auth-ambient-right" aria-hidden="true" />
-            <div className="auth-sakura-branch" aria-hidden="true" />
-            <div className="auth-bloom-foreground" aria-hidden="true" />
-            <svg className="auth-light-ribbons" viewBox="0 0 1024 490" preserveAspectRatio="none" aria-hidden="true">
-                <defs>
-                    <linearGradient id="auth-ribbon" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#f0aeff" /><stop offset=".35" stopColor="#b5caff" /><stop offset=".65" stopColor="#eeaaff" /><stop offset="1" stopColor="#aaafff" /></linearGradient>
-                    <filter id="auth-ribbon-glow"><feGaussianBlur stdDeviation="5" /></filter>
-                </defs>
-                <path d="M-40 325 C 150 298, 285 493, 452 411 S 680 383, 752 408 S 890 320, 1064 370" fill="none" stroke="url(#auth-ribbon)" strokeWidth="13" opacity=".85" filter="url(#auth-ribbon-glow)" />
-                <path d="M-40 325 C 150 298, 285 493, 452 411 S 680 383, 752 408 S 890 320, 1064 370" fill="none" stroke="url(#auth-ribbon)" strokeWidth="2" opacity=".96" />
-                <path d="M-30 346 C 155 286, 275 472, 448 423 S 662 397, 745 420 S 885 342, 1060 392" fill="none" stroke="#dcc4ff" strokeWidth="1" opacity=".7" />
-            </svg>
-            <div className="auth-halo-floor" aria-hidden="true" />
-            <div className="auth-feature-list" aria-hidden="true">
-                <div className="auth-feature"><span className="auth-feature-icon">▧</span><span>Tạo ảnh AI<br />chất lượng cao</span></div>
-                <div className="auth-feature"><span className="auth-feature-icon">▷</span><span>Chuyển ảnh<br />sang video</span></div>
-                <div className="auth-feature"><span className="auth-feature-icon">✧</span><span>Chỉnh sửa ảnh<br />thông minh</span></div>
-                <div className="auth-feature"><span className="auth-feature-icon">▦</span><span>Bộ công cụ<br />đa năng</span></div>
-            </div>
-            <svg className="auth-paper-plane" viewBox="0 0 76 74" fill="none" aria-hidden="true"><path d="M7 26 70 4 42 68 33 41 7 26Z M33 41 70 4 M33 41 22 51 23 34" stroke="white" strokeWidth="2.2" strokeLinejoin="round"/><path d="M14 60Q-6 76 4 46" stroke="white" strokeWidth="1.3" strokeDasharray="5 4"/></svg>
-            <div className="auth-petals pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-                {Array.from({ length: 18 }, (_, index) => (
-                    <span key={index} className="auth-petal" style={{
-                        left: `${index < 9 ? 4 + index * 4.5 : 61 + (index - 9) * 4.5}%`,
-                        animationDelay: `-${index * 1.23}s`,
-                        animationDuration: `${11 + (index % 5) * 1.7}s`
-                    }}>
-                        <svg viewBox="0 0 32 32" width="100%" height="100%" fill="none" aria-hidden="true">
-                            <g fill="#ffc5dc" stroke="#ffe9f1" strokeWidth="0.6">
-                                <ellipse cx="16" cy="8.5" rx="5.4" ry="7" />
-                                <ellipse cx="23.2" cy="13.7" rx="5.4" ry="7" transform="rotate(72 23.2 13.7)" />
-                                <ellipse cx="20.4" cy="22.2" rx="5.4" ry="7" transform="rotate(144 20.4 22.2)" />
-                                <ellipse cx="11.6" cy="22.2" rx="5.4" ry="7" transform="rotate(216 11.6 22.2)" />
-                                <ellipse cx="8.8" cy="13.7" rx="5.4" ry="7" transform="rotate(288 8.8 13.7)" />
-                            </g>
-                            <circle cx="16" cy="16" r="3.1" fill="#e9a558" />
-                        </svg>
-                    </span>
-                ))}
-            </div>
+            {/* The video already contains the portraits, feature cards, petals and light effects. */}
+            <div className="auth-video-poster" aria-hidden="true" />
+            {showAuthVideo && (
+                <video
+                    className="auth-video-background"
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    poster="/auth-login-poster.jpg"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    onError={() => setShowAuthVideo(false)}
+                >
+                    <source src="/auth-login-background.mp4" type="video/mp4" />
+                </video>
+            )}
 
             <div className="auth-form-card relative overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="auth-title">
                 {/* Close Button Top Right */}

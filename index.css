@@ -425,57 +425,24 @@ body {
     image-rendering: optimizeSpeed;
   }
 }
-/* Auth scene: stationary original portraits; only blossoms and colored light move. */
+/* The video is the complete illustrated scene. Keep the still frame beneath it as a fallback. */
 .auth-scene {
   isolation: isolate;
   overflow: hidden;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  overflow: hidden;
-  background: linear-gradient(90deg, #bddbf0 0%, #e7f4fb 39%, #f3f9fc 50%, #e7f4fb 61%, #bddbf0 100%);
+  background: #193c75;
 }
-.auth-scene-photo {
+.auth-video-poster,
+.auth-video-background {
   position: absolute;
-  inset-block: 0;
-  width: min(39%, 470px);
-  background-size: cover;
-  background-repeat: no-repeat;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   pointer-events: none;
 }
-.auth-scene-photo-left {
-  left: 0;
-  background-image: url('/auth-hmong-blossom.webp');
-  background-position: center 33%;
-  -webkit-mask-image: linear-gradient(to right,#000 63%,transparent 100%);
-  mask-image: linear-gradient(to right,#000 63%,transparent 100%);
-}
-.auth-scene-photo-right {
-  right: 0;
-  background-image: url('/auth-hmong-harvest.webp');
-  background-position: center 30%;
-  -webkit-mask-image: linear-gradient(to left,#000 63%,transparent 100%);
-  mask-image: linear-gradient(to left,#000 63%,transparent 100%);
-}
-.auth-scene-shade {
-  background: radial-gradient(ellipse 18% 70% at 50% 48%, rgba(228,243,252,.17), transparent 95%);
-}
-.auth-ambient { position:absolute; pointer-events:none; width:min(19vw,250px); aspect-ratio:1; border-radius:50%; filter:blur(35px); opacity:.15; animation:auth-light-drift 9s ease-in-out infinite alternate; }
-.auth-ambient-left { left:39%; top:12%; background:radial-gradient(circle,#f6fcff,#d7efff 48%,transparent 72%); }
-.auth-ambient-right { right:39%; bottom:1%; background:radial-gradient(circle,#f6fcff,#d7efff 46%,transparent 72%); animation-delay:-4s; }
-.auth-sakura-branch { position:absolute; top:-12px; left:-16px; z-index:4; width:min(32vw,310px); height:155px; background:url('/auth-sakura-branch.svg') left top/contain no-repeat; pointer-events:none; filter:drop-shadow(0 4px 7px #df88d7); }
-.auth-bloom-foreground { position:absolute; z-index:4; inset:auto 0 -23px; height:55px; pointer-events:none; background:radial-gradient(ellipse 15px 12px at 2% 70%,#ef9dd3 10%,transparent 95%),radial-gradient(ellipse 25px 15px at 5% 40%,#fbc2e5 10%,transparent 95%),radial-gradient(ellipse 28px 12px at 15% 88%,#f2b1d7 10%,transparent 95%),radial-gradient(ellipse 24px 16px at 91% 77%,#f8b7dd 10%,transparent 95%),radial-gradient(ellipse 20px 13px at 95% 42%,#f5a2d5 10%,transparent 95%),radial-gradient(ellipse 20px 16px at 99% 72%,#f4b0de 10%,transparent 95%); filter:blur(3px) drop-shadow(0 0 9px #f3a7ed); }
-.auth-light-ribbons { position:absolute; inset:0; z-index:3; width:100%; height:100%; pointer-events:none; animation:auth-ribbon-pulse 5s ease-in-out infinite alternate; }
-.auth-halo-floor { position:absolute; z-index:4; bottom:4%; left:50%; width:36%; height:37px; border:2px solid rgba(255,211,255,.95); border-radius:50%; transform:translateX(-50%); box-shadow:0 0 5px #fff,0 0 14px #f09cff,0 0 33px #e864fb,inset 0 0 22px #a785ff; pointer-events:none; animation:auth-halo-pulse 4s ease-in-out infinite alternate; }
-.auth-halo-floor::after { content:""; position:absolute; inset:8px 13%; border-radius:50%; border:1px solid rgba(251,225,255,.7); box-shadow:0 0 12px #e793ff; }
-.auth-feature-list { position:absolute; z-index:4; left:calc(50% - 300px); top:20%; display:grid; gap:9px; pointer-events:none; }
-.auth-feature { width:131px; min-height:46px; display:flex; align-items:center; gap:8px; padding:6px 9px; border:1px solid rgba(231,219,255,.26); border-radius:14px; background:linear-gradient(105deg,rgba(39,75,139,.76),rgba(36,75,135,.66)); box-shadow:inset 0 1px 1px rgba(255,255,255,.16),0 3px 14px rgba(37,24,119,.25); color:white; text-shadow:0 1px 4px #242062; font-size:10px; font-weight:600; line-height:1.35; backdrop-filter:blur(7px); }
-.auth-feature-icon { display:grid; place-items:center; flex:0 0 27px; height:27px; color:#f5c8ff; font-size:24px; line-height:1; text-shadow:0 0 6px #f3b9ff,0 0 12px #ab61fb; }
-.auth-paper-plane { position:absolute; z-index:4; top:6%; right:23%; width:44px; height:44px; pointer-events:none; filter:drop-shadow(0 0 5px #fff); }
-.auth-petals { z-index:5; }
-.auth-petal { position:absolute; top:-44px; display:block; width:20px; height:20px; opacity:.88; filter:drop-shadow(0 2px 4px rgba(90,42,76,.3)); animation:auth-petal-fall 14s linear infinite; will-change:transform; }
-.auth-petal:nth-child(4n) { width:15px; height:15px; opacity:.7; }
-.auth-petal:nth-child(5n) { width:23px; height:23px; }
+.auth-video-poster { background: url('/auth-login-poster.jpg') center / cover no-repeat; }
+.auth-video-background { z-index: 0; }
 .auth-form-card { position:relative; z-index:6; width:min(100%,300px); max-height:calc(100dvh - 40px); margin:auto; border:1.5px solid rgba(255,255,255,.95); border-radius:25px; background:linear-gradient(125deg,rgba(253,254,255,.97),rgba(235,246,255,.95) 70%,rgba(246,251,255,.97)); box-shadow:0 0 0 3px rgba(234,220,255,.35),0 0 24px #add2ff,0 20px 45px rgba(42,37,144,.42),inset 0 1px 16px #fff; overflow-y:auto; scrollbar-width:thin; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
 .auth-form-card h2 { color:#152050; }
 .auth-form-card .auth-view-switch { background:#e4effa; border-radius:18px; box-shadow:0 2px 8px rgba(45,45,116,.09); }
@@ -496,10 +463,6 @@ body {
 .auth-submit-loading { display:inline-flex; align-items:center; gap:8px; }
 .auth-spinner { display:inline-block; height:16px; width:16px; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; border-radius:50%; animation:auth-spin .8s linear infinite; }
 @keyframes auth-spin { to { transform:rotate(360deg); } }
-@keyframes auth-light-drift { to { transform:translate3d(8%,9%,0) scale(1.1); opacity:.62; } }
-@keyframes auth-ribbon-pulse { to { opacity:.66; filter:brightness(1.25); } }
-@keyframes auth-halo-pulse { to { opacity:.7; box-shadow:0 0 5px #fff,0 0 24px #f09cff,0 0 44px #e864fb,inset 0 0 26px #a785ff; } }
-@keyframes auth-petal-fall { from { transform:translate3d(-24px,-32px,0) rotate(-22deg); } to { transform:translate3d(65px,112vh,0) rotate(410deg); } }
 /* Short desktop viewport: the scene remains a single frame; only lengthy alternate forms scroll inside the card. */
 @media (min-width:768px) and (max-height:650px) {
   .auth-form-card { width:330px; max-height:none; zoom:.9; transform:translate(42px,-10px); }
@@ -527,16 +490,15 @@ body {
   .auth-form-card form label { font-size:10px; }
 }
 @media (max-width:767px) {
-  .auth-scene { overflow:hidden; background:radial-gradient(circle at 50% 18%,#f6fbff,#d7eaf7 70%,#b4d7ee); }
-  .auth-ambient { opacity:.12; width:38vw; filter:blur(30px); }
-  .auth-sakura-branch { width:220px; height:120px; }
-  .auth-halo-floor { bottom:5%; width:85%; }
-  .auth-feature-list,.auth-paper-plane { display:none; }
   .auth-form-card { width:min(100%,390px); max-height:calc(100dvh - 60px); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
   .auth-form-card .auth-submit,.auth-form-card .auth-view-switch button { min-height:44px; }
-  .auth-scene .auth-petal { width:15px; height:15px; opacity:.65; }
+}
+@media (min-width:768px) {
+  .auth-form-card { transform:translateX(30px); }
+}
+@media (min-width:768px) and (max-height:650px) {
+  .auth-form-card { transform:translate(57px,-10px); }
 }
 @media (prefers-reduced-motion:reduce) {
-  .auth-ambient,.auth-light-ribbons,.auth-halo-floor,.auth-petal,.auth-spinner { animation:none !important; }
-  .auth-petal { display:none; }
+  .auth-video-background { display:none; }
 }
