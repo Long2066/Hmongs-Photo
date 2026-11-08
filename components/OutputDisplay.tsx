@@ -12,6 +12,7 @@ interface OutputDisplayProps {
     onImageClick: (base64: string, index: number) => void;
     metadata?: { name: string, job: string }[];
     onReplaySlideshow?: () => void;
+    onDismissError?: () => void;
 }
 
 const isVideoUrl = (url: string | null): boolean => {
@@ -154,19 +155,43 @@ const LoadingSlot: React.FC<{ index: number }> = ({ index }) => (
     </div>
 );
 
-export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prompts, isLoading, loadingStatus, error, onImageClick, metadata, onReplaySlideshow }) => {
-    const isActive = outputImages.length > 0;
+export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prompts, isLoading, loadingStatus, error, onImageClick, metadata, onReplaySlideshow, onDismissError }) => {
+    const hasCompletedImages = outputImages.some(img => img !== null);
+    const isActive = isLoading ? outputImages.length > 0 : hasCompletedImages;
 
-    if (!isLoading && !error && !isActive) {
+    if (!isLoading && !isActive) {
         return (
-            <div className="flex-1 flex flex-col w-full h-full">
+            <div className="relative flex-1 flex flex-col w-full h-full animate-fade-in">
                 <StudioHeroStage />
+                {error && (
+                    <div
+                        role="alert"
+                        className="absolute top-4 left-4 right-4 z-20 max-w-2xl mx-auto rounded-2xl bg-white/95 backdrop-blur-md p-4 text-xs sm:text-sm font-semibold leading-relaxed text-rose-700 border border-rose-200 shadow-lg flex items-start justify-between gap-3 animate-fade-in"
+                    >
+                        <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 shrink-0 p-1 bg-rose-50 rounded-full border border-rose-200">
+                                <ErrorIcon className="w-4 h-4 text-rose-600" />
+                            </div>
+                            <span className="break-words">{error}</span>
+                        </div>
+                        {onDismissError && (
+                            <button
+                                type="button"
+                                onClick={onDismissError}
+                                aria-label="Đóng thông báo lỗi"
+                                className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+                            >
+                                Đóng
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col gap-6 w-full">
+        <div className="flex flex-col gap-6 w-full animate-fade-in">
             {/* Header / Status - More Compact */}
             <div className="bg-white rounded-2xl shadow-xs border border-indigo-100/90 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative">
 

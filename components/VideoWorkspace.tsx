@@ -64,13 +64,15 @@ interface VideoWorkspaceProps {
     isLoading: boolean;
     loadingStatus: string;
     error: string | null;
+    onDismissError?: () => void;
 }
 
 export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     videos,
     isLoading,
     loadingStatus,
-    error
+    error,
+    onDismissError
 }) => {
     const [selectedUrl, setSelectedUrl] = useState('');
     const [downloading, setDownloading] = useState(false);
@@ -144,9 +146,9 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
-    if (!isLoading && !error && !active) {
+    if (!isLoading && !active) {
         return (
-            <div className="flex-1 flex flex-col w-full h-full" aria-label="Khung chiếu Video Studio">
+            <div className="flex-1 flex flex-col w-full h-full animate-fade-in" aria-label="Khung chiếu Video Studio">
                 <div className="relative w-full h-full min-h-[480px] sm:min-h-[540px] lg:min-h-[calc(100vh-128px)] rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(79,70,229,0.10)] ring-1 ring-indigo-200/70 flex items-center justify-center select-none bg-[#cfe9ff]">
                     <img
                         src="/video.png"
@@ -170,45 +172,50 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                             />
                         ))}
                     </div>
+
+                    {error && (
+                        <div
+                            role="alert"
+                            className="absolute top-4 left-4 right-4 z-20 max-w-2xl mx-auto rounded-2xl bg-white/95 backdrop-blur-md p-4 text-xs sm:text-sm font-semibold leading-relaxed text-rose-700 border border-rose-200 shadow-lg flex items-start justify-between gap-3 animate-fade-in"
+                        >
+                            <div className="flex items-start gap-2.5">
+                                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 font-bold">
+                                    !
+                                </span>
+                                <span className="break-words">{error}</span>
+                            </div>
+                            {onDismissError && (
+                                <button
+                                    type="button"
+                                    onClick={onDismissError}
+                                    aria-label="Đóng thông báo lỗi"
+                                    className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+                                >
+                                    Đóng
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         );
     }
 
     return (
-        <section className="w-full max-w-5xl mx-auto space-y-5" aria-label="Khung chiếu Video Studio">
-            {/* Header Stage */}
-            <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-4 sm:p-5 text-white shadow-sm border border-indigo-900/30 flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white shadow-sm text-xl shrink-0">
-                        🎬
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h2 className="text-base sm:text-lg font-bold leading-tight">
-                                Video AI Studio &bull; OpenRouter Omni
-                            </h2>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">
-                                4K Cinematic
-                            </span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-slate-300">
-                            Render chuyển động mượt mà &bull; Kèm âm thanh gốc &bull; Xem và tải trực tiếp
-                        </p>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs font-mono text-slate-300">
-                    <span className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80">
-                        {videos.length} video đã tạo
-                    </span>
-                </div>
-            </div>
-
+        <section className="w-full max-w-5xl mx-auto space-y-5 animate-fade-in" aria-label="Khung chiếu Video Studio">
             {/* Error Message */}
             {error && (
-                <div role="alert" className="rounded-2xl bg-rose-50 p-4 text-xs sm:text-sm font-semibold leading-relaxed text-rose-800 border border-rose-200 shadow-2xs">
-                    {error}
+                <div role="alert" className="rounded-2xl bg-rose-50 p-4 text-xs sm:text-sm font-semibold leading-relaxed text-rose-800 border border-rose-200 shadow-2xs flex items-start justify-between gap-3">
+                    <span className="break-words">{error}</span>
+                    {onDismissError && (
+                        <button
+                            type="button"
+                            onClick={onDismissError}
+                            className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
+                        >
+                            Đóng
+                        </button>
+                    )}
                 </div>
             )}
 
@@ -372,30 +379,6 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                         </div>
                     )}
                 </>
-            ) : !isLoading && !error ? (
-                /* Empty Ready State */
-                <div className="rounded-2xl bg-white p-8 sm:p-12 text-center shadow-sm border border-slate-200/80">
-                    <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 shadow-sm border border-amber-100">
-                        <VideoIcon />
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900">
-                        Khung xem video Studio sẵn sàng
-                    </h3>
-                    <p className="mt-2 text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                        Tải ảnh nguồn (First Frame), chọn góc chuyển động và nhấn &ldquo;Bắt đầu tạo video&rdquo; ở thanh bên trái để AI biến ảnh tĩnh thành clip 15s sống động.
-                    </p>
-                    <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            Omni 1.2 Flash
-                        </span>
-                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            Âm thanh gốc Native
-                        </span>
-                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Tự động Failover 1.1
-                        </span>
-                    </div>
-                </div>
             ) : null}
         </section>
     );

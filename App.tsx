@@ -543,8 +543,13 @@ const App: React.FC = () => {
                 await deductBalanceForVIP(successCount, 'id_photo');
                 // Save to history
                 saveHistory('ID Photo', `Ảnh thẻ - ${clothing} - Nền ${bgColor}`, validImages, 'ID Photo');
+            } else {
+                updateModeState(() => ({ outputs: [] }));
             }
-        } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi.'); }
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Lỗi.');
+            updateModeState(() => ({ outputs: [] }));
+        }
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, autoDownload, validateSubscriptionBeforeGenerate]);
 
@@ -625,9 +630,15 @@ const App: React.FC = () => {
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'image_generation');
                 saveHistory('Creative Batch', prompts[0], validImages, outputMode);
+            } else {
+                updateModeState(() => ({ outputs: [] }));
             }
 
         } catch (e: any) {
+            const hasAny = localResults.some(img => img !== null);
+            if (!hasAny) {
+                updateModeState(() => ({ outputs: [] }));
+            }
             if (abortController.signal.aborted || e?.name === 'AbortError' || e?.message?.includes('aborted')) {
                 console.log('[App] Creative generation aborted cleanly by user');
                 setLoadingStatus('Đã dừng tạo ảnh theo yêu cầu.');
@@ -717,6 +728,8 @@ const App: React.FC = () => {
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'edit');
                 saveHistory('Edit Tool', historyPrompt, validImages, type);
+            } else {
+                updateModeState(() => ({ outputs: [] }));
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi xử lý.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
@@ -759,6 +772,8 @@ const App: React.FC = () => {
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'upscale');
                 saveHistory('Upscale', `Upscaled to ${resolution}`, validImages, 'High Quality');
+            } else {
+                updateModeState(() => ({ outputs: [] }));
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi nâng cấp.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
@@ -803,6 +818,8 @@ const App: React.FC = () => {
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'profile_pro');
                 saveHistory('Profile Pro', `Profile: ${style} for ${platform}`, validImages, style);
+            } else {
+                updateModeState(() => ({ outputs: [] }));
             }
         } catch (e) { setError(e instanceof Error ? e.message : 'Lỗi tạo profile.'); updateModeState(() => ({ outputs: [] })); }
         finally { setIsLoading(false); setLoadingStatus(''); }
@@ -841,9 +858,9 @@ const App: React.FC = () => {
             );
 
             console.log('[DEBUG] restoreOldPhoto result:', !!result, result?.substring(0, 50) + '...');
-            updateModeState(() => ({ outputs: [result], prompts: ['Phục hồi ảnh cũ'] }));
 
             if (result) {
+                updateModeState(() => ({ outputs: [result], prompts: ['Phục hồi ảnh cũ'] }));
                 if (autoDownload) triggerDownload(result, 'restored_photo.png');
                 // Store comparison data for slider
                 setComparisonData({
@@ -855,6 +872,8 @@ const App: React.FC = () => {
                 // Deduct credits for VIP users
                 await deductBalanceForVIP(1, 'restore');
                 saveHistory('Phục Hồi Ảnh', 'Phục hồi ảnh cũ', [result], 'Restoration');
+            } else {
+                updateModeState(() => ({ outputs: [] }));
             }
         } catch (e) {
             console.error('[DEBUG] Restore error:', e);
@@ -894,6 +913,7 @@ const App: React.FC = () => {
         setError(null);
         setIsMenuOpen(false);
         setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới OpenRouter Gemini Omni Engine...`);
+        setVideoEntries([]);
         updateModeState(() => ({
             outputs: Array(count).fill(null),
             prompts: Array(count).fill(prompt),
@@ -935,8 +955,8 @@ const App: React.FC = () => {
                     : `data:${source.mimeType};base64,${source.base64}`
                 : undefined;
             const createdAt = Date.now();
-            setVideoEntries(previous => {
-                const next = finalUrls.map(url => ({
+            setVideoEntries(
+                finalUrls.map(url => ({
                     url,
                     firstFrame,
                     createdAt,
@@ -944,9 +964,8 @@ const App: React.FC = () => {
                     modelUsed: result.modelUsed,
                     duration: result.duration,
                     aspectRatio: result.aspectRatio
-                }));
-                return [...next, ...previous.filter(item => !finalUrls.includes(item.url))];
-            });
+                }))
+            );
             updateModeState(() => ({
                 outputs: finalUrls,
                 prompts: Array(finalUrls.length).fill(prompt),
@@ -956,6 +975,7 @@ const App: React.FC = () => {
         } catch (e) {
             console.error('[Video Error]:', e);
             setError(e instanceof Error ? e.message : 'Lỗi tạo video OpenRouter.');
+            setVideoEntries([]);
             updateModeState(() => ({ outputs: [] }));
         } finally {
             setIsLoading(false);
@@ -1083,6 +1103,7 @@ const App: React.FC = () => {
                 isHistoryVisible={isHistoryVisible}
                 currentMode={mode}
                 onModeChange={(nextMode) => {
+                    setError(null);
                     setMode(nextMode);
                     if (nextMode !== 'creative') setIsAiConfigExpanded(true);
                 }}
@@ -1244,19 +1265,23 @@ const App: React.FC = () => {
                             {/* Render Results based on CURRENT MODE State */}
                             {mode === 'video' ? (
                                 <VideoWorkspace
+                                    key="video"
                                     videos={videoEntries}
                                     isLoading={isLoading}
                                     loadingStatus={loadingStatus}
                                     error={error}
+                                    onDismissError={() => setError(null)}
                                 />
                             ) : (
                                 <OutputDisplay
+                                    key={mode}
                                     outputImages={currentData.outputs}
                                     prompts={currentData.prompts}
                                     isLoading={isLoading}
                                     loadingStatus={loadingStatus}
                                     error={error}
                                     onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
+                                    onDismissError={() => setError(null)}
                                 />
                             )}
 
