@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { SparklesIcon, MagicWandIcon } from './Icons';
+import React, { useRef, useState } from 'react';
+import { MagicWandIcon } from './Icons';
 import { generateBatchPromptsText, optimizePrompt } from '../services/aiService';
 import type { CreativeRefImages } from '../services/aiService';
 import * as storage from '../services/storageService';
@@ -107,11 +107,10 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     const [outputMode, setOutputMode] = useState<'single' | 'couple'>('single');
     const [filenamePrefix, setFilenamePrefix] = useState('ImageTool');
 
-    // New State for Batch Prompts
-    const [generatedPromptText, setGeneratedPromptText] = useState('');
     const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
+    const generatingRef = useRef(false);
+    const [promptError, setPromptError] = useState('');
     const [isOptimizing, setIsOptimizing] = useState(false);
-    const [step, setStep] = useState<1 | 2>(1); // 1: Topic Config, 2: Review Prompts
 
     // Direct connection to CLIProxyAPI (AI Gateway)
     const getApiKeyForPrompts = (): string => {
@@ -138,59 +137,44 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     };
 
     const handleGeneratePrompts = async () => {
-        if (!topic.trim()) return;
+        if (generatingRef.current || isLoading || isDisabled || !topic.trim()) return;
 
         const apiKey = getApiKeyForPrompts();
         if (!apiKey) return;
 
+        generatingRef.current = true;
+        setPromptError('');
         setIsGeneratingPrompts(true);
         try {
             const text = await generateBatchPromptsText(apiKey, topic, quantity, shotType, style, outputMode, inputCounts, refImages);
-            setGeneratedPromptText(text);
-            setStep(2);
+            let prompts = parsePromptsFromText(text);
+            if (prompts.length === 0) {
+                setPromptError('AI chưa tạo được prompt. Vui lòng thử lại.');
+                return;
+            }
+            // Preserve the existing batch rule and image-generation handler.
+            if (prompts.length === 1 && quantity > 1) {
+                prompts = Array.from({ length: quantity }, () => prompts[0]);
+            }
+            const selectedResolution = getSelectedResolution();
+            onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType);
         } catch (e: any) {
-            const message = e?.message || 'Lỗi không xác định';
-            alert(`Lỗi tạo prompt: ${message}`);
+            setPromptError(`Lỗi tạo prompt: ${e?.message || 'Lỗi không xác định'}`);
         } finally {
+            generatingRef.current = false;
             setIsGeneratingPrompts(false);
         }
     };
 
-    const handleFinalGenerate = () => {
-        let prompts = parsePromptsFromText(generatedPromptText);
-        if (prompts.length === 0) {
-            alert("Danh sách prompt trống!");
-            return;
-        }
-
-        // If user requested quantity > 1 but only 1 prompt is present, replicate it
-        // so that the full batch of images is generated as requested
-        if (prompts.length === 1 && quantity > 1) {
-            prompts = Array.from({ length: quantity }, () => prompts[0]);
-        }
-
-        // Use resolution from ModelSelector (centralized)
-        const selectedResolution = getSelectedResolution();
-        onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType);
-        setStep(1); // Reset to start after launching
-    };
-
     return (
         <div className="flex flex-col gap-3.5">
-            {/* Step Indicator */}
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 tracking-wide">
-                <span className={`px-2.5 py-1 rounded-lg transition-all ${step === 1 ? 'bg-indigo-600 text-white shadow-xs font-bold' : 'bg-slate-100 text-slate-700 font-semibold'}`}>1. CẤU HÌNH</span>
-                <span className="text-slate-400">➜</span>
-                <span className={`px-2.5 py-1 rounded-lg transition-all ${step === 2 ? 'bg-indigo-600 text-white shadow-xs font-bold' : 'bg-slate-100 text-slate-700 font-semibold'}`}>2. TẠO ẢNH</span>
-            </div>
-
-            {/* Topic Input - Always visible but disabled in step 2 */}
+            {/* Topic Input */}
             <div className="group">
                 <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex justify-between items-center">
                     <span>Chủ đề (AI PROMPT WRITER)</span>
                     <button
                         onClick={handleOptimizeTopic}
-                        disabled={isOptimizing || !topic.trim()}
+                        disabled={isOptimizing || isGeneratingPrompts || isLoading || !topic.trim()}
                         className="text-indigo-600 hover:text-white hover:bg-indigo-600 font-bold text-[11px] bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1.5 transition-all disabled:opacity-50 shadow-xs"
                     >
                         {isOptimizing ? <span className="animate-spin">✨</span> : <MagicWandIcon className="w-3 h-3" />}
@@ -203,13 +187,12 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                     placeholder="Mô tả ý tưởng... (Ví dụ: Cô gái H'Mông mặc trang phục truyền thống thêu hoa văn Paj Ntaub bên hiên nhà gỗ...)"
                     rows={2}
                     className="w-full bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl p-3 text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none transition-all placeholder:text-slate-400 placeholder:font-normal shadow-xs disabled:opacity-60 disabled:bg-slate-50 leading-relaxed"
-                    disabled={step === 2}
+                    disabled={isGeneratingPrompts || isLoading}
                 />
             </div>
 
-            {/* Config Grid - Hidden in Step 2 to focus on Prompts */}
-            {step === 1 && (
-                <div className="grid grid-cols-2 gap-3.5">
+            {/* Config Grid */}
+            <div className="grid grid-cols-2 gap-3.5">
                     {/* Output Mode */}
                     <div className="col-span-2">
                         <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5">
@@ -340,92 +323,32 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                         </div>
                     </div>
                 </div>
-            )}
 
-            {/* STEP 2: PROMPT REVIEW AREA */}
-            {step === 2 && (() => {
-                const parsedCount = parsePromptsFromText(generatedPromptText).length;
-                const willGenerateCount = parsedCount === 1 && quantity > 1 ? quantity : parsedCount;
-                return (
-                    <div className="animate-fade-in space-y-3.5">
-                        <div className="flex items-center justify-between">
-                            <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
-                                Review Prompt ({parsedCount} prompt • Sẽ vẽ {willGenerateCount} ảnh)
-                            </label>
-                            <button
-                                onClick={() => setStep(1)}
-                                className="text-xs text-indigo-600 font-bold hover:underline"
-                            >
-                                Quay lại cấu hình
-                            </button>
-                        </div>
-                        <textarea
-                            value={generatedPromptText}
-                            onChange={(e) => setGeneratedPromptText(e.target.value)}
-                            rows={10}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3.5 text-slate-100 text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none shadow-inner custom-scrollbar leading-relaxed"
-                            placeholder="Prompts sẽ xuất hiện ở đây..."
-                        />
-                        <div className="text-[11px] text-slate-500 font-medium italic">
-                            * Mỗi prompt được phân cách bởi dòng trống hoặc đánh số (1., 2.). Hệ thống sẽ vẽ đủ {willGenerateCount} ảnh.
-                        </div>
-                    </div>
-                );
-            })()}
+            {promptError && <div role="alert" className="rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-700 ring-1 ring-rose-900/10">{promptError}</div>}
 
             {/* ACTION BUTTONS - Sticky at bottom */}
             <div className="panel-action-wrapper mt-1">
-                {step === 1 ? (
-                    (() => {
-                        const isStep1Disabled = isGeneratingPrompts || isDisabled || !topic.trim();
-                        return (
-                            <button
-                                onClick={handleGeneratePrompts}
-                                disabled={isStep1Disabled}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm ${
-                                    isStep1Disabled
-                                        ? 'bg-slate-100 text-slate-400 border border-slate-200/90 cursor-not-allowed shadow-none'
-                                        : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white shadow-indigo-600/25 ring-1 ring-indigo-600/20 cursor-pointer'
-                                }`}
-                            >
-                                {isGeneratingPrompts ? (
-                                    <>
-                                        <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                        <span>Đang viết Prompt...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <MagicWandIcon className={`w-4 h-4 ${isStep1Disabled ? 'text-slate-400' : 'text-white'}`} />
-                                        <span>BƯỚC 1: TẠO PROMPT</span>
-                                    </>
-                                )}
-                            </button>
-                        );
-                    })()
-                ) : isLoading ? (
+                {isLoading ? (
                     <button
                         onClick={onCancel}
                         type="button"
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white shadow-rose-600/25 ring-1 ring-rose-600/30 cursor-pointer animate-pulse min-h-[44px]"
+                        className="w-full flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-xs font-bold text-white shadow-sm transition-all hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 active:scale-[0.98] sm:text-sm"
                         title="Bấm để dừng đợt tạo ảnh này ngay lập tức"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                            <rect x="5" y="5" width="14" height="14" rx="2" />
-                        </svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                         <span>DỪNG TẠO ẢNH (HỦY)</span>
                     </button>
                 ) : (
                     <button
-                        onClick={handleFinalGenerate}
-                        disabled={isLoading}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-xs sm:text-sm rounded-xl transition-all duration-150 select-none shadow-sm bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white shadow-emerald-600/25 ring-1 ring-emerald-600/20 cursor-pointer min-h-[44px]"
+                        onClick={handleGeneratePrompts}
+                        disabled={isGeneratingPrompts || isDisabled || !topic.trim()}
+                        aria-busy={isGeneratingPrompts}
+                        className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-bold text-white shadow-sm transition-all hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none sm:text-sm"
                     >
-                        <SparklesIcon className="w-4 h-4" />
-                        <span>BƯỚC 2: TIẾN HÀNH VẼ ẢNH</span>
+                        {isGeneratingPrompts ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" aria-hidden="true" /> : <MagicWandIcon className="h-4 w-4" />}
+                        <span role={isGeneratingPrompts ? 'status' : undefined}>{isGeneratingPrompts ? 'Đang chuẩn bị tạo ảnh...' : 'Bắt đầu tạo ảnh'}</span>
                     </button>
                 )}
-
-
             </div>
         </div>
     );

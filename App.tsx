@@ -14,10 +14,12 @@ import { FlowEmbeddedPage } from './components/FlowEmbeddedPage';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
 import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
-import { generateVideo } from './services/geminiVideoService';
+import { generateOpenRouterVideo } from './services/openRouterVideoService';
+import { getVideoConfig } from './services/videoConfigService';
 import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
 import { ProfilePage } from './components/ProfilePage';
+import { PackagesPage } from './components/PackagesPage';
 import { ImagePreviewModal } from './components/ImagePreviewModal';
 // ImageCropModal removed - using simpler ImagePreviewModal for all modes
 import { ApiKeyModal } from './components/ApiKeyModal';
@@ -29,14 +31,14 @@ import { UpdateNotification } from './components/UpdateNotification';
 import { NotificationPopup } from './components/NotificationPopup';
 import { SupportHub } from './components/SupportHub';
 import { A4PrintPreview } from './components/A4PrintPreview';
-import { CreditsConfirmDialog } from './components/CreditsConfirmDialog';
 import { BottomNavigation } from './components/BottomNavigation';
 import { MobileBottomSheet } from './components/MobileBottomSheet';
 import * as storage from './services/storageService';
 import { downloadImage } from './services/downloadService';
 import { subscribeToUserCredits, updateUserCredits } from './services/firebaseService';
-import { getSystemApiKey, getModelConfig, getSelectedImageModel, formatVND } from './services/geminiCoreService';
-import { deductBalance, getCachedBalance, addUsageRecord } from './services/balanceService';
+import { refreshSubscription, consumeSubscriptionImages } from './services/subscriptionService';
+import { getSystemApiKey } from './services/geminiCoreService';
+import { getCachedBalance } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
 import { APP_VERSION } from './services/appUpdateService';
 import { checkDeviceAccountLimit, recordDeviceAccount } from './services/antiFraudService';
@@ -80,6 +82,8 @@ const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(() => storage.getLoggedInUser());
     const [isAuthModalOpen, setAuthModalOpen] = useState(false);
     const [isHistoryVisible, setHistoryVisible] = useState(false);
+    const [isPackagesVisible, setPackagesVisible] = useState(false);
+    const [packagesOrigin, setPackagesOrigin] = useState(false);
     const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
     const [isApiKeyModalOpen, setApiKeyModalOpen] = useState(false);
     const [isQuotaStationOpen, setQuotaStationOpen] = useState(false);
@@ -87,6 +91,7 @@ const App: React.FC = () => {
     const [selectedImage, setSelectedImage] = useState<{ url: string, index: number } | null>(null);
     const [isDownloadHelpOpen, setDownloadHelpOpen] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isAiConfigExpanded, setIsAiConfigExpanded] = useState(false);
     const [mobileActiveTab, setMobileActiveTab] = useState<'input' | 'config' | null>(null);
     const [isMobileScreen, setIsMobileScreen] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
     const [autoDownload, setAutoDownload] = useState<boolean>(() => {
@@ -114,9 +119,10 @@ const App: React.FC = () => {
     const [isA4PrintPreviewOpen, setA4PrintPreviewOpen] = useState(false);
 
     // VIP Balance State (VND instead of credits)
-    const [userBalance, setUserBalance] = useState(0); // VND
-    const [isCreditsDialogOpen, setCreditsDialogOpen] = useState(false);
-    const [pendingGeneration, setPendingGeneration] = useState<{ imageCount: number; callback: () => void } | null>(null);
+    const [userBalance, setUserBalance] = useState(0); // Legacy balance kept for compatibility; not spent on paid images
+    const [remainingPaidImages, setRemainingPaidImages] = useState(0);
+    const [currentSubscriptionPlan, setCurrentSubscriptionPlan] = useState<firebaseService.SubscriptionPlan>('free');
+    const [subscriptionExpiresAt, setSubscriptionExpiresAt] = useState<number | null>(null);
 
     // --- MODE MANAGEMENT ---
     const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video'>('creative');
@@ -303,12 +309,18 @@ const App: React.FC = () => {
     useEffect(() => {
         if (!currentUser) {
             setUserBalance(0);
+            setRemainingPaidImages(0);
+            setCurrentSubscriptionPlan('free');
+            setSubscriptionExpiresAt(null);
             return;
         }
         // Use local cached balance initially
         setUserBalance(getCachedBalance());
 
-        const unsubscribe = subscribeToUserCredits(currentUser.id, (balance) => {
+        const unsubscribe = subscribeToUserCredits(currentUser.id, (balance, state) => {
+            setRemainingPaidImages(state?.remainingImages ?? 0);
+            setCurrentSubscriptionPlan(state?.plan ?? 'free');
+            setSubscriptionExpiresAt(state?.planExpiresAt ?? null);
             setUserBalance(balance);
             // Cache balance to localStorage for isProUser() check
             localStorage.setItem('user_balance_' + currentUser.id, Math.floor(balance / 100).toString());
@@ -316,6 +328,15 @@ const App: React.FC = () => {
 
         return () => unsubscribe();
     }, [currentUser]);
+
+    // Normalize legacy subscriptions exactly once on the authenticated server, including on return to a tab.
+    useEffect(() => {
+        if (!currentUser) return;
+        const refresh = () => { void refreshSubscription().catch(error => console.warn('[Subscription] Unable to refresh:', error)); };
+        refresh();
+        window.addEventListener('focus', refresh);
+        return () => window.removeEventListener('focus', refresh);
+    }, [currentUser?.id]);
 
     // --- UTILITY ---
     const triggerDownload = async (base64: string, filename: string) => {
@@ -378,134 +399,55 @@ const App: React.FC = () => {
         return null;
     };
 
-    // Check if VIP mode needs credits confirmation (skip if using own Gemini key)
-    const checkCreditsAndProceed = (imageCount: number, generationCallback: () => void) => {
-        const hasUserGeminiKey = !!storage.getApiKey('gemini');
-        const isVipMode = storage.isProUser() && storage.getUseProApi();
-
-        // If user has their own Gemini key, skip credits check
-        if (hasUserGeminiKey || !isVipMode) {
-            generationCallback();
-            return;
-        }
-
-        // VIP mode without user key - need credits
-        if (isVipMode) {
-            setPendingGeneration({ imageCount, callback: generationCallback });
-            setCreditsDialogOpen(true);
-        }
-    };
-
-    // Handle balance confirmation (VND)
-    const handleCreditsConfirm = async () => {
-        if (!pendingGeneration || !currentUser) return;
-
-        const modelId = getSelectedImageModel();
-        const model = getModelConfig(modelId);
-        const pricePerImage = model?.pricePerImage || 120;
-        const balanceNeeded = pendingGeneration.imageCount * pricePerImage;
-
-        if (userBalance < balanceNeeded) {
-            setError(`Không đủ số dư. Cần ${formatVND(balanceNeeded)}, hiện có ${formatVND(userBalance)}.`);
-            setCreditsDialogOpen(false);
-            setPendingGeneration(null);
-            return;
-        }
-
-        // Deduct balance and proceed
-        await updateUserCredits(currentUser.id, balanceNeeded, 'subtract');
-        setCreditsDialogOpen(false);
-
-        // Execute the pending generation
-        pendingGeneration.callback();
-        setPendingGeneration(null);
-    };
-
-    const handleCreditsCancel = () => {
-        setCreditsDialogOpen(false);
-        setPendingGeneration(null);
-    };
-
-    // Validate subscription plan quota & model before generation (dynamic via Firebase sync)
-    const validateSubscriptionBeforeGenerate = useCallback((requestedImages: number): boolean => {
+    // Validate package images; Free keeps its daily allowance and already-earned bonus images.
+    const validateSubscriptionBeforeGenerate = useCallback(async (requestedImages: number): Promise<boolean> => {
         if (!currentUser) return false;
         if (storage.isAdmin()) return true;
-
-        const activeModel = nineRouterService.getNineRouterImageModel();
-        const isPaidModel = nineRouterService.isModelPaid(activeModel);
-
-        // If the model is configured as Free in Admin Panel (synchronized via Firebase):
-        if (!isPaidModel) {
-            // Free model: anyone can use freely, even with 0đ balance!
-            if (userBalance < firebaseService.IMAGE_COST_VND) {
-                const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
-                if (remainingFree <= 0) {
-                    setError(`Bạn đã sử dụng hết ${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí trong ngày. Vui lòng nạp thêm tiền hoặc nâng cấp gói tại Trang cá nhân để tạo ảnh không giới hạn!`);
-                    return false;
-                }
-                if (requestedImages > remainingFree) {
-                    setError(`Bạn chỉ còn ${remainingFree}/${firebaseService.FREE_DAILY_IMAGE_LIMIT} ảnh miễn phí hôm nay (đang chọn tạo ${requestedImages} ảnh). Vui lòng giảm số lượng ảnh hoặc nạp thêm tiền.`);
-                    return false;
-                }
+        if (currentSubscriptionPlan !== 'free') {
+            let entitlement;
+            try { entitlement = await refreshSubscription(); } catch (error) {
+                setError(error instanceof Error ? error.message : 'Không xác minh được lượt ảnh của gói. Vui lòng thử lại.');
+                return false;
+            }
+            if (entitlement.plan === 'free' || !entitlement.planExpiresAt || entitlement.planExpiresAt <= Date.now()) {
+                setError('Gói đã hết hạn 30 ngày. Vui lòng chọn gói mới tại Cấu hình & gói dịch vụ.');
+                return false;
+            }
+            if (!nineRouterService.isImageModelAllowedForPlan(nineRouterService.getNineRouterImageModel(), entitlement.plan)) {
+                setError('Model này không thuộc gói hiện tại. Plus mở GPT Image 2.5, Flare, Sunburst và GPT Image 2; Pro mở toàn bộ model.');
+                return false;
+            }
+            if (requestedImages > entitlement.remainingImages) {
+                setError(`Gói ${entitlement.plan === 'pro' ? 'Pro' : 'Plus'} chỉ còn ${entitlement.remainingImages} ảnh. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
+                return false;
             }
             return true;
         }
-
-        // Model is configured as Paid in Admin Panel:
-        // Requires user balance >= requestedImages * 500 VND
-        const requiredVND = requestedImages * firebaseService.IMAGE_COST_VND;
-        if (userBalance < requiredVND) {
-            setError(`Mô hình "${activeModel}" là mô hình Trả phí (500đ/ảnh). Số dư hiện tại (${formatVND(userBalance)}) không đủ để tạo ${requestedImages} ảnh (cần ${formatVND(requiredVND)}). Vui lòng chuyển sang mô hình Miễn phí (như Gemini 3.1 Flash, GPT Image 1.5) hoặc nạp thêm tiền tại Trang cá nhân.`);
+        const modelId = nineRouterService.getNineRouterImageModel();
+        if (nineRouterService.isModelPaid(modelId)) {
+            setError('Mô hình này cần gói Plus hoặc Pro. Vui lòng chọn gói tại Cấu hình & gói dịch vụ.');
             return false;
         }
-
+        const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
+        const bonusImages = Math.floor(userBalance / firebaseService.IMAGE_COST_VND);
+        if (requestedImages > remainingFree + bonusImages) {
+            setError(`Bạn còn ${remainingFree} ảnh miễn phí hôm nay${bonusImages ? ` và ${bonusImages} ảnh thưởng` : ''}. Vui lòng giảm số ảnh hoặc chọn gói tại Cấu hình & gói dịch vụ.`);
+            return false;
+        }
         return true;
-    }, [currentUser, userBalance]);
+    }, [currentUser, currentSubscriptionPlan, userBalance]);
 
-    // Deduct balance (500đ/image for Paid models) or increment daily Free counter for Free models
-    const deductBalanceForVIP = async (imagesCount: number = 1, generationType: string = 'image_generation') => {
-        if (!currentUser || imagesCount <= 0) return;
-        if (storage.isAdmin() && userBalance <= 0) return;
-
-        const modelId = nineRouterService.getNineRouterImageModel();
-        const isPaidModel = nineRouterService.isModelPaid(modelId);
-
-        // If model is Free (synchronized via Firebase config):
-        if (!isPaidModel) {
-            if (userBalance < firebaseService.IMAGE_COST_VND) {
-                await firebaseService.incrementDailyFreeUsage(currentUser.id, imagesCount);
-            }
-            console.log(`[FREE MODEL] Model "${modelId}" is FREE. Skipping balance deduction.`);
+    // Paid packages consume image quotas; Free uses daily images first, then existing earned bonus images.
+    const deductBalanceForVIP = async (imagesCount: number = 1, _generationType: string = 'image_generation') => {
+        if (!currentUser || imagesCount <= 0 || storage.isAdmin()) return;
+        if (currentSubscriptionPlan !== 'free') {
+            await consumeSubscriptionImages(imagesCount);
             return;
         }
-
-        // If model is Paid:
-        const pricePerImage = firebaseService.IMAGE_COST_VND; // 500 VND / image
-        const totalCost = imagesCount * pricePerImage;
-        const effectivePlan = firebaseService.resolveEffectivePlan(
-            firebaseService.getCachedUserPlan(currentUser.id),
-            userBalance
-        );
-
-        console.log(`[SUBSCRIPTION ${effectivePlan.toUpperCase()}] Deducting ${formatVND(totalCost)} (${pricePerImage}đ x ${imagesCount} ảnh for ${modelId})`);
-
-        // Deduct from local balance and add usage record
-        deductBalance(totalCost, {
-            modelId,
-            modelName: modelId,
-            imageCount: imagesCount,
-            pricePerImage,
-            resolution: effectivePlan === 'plus' ? 'FHD' : '4K',
-            type: generationType as any
-        });
-
-        // Also update Firestore
-        try {
-            const nextBal = await updateUserCredits(currentUser.id, totalCost, 'subtract');
-            setUserBalance(nextBal);
-        } catch (err) {
-            console.error('[BALANCE] Failed to sync with Firestore:', err);
-        }
+        const dailyUsed = Math.min(imagesCount, firebaseService.getDailyFreeRemaining(currentUser.id));
+        if (dailyUsed) await firebaseService.incrementDailyFreeUsage(currentUser.id, dailyUsed);
+        const bonusUsed = imagesCount - dailyUsed;
+        if (bonusUsed) setUserBalance(await updateUserCredits(currentUser.id, bonusUsed * firebaseService.IMAGE_COST_VND, 'subtract'));
     };
 
     // Update single output image after custom cropping
@@ -569,7 +511,7 @@ const App: React.FC = () => {
         const currentInputs = modeStates['id_photo'].inputs;
         if (currentInputs.length === 0) { setError("Vui lòng chọn 1 ảnh chân dung."); return; }
 
-        if (!validateSubscriptionBeforeGenerate(4)) return;
+        if (!await validateSubscriptionBeforeGenerate(4)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(4).fill(null), prompts: [] }));
@@ -631,12 +573,12 @@ const App: React.FC = () => {
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
 
-        if (!validateSubscriptionBeforeGenerate(prompts.length)) return;
+        if (!await validateSubscriptionBeforeGenerate(prompts.length)) return;
 
         // Clamp resolution to FHD if user is not on Pro plan
         const effectivePlan = storage.isAdmin()
             ? 'pro'
-            : firebaseService.resolveEffectivePlan(firebaseService.getCachedUserPlan(currentUser?.id), userBalance);
+            : currentSubscriptionPlan;
         const safeResolution = effectivePlan !== 'pro' && (resolution === '2K' || resolution === '4K')
             ? 'FHD'
             : resolution;
@@ -715,7 +657,7 @@ const App: React.FC = () => {
         if (type === 'mix' && inputs.length < 2) { setError("Vui lòng tải lên 2 ảnh để phối đồ."); return; }
 
         const actualCount = type === 'general' ? outputCount : 1;
-        if (!validateSubscriptionBeforeGenerate(actualCount)) return;
+        if (!await validateSubscriptionBeforeGenerate(actualCount)) return;
 
         console.log('[DEBUG] Starting edit generation...');
         setIsLoading(true); setError(null); setIsMenuOpen(false);
@@ -786,7 +728,7 @@ const App: React.FC = () => {
         const inputs = modeStates['upscale'].inputs;
         if (!apiKey || inputs.length === 0) return;
 
-        if (!validateSubscriptionBeforeGenerate(outputCount)) return;
+        if (!await validateSubscriptionBeforeGenerate(outputCount)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
@@ -828,7 +770,7 @@ const App: React.FC = () => {
         const inputs = modeStates['profile_pro'].inputs;
         if (!apiKey || inputs.length === 0) return;
 
-        if (!validateSubscriptionBeforeGenerate(outputCount)) return;
+        if (!await validateSubscriptionBeforeGenerate(outputCount)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
@@ -879,7 +821,7 @@ const App: React.FC = () => {
             return;
         }
 
-        if (!validateSubscriptionBeforeGenerate(1)) return;
+        if (!await validateSubscriptionBeforeGenerate(1)) return;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: [null] }));
@@ -922,13 +864,14 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
-    // 8. Video Generation (Veo 3.1)
+    // 8. Video Generation (OpenRouter Gemini Omni 1.2 Flash + Omni 1.1 Flash Fallback)
     const handleVideoGenerate = useCallback(async (
         prompt: string,
-        aspectRatio: '16:9' | '9:16',
+        aspectRatio: '16:9' | '9:16' | '1:1',
         subMode: 'text_to_video' | 'image_to_video',
         model?: string,
-        outputCount: number = 1
+        outputCount: number = 1,
+        duration: number = 5
     ) => {
         const inputs = modeStates['video'].inputs;
         if (subMode === 'image_to_video' && inputs.length === 0) {
@@ -936,11 +879,21 @@ const App: React.FC = () => {
             return;
         }
 
-        const count = Math.max(1, Math.min(4, outputCount || 1));
+        const count = Math.max(1, Math.min(3, outputCount || 1));
+        const vConfig = await getVideoConfig();
+        const pricePerVideo = vConfig.pricePerVideoVnd || 700;
+        const totalCostVnd = pricePerVideo * count;
+
+        if (!storage.isAdmin() && userBalance < totalCostVnd) {
+            setError(`Số dư không đủ (${userBalance.toLocaleString('vi-VN')}đ). Cần ${totalCostVnd.toLocaleString('vi-VN')}đ để tạo ${count} video. Vui lòng nạp tiền vào tài khoản.`);
+            setPackagesVisible(true);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         setIsMenuOpen(false);
-        setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới Veo Engine...`);
+        setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới OpenRouter Gemini Omni Engine...`);
         updateModeState(() => ({
             outputs: Array(count).fill(null),
             prompts: Array(count).fill(prompt),
@@ -951,10 +904,11 @@ const App: React.FC = () => {
                 ? inputs[0].base64
                 : undefined;
 
-            const result = await generateVideo({
+            const result = await generateOpenRouterVideo({
                 prompt,
                 aspectRatio,
-                model,
+                duration,
+                modelOverride: model === 'auto' ? undefined : model,
                 outputCount: count,
                 inputImageBase64,
                 onProgress: (status) => setLoadingStatus(status),
@@ -963,6 +917,17 @@ const App: React.FC = () => {
             const finalUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
                 .filter((url): url is string => typeof url === 'string' && url.length > 0);
             if (finalUrls.length === 0) throw new Error('Dịch vụ chưa trả về video. Vui lòng thử lại.');
+
+            // Deduct balance for non-admin VIP
+            if (!storage.isAdmin() && currentUser && totalCostVnd > 0) {
+                try {
+                    const newBal = await updateUserCredits(currentUser.id, totalCostVnd, 'subtract');
+                    setUserBalance(newBal);
+                } catch (bErr) {
+                    console.warn('Lỗi trừ số dư video:', bErr);
+                }
+            }
+
             const source = subMode === 'image_to_video' ? inputs[0] : undefined;
             const firstFrame = source
                 ? source.base64.startsWith('data:') || /^https?:\/\//i.test(source.base64)
@@ -971,7 +936,15 @@ const App: React.FC = () => {
                 : undefined;
             const createdAt = Date.now();
             setVideoEntries(previous => {
-                const next = finalUrls.map(url => ({ url, firstFrame, createdAt }));
+                const next = finalUrls.map(url => ({
+                    url,
+                    firstFrame,
+                    createdAt,
+                    prompt,
+                    modelUsed: result.modelUsed,
+                    duration: result.duration,
+                    aspectRatio: result.aspectRatio
+                }));
                 return [...next, ...previous.filter(item => !finalUrls.includes(item.url))];
             });
             updateModeState(() => ({
@@ -979,22 +952,23 @@ const App: React.FC = () => {
                 prompts: Array(finalUrls.length).fill(prompt),
             }));
 
-            saveHistory('Veo Video', prompt, finalUrls, subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
+            saveHistory('Video Omni AI', prompt, finalUrls, subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
-            setError(e instanceof Error ? e.message : 'Lỗi tạo video Veo.');
+            setError(e instanceof Error ? e.message : 'Lỗi tạo video OpenRouter.');
             updateModeState(() => ({ outputs: [] }));
         } finally {
             setIsLoading(false);
             setLoadingStatus('');
         }
-    }, [modeStates, saveHistory]);
+    }, [modeStates, saveHistory, userBalance, currentUser]);
 
     const handleLogout = async () => {
         await firebaseService.logoutUser();
         storage.logoutUser();
         setCurrentUser(null);
         setHistoryVisible(false);
+        setPackagesVisible(false);
         setAuthModalOpen(false);
     };
 
@@ -1004,7 +978,7 @@ const App: React.FC = () => {
 
         if (mode === 'creative') {
             return (
-                <div className="grid grid-cols-2 gap-2 p-3">
+                <div className="grid grid-cols-2 gap-2.5 pt-2">
                     <ImageUploader label="Nam" onImagesChange={(imgs) => handleCreativeChange('male', imgs)} maxImages={1} compact />
                     <ImageUploader label="Nữ" onImagesChange={(imgs) => handleCreativeChange('female', imgs)} maxImages={1} compact />
                     <ImageUploader label="PK Nam" onImagesChange={(imgs) => handleCreativeChange('maleAcc', imgs)} maxImages={1} compact />
@@ -1066,6 +1040,8 @@ const App: React.FC = () => {
                     isDisabled={!currentUser}
                     hasInputImage={mState.inputs.length > 0}
                     inputImagePreview={mState.inputs[0]?.base64}
+                    userBalance={userBalance}
+                    onRequestTopUp={() => setPackagesVisible(true)}
                 />
             );
         }
@@ -1093,7 +1069,7 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="h-screen text-slate-900 font-sans antialiased flex flex-col selection:bg-indigo-100 relative overflow-hidden bg-slate-100">
+        <div className="h-screen text-slate-900 font-sans antialiased flex flex-col selection:bg-violet-100 relative overflow-hidden bg-[#f4f3fb]">
 
             <Marquee />
 
@@ -1101,35 +1077,38 @@ const App: React.FC = () => {
                 user={currentUser}
                 onLoginClick={() => setAuthModalOpen(true)}
                 onLogout={handleLogout}
-                onHistoryClick={() => setHistoryVisible(true)}
-                onQuotaStationClick={() => setQuotaStationOpen(true)}
+                onHistoryClick={() => { setPackagesVisible(false); setHistoryVisible(true); }}
+                onQuotaStationClick={() => { setPackagesOrigin(isHistoryVisible); setHistoryVisible(false); setPackagesVisible(true); }}
 
                 isHistoryVisible={isHistoryVisible}
                 currentMode={mode}
-                onModeChange={setMode}
+                onModeChange={(nextMode) => {
+                    setMode(nextMode);
+                    if (nextMode !== 'creative') setIsAiConfigExpanded(true);
+                }}
             />
 
-            {mode === 'video' && !isHistoryVisible ? (
-                <FlowEmbeddedPage />
+            {isPackagesVisible ? (
+                <main className="min-h-0 flex-1 overflow-y-auto bg-[#f4f3fb] custom-scrollbar">
+                    <PackagesPage user={currentUser} onBack={() => { setPackagesVisible(false); setHistoryVisible(packagesOrigin); }} onBalanceUpdated={() => setUserBalance(getCachedBalance())} />
+                </main>
             ) : (
             <>
             {/* Mobile: Vertical stacked layout. Desktop: Side by side */}
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10">
 
-                {/* INPUT PANEL - Always visible, collapsible on mobile */}
-                {/* Desktop Sidebar - Hidden on mobile (using bottom navigation instead) */}
-                <aside className="hidden lg:flex lg:static lg:w-[380px] lg:h-full lg:flex-shrink-0 w-full bg-white border-r border-slate-200/90 shadow-xs flex-col overflow-hidden">
+                {/* Desktop Bento Sidebar */}
+                <aside className="hidden lg:flex lg:static lg:w-[356px] xl:w-[372px] lg:h-full lg:flex-shrink-0 w-full bg-[#f7f6fd] border-r border-indigo-100/80 flex-col overflow-hidden p-3 gap-3">
 
-                    {/* Collapsible Header - Tap to expand/collapse on mobile */}
+                    {/* Card 1: Mode Title & Auto Download Toggle */}
                     <div
-                        className="p-3 border-b border-slate-200 flex-shrink-0 bg-white cursor-pointer lg:cursor-default"
+                        className="p-3.5 rounded-2xl bg-white border border-indigo-100/90 shadow-[0_2px_12px_rgba(99,102,241,0.06)] flex-shrink-0 cursor-pointer lg:cursor-default"
                         onClick={() => setIsMenuOpen(!isMenuOpen)}
                     >
-                        {/* Mode Indicator with expand/collapse toggle */}
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center justify-between mb-2.5">
                             <div className="flex items-center gap-2">
-                                <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
-                                <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight">
+                                <span className="w-1 h-4 bg-violet-600 rounded-full"></span>
+                                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wide">
                                     {mode === 'creative' && 'Sáng tạo vô hạn'}
                                     {mode === 'id_photo' && 'Ảnh thẻ chuyên nghiệp'}
                                     {mode === 'edit' && 'Chỉnh sửa AI'}
@@ -1138,7 +1117,6 @@ const App: React.FC = () => {
                                     {mode === 'restore' && 'Phục hồi ảnh cũ'}
                                 </h2>
                             </div>
-                            {/* Mobile expand/collapse indicator */}
                             <button className="lg:hidden p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -1153,91 +1131,109 @@ const App: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Auto Download Toggle - Always visible */}
-                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 p-2.5 rounded-xl shadow-xs ring-1 ring-slate-900/5" onClick={(e) => e.stopPropagation()}>
+                        {/* Auto Download Toggle */}
+                        <div className="flex items-center justify-between bg-[#faf9ff] border border-indigo-100/80 p-2.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-2.5">
-                                <div className="bg-white p-1.5 rounded-lg text-indigo-600 shadow-xs border border-slate-200/80">
+                                <div className="bg-white p-1.5 rounded-lg text-violet-600 shadow-2xs border border-indigo-100/90">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                                 </div>
                                 <div>
-                                    <h4 className="text-xs font-bold text-slate-800">Tự động tải về</h4>
-                                    <button onClick={handleDownloadConfigClick} className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold hover:underline">Cấu hình thư mục</button>
+                                    <h4 className="text-xs font-bold text-slate-800 leading-tight">Tự động tải về</h4>
+                                    <button onClick={handleDownloadConfigClick} className="text-[11px] text-violet-600 hover:text-violet-700 font-semibold hover:underline leading-tight">Cấu hình thư mục</button>
                                 </div>
                             </div>
-                            <div className="relative inline-block w-9 h-5 align-middle select-none">
-                                <input type="checkbox" name="toggle" id="toggle" checked={autoDownload} onChange={(e) => { const val = e.target.checked; setAutoDownload(val); try { localStorage.setItem('auto_download_enabled', String(val)); } catch {} }} className="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 right-4 checked:border-indigo-600 shadow-sm top-0.5" />
-                                <label htmlFor="toggle" className={`toggle-label block overflow-hidden h-5 rounded-full cursor-pointer transition-colors ${autoDownload ? 'bg-indigo-600' : 'bg-slate-300'}`}></label>
-                            </div>
+                            <label htmlFor="toggle" className={`relative inline-flex items-center w-11 h-6 rounded-full cursor-pointer transition-colors duration-200 flex-shrink-0 ${autoDownload ? 'bg-violet-600' : 'bg-slate-300'}`}>
+                                <input
+                                    type="checkbox"
+                                    name="toggle"
+                                    id="toggle"
+                                    checked={autoDownload}
+                                    onChange={(e) => { const val = e.target.checked; setAutoDownload(val); try { localStorage.setItem('auto_download_enabled', String(val)); } catch {} }}
+                                    className="sr-only"
+                                />
+                                <span className={`inline-block w-4 h-4 transform bg-white rounded-full shadow-sm transition-transform duration-200 ${autoDownload ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </label>
                         </div>
                     </div>
 
-                    {/* Scrollable Content Area - Expandable on mobile */}
-                    <div className={`flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
+                    {/* Scrollable Bento Cards Area */}
+                    <div className={`flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-0.5 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
                         {(!isMobileScreen || isMenuOpen) && (
                             <>
-                                {/* Input Section */}
-                                <div className="space-y-2">
-                                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2 px-1">
-                                        <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
+                                {/* Card 2: Dữ liệu đầu vào */}
+                                <div className="bg-white rounded-2xl border border-indigo-100/90 shadow-[0_2px_12px_rgba(99,102,241,0.06)] p-3.5">
+                                    <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                                        <span className="w-2 h-2 bg-violet-600 rounded-full"></span>
                                         Dữ liệu đầu vào
                                     </h3>
-                                    <div className="bg-slate-50 rounded-xl border border-slate-200/90 p-1 overflow-hidden shadow-xs ring-1 ring-slate-900/5">
+                                    <div className="mt-1">
                                         {renderInputs()}
                                     </div>
                                 </div>
 
-                                {/* Config Section */}
-                                <div className="space-y-2" data-video-config={mode === 'video' ? '' : undefined}>
-                                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider px-1 flex items-center gap-2">
-                                        <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
-                                        Cấu hình AI
-                                    </h3>
-                                    <div className="bg-white">
-                                        {renderConfig()}
-                                    </div>
+                                {/* Card 3: Cấu hình AI (Accordion) */}
+                                <div className="bg-white rounded-2xl border border-indigo-100/90 shadow-[0_2px_12px_rgba(99,102,241,0.06)] overflow-hidden" data-video-config={mode === 'video' ? '' : undefined}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsAiConfigExpanded(!isAiConfigExpanded)}
+                                        className="w-full flex items-center justify-between p-3.5 text-left hover:bg-violet-50/40 transition-colors cursor-pointer"
+                                    >
+                                        <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                                            <span className="w-2 h-2 bg-violet-600 rounded-full"></span>
+                                            Cấu hình AI
+                                        </span>
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            strokeWidth={2.2}
+                                            stroke="currentColor"
+                                            className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${isAiConfigExpanded ? 'rotate-180 text-violet-600' : ''}`}
+                                        >
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+                                    {isAiConfigExpanded && (
+                                        <div className="px-3 pb-3 pt-1 border-t border-indigo-50 animate-fade-in">
+                                            {renderConfig()}
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         )}
                     </div>
 
-                    {/* Sidebar Footer - Hidden on mobile when collapsed */}
-                    <div className={`p-3 bg-slate-50 border-t border-slate-200 text-center flex-shrink-0 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
-                        <p className="text-[11px] text-slate-600 font-semibold tracking-wide">ImageTool v{appVersion} © Studio Edition</p>
+                    {/* Sidebar Footer */}
+                    <div className={`pt-1 pb-0.5 text-center flex-shrink-0 ${isMenuOpen ? 'block' : 'hidden lg:block'}`}>
+                        <p className="text-[11px] text-slate-500 font-medium tracking-wide">ImageTool v{appVersion} © Studio Edition</p>
                     </div>
                 </aside>
 
-                {/* MAIN CONTENT AREA - Solid crisp canvas */}
-                <main className="flex-1 overflow-y-auto bg-slate-100 flex flex-col w-full relative custom-scrollbar pb-24 lg:pb-0">
+                {/* MAIN CONTENT AREA - Scenic Studio Canvas */}
+                <main className="flex-1 overflow-y-auto bg-[#f4f3fb] flex flex-col w-full relative custom-scrollbar pb-24 lg:pb-0">
                     {isHistoryVisible && currentUser ? (
                         <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
                             <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />
                         </div>
                     ) : (
-                        <div className="flex-1 flex flex-col p-4 md:p-8 w-full h-full">
+                        <div className="flex-1 flex flex-col p-3 lg:p-4 w-full h-full">
 
-                            {/* MOBILE INLINE: Inputs + Config + Generate Button - only mounted when actually on mobile screen */}
+                            {/* MOBILE INLINE: Inputs + Config + Generate Button */}
                             {isMobileScreen && (
-                                <div className="lg:hidden space-y-4 mb-6">
-                                    {/* Mobile Inputs Section */}
-                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                                        <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                                            <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                            </svg>
-                                            Ảnh đầu vào
+                                <div className="lg:hidden space-y-4 mb-4">
+                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-indigo-100">
+                                        <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <span className="w-2 h-2 bg-violet-600 rounded-full"></span>
+                                            Dữ liệu đầu vào
                                         </h3>
-                                        <div className="bg-slate-50/50 rounded-xl overflow-hidden">
+                                        <div>
                                             {renderInputs()}
                                         </div>
                                     </div>
 
-                                    {/* Mobile Config Section */}
-                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100" data-video-config={mode === 'video' ? '' : undefined}>
-                                        <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                                            <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
+                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-indigo-100" data-video-config={mode === 'video' ? '' : undefined}>
+                                        <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                            <span className="w-2 h-2 bg-violet-600 rounded-full"></span>
                                             Cấu hình AI
                                         </h3>
                                         {renderConfig()}
@@ -1246,7 +1242,6 @@ const App: React.FC = () => {
                             )}
 
                             {/* Render Results based on CURRENT MODE State */}
-                            
                             {mode === 'video' ? (
                                 <VideoWorkspace
                                     videos={videoEntries}
@@ -1256,12 +1251,12 @@ const App: React.FC = () => {
                                 />
                             ) : (
                                 <OutputDisplay
-                                outputImages={currentData.outputs}
-                                prompts={currentData.prompts}
-                                isLoading={isLoading}
-                                loadingStatus={loadingStatus}
-                                error={error}
-                                onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
+                                    outputImages={currentData.outputs}
+                                    prompts={currentData.prompts}
+                                    isLoading={isLoading}
+                                    loadingStatus={loadingStatus}
+                                    error={error}
+                                    onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
                                 />
                             )}
 
@@ -1279,7 +1274,6 @@ const App: React.FC = () => {
                                     </button>
                                 </div>
                             )}
-
 
                         </div>
                     )}

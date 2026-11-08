@@ -245,6 +245,7 @@ export const verifyAndRewardContributedAccount = async (
             await updateUserCredits(userId, REWARD_VND, 'add');
         } catch (credErr) {
             console.warn('[QuotaStation] Credits award warning:', credErr);
+            return { success: false, email: 'Tài khoản Google', message: 'Đã xác thực Google nhưng không cấp được lượt thưởng. Vui lòng liên hệ hỗ trợ.' };
         }
         return {
             success: true,
@@ -306,6 +307,7 @@ export const verifyAndRewardContributedAccount = async (
         await updateUserCredits(userId, REWARD_VND, 'add');
     } catch (credErr) {
         console.warn('[QuotaStation] Failed to award credits:', credErr);
+        return { success: false, email: targetEmail, message: 'Đã xác thực Google nhưng không cấp được lượt thưởng. Vui lòng liên hệ hỗ trợ.' };
     }
 
     // Cache locally so UI always has immediate access

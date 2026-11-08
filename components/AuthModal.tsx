@@ -26,16 +26,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-    const [showAuthVideo, setShowAuthVideo] = useState(() => typeof window !== 'undefined' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
     const [copiedDomain, setCopiedDomain] = useState(false);
-
-    useEffect(() => {
-        const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
-        const updateMotion = () => setShowAuthVideo(!motionPreference.matches);
-        motionPreference.addEventListener('change', updateMotion);
-        return () => motionPreference.removeEventListener('change', updateMotion);
-    }, []);
 
     // Countdown for verification pending view
     useEffect(() => {
@@ -302,24 +294,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
 
     return (
         <div className="auth-scene fixed inset-0 z-[100] flex items-center justify-center bg-[#342c50] px-3 py-4 safe-area-top safe-area-bottom sm:px-5">
-            {/* The video already contains the portraits, feature cards, petals and light effects. */}
+            {/* The looping GIF already includes the portraits, feature cards and light effects. */}
             <div className="auth-video-poster" aria-hidden="true" />
-            {showAuthVideo && (
-                <video
-                    className="auth-video-background"
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="metadata"
-                    poster="/auth-login-poster.jpg"
-                    aria-hidden="true"
-                    tabIndex={-1}
-                    onError={() => setShowAuthVideo(false)}
-                >
-                    <source src="/auth-login-background.mp4" type="video/mp4" />
-                </video>
-            )}
+            <img className="auth-gif-background" src="/auth-login-background.gif" alt="" aria-hidden="true" draggable={false} />
 
             <div className="auth-form-card relative overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="auth-title">
                 {/* Close Button Top Right */}

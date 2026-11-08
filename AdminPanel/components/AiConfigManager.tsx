@@ -27,6 +27,7 @@ import {
 } from '../services/adminFirebaseService';
 import { AdminUser } from '../services/adminAuthService';
 import { FlowToolLinkManager } from './FlowToolLinkManager';
+import { OpenRouterVideoConfigManager } from './OpenRouterVideoConfigManager';
 
 interface AiConfigManagerProps {
     admin: AdminUser;
@@ -310,6 +311,8 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Đã lưu & đồng bộ thời gian thực thành công!</div>
                 </div>
             )}
+
+            <OpenRouterVideoConfigManager admin={admin} />
 
             <FlowToolLinkManager admin={admin} />
 

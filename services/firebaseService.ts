@@ -838,11 +838,11 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         maxResolution: 'FHD',
         description: 'Mở khóa toàn bộ tính năng sáng tạo với mức chi phí siêu tiết kiệm.',
         features: [
-            'Cộng ngay 50.000đ vào số dư (tương đương 100 ảnh)',
+            'Nhận 100 ảnh trong 30 ngày từ lúc kích hoạt',
             'Sử dụng full tất cả các tính năng trên công cụ',
-            'Mở khóa toàn bộ Model AI (Gemini 3.1, GPT 2.5...)',
+            'Mở khóa GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2 và model miễn phí',
             'Tạo ảnh độ phân giải tối đa mức FHD (Full HD)',
-            'Chi phí tạo ảnh chỉ 500đ / ảnh'
+            'Hết lượt hoặc hết hạn sau 30 ngày sẽ quay về Free'
         ]
     },
     pro: {
@@ -855,11 +855,11 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         maxResolution: '4K',
         description: 'Sức mạnh tối đa không giới hạn cho Studio & Designer chuyên nghiệp.',
         features: [
-            'Cộng ngay 100.000đ vào số dư (tương đương 200 ảnh)',
+            'Nhận 200 ảnh trong 30 ngày từ lúc kích hoạt',
             'Sử dụng full toàn bộ tính năng có trên Tool',
-            'Mở khóa toàn bộ Model AI cao cấp nhất',
+            'Mở khóa toàn bộ model AI, bao gồm tất cả model của Plus',
             'Mở khóa mọi mức độ phân giải: HD, FHD, 2K, 4K Ultra',
-            'Chi phí tạo ảnh chỉ 500đ / ảnh • Ưu tiên tốc độ'
+            'Hết lượt hoặc hết hạn sau 30 ngày sẽ quay về Free'
         ]
     }
 };
@@ -887,6 +887,10 @@ export interface UserSubscriptionState {
     plan: SubscriptionPlan;
     dailyFreeUsed: number;
     dailyFreeDate: string;
+    remainingImages: number;
+    planStartedAt: number | null;
+    planExpiresAt: number | null;
+    planAllowanceImages: number;
 }
 
 export const getTodayDateString = (): string => {
@@ -897,14 +901,14 @@ export const getTodayDateString = (): string => {
     return `${year}-${month}-${day}`;
 };
 
-export const resolveEffectivePlan = (rawPlan?: string, credits: number = 0): SubscriptionPlan => {
-    if (credits < IMAGE_COST_VND) {
-        return 'free';
-    }
-    if (rawPlan === 'pro') return 'pro';
-    if (rawPlan === 'plus') return 'plus';
-    // Fallback inference for existing users with balance before plan field was introduced
-    return credits >= 100000 ? 'pro' : 'plus';
+export const resolveEffectivePlan = (
+    rawPlan?: string,
+    _credits: number = 0,
+    remainingImages: number = 0,
+    planExpiresAt: number | null = null
+): SubscriptionPlan => {
+    if (remainingImages <= 0 || !planExpiresAt || planExpiresAt <= Date.now()) return 'free';
+    return rawPlan === 'plus' || rawPlan === 'pro' ? rawPlan : 'free';
 };
 
 export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
@@ -912,14 +916,13 @@ export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
         const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
         if (!uid) return 'free';
         const rawPlan = localStorage.getItem('user_plan_' + uid) || undefined;
-        const rawBal = localStorage.getItem('user_balance_raw_' + uid);
-        const credits = rawBal ? parseInt(rawBal, 10) || 0 : 0;
-        return resolveEffectivePlan(rawPlan, credits);
+        const images = Number(localStorage.getItem('user_remaining_images_' + uid)) || 0;
+        const expiry = Number(localStorage.getItem('user_plan_expires_' + uid)) || 0;
+        return resolveEffectivePlan(rawPlan, 0, images, expiry);
     } catch {
         return 'free';
     }
 };
-
 export const getCachedDailyFreeUsed = (userId?: string): number => {
     try {
         const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
@@ -989,13 +992,9 @@ export const updateUserCredits = async (
             ? currentCredits + amount
             : Math.max(0, currentCredits - amount);
 
-        const nextPlan: SubscriptionPlan = planOverride
-            ? planOverride
-            : newCredits < IMAGE_COST_VND
-                ? 'free'
-                : (existingData.plan === 'pro' || existingData.plan === 'plus')
-                    ? existingData.plan
-                    : (newCredits >= 100000 ? 'pro' : 'plus');
+        // Legacy monetary rewards never grant paid image subscriptions.
+        const nextPlan: SubscriptionPlan = planOverride ||
+            resolveEffectivePlan(existingData.plan, 0, existingData.remainingImages, existingData.planExpiresAt);
 
         const updatePayload: Record<string, any> = {
             userId,
@@ -1048,60 +1047,16 @@ export const updateUserCredits = async (
     }
 };
 
-// Activate Plus or Pro subscription package after PayOS checkout success
+// Paid package activation is exclusively handled by the verified PayOS server.
+// Never activate subscriptions from a client write, even when passed a payment reference.
 export const activateSubscriptionPlan = async (
-    userId: string,
-    userName: string,
-    userEmail: string,
-    plan: 'plus' | 'pro',
-    paymentRef?: string
+    _userId: string,
+    _userName: string,
+    _userEmail: string,
+    _plan: 'plus' | 'pro',
+    _paymentRef?: string
 ): Promise<{ newBalance: number; plan: SubscriptionPlan }> => {
-    const planConfig = SUBSCRIPTION_PLANS[plan];
-    const amountToAdd = planConfig.price; // 50,000 for Plus, 100,000 for Pro
-    const billHash = paymentRef || `PAYOS_${plan.toUpperCase()}_${userId}_${Date.now()}`;
-
-    // Check duplicate if paymentRef is deterministic
-    if (paymentRef) {
-        const isDup = await checkDuplicateBill(paymentRef);
-        if (isDup) {
-            const currentBal = await getUserCredits(userId);
-            return { newBalance: currentBal, plan };
-        }
-    }
-
-    // Check current user plan so we don't downgrade a Pro user who buys Plus top-up unless they had 0 balance
-    const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
-    const docSnap = await getDoc(docRef);
-    const existingData = docSnap.exists() ? docSnap.data() : {};
-    const existingCredits = existingData.credits || 0;
-    const finalPlan: SubscriptionPlan =
-        (existingCredits >= IMAGE_COST_VND && existingData.plan === 'pro' && plan === 'plus')
-            ? 'pro'
-            : plan;
-
-    const newBalance = await updateUserCredits(userId, amountToAdd, 'add', finalPlan);
-
-    // Record approved bill in Firestore for Admin Panel & History
-    try {
-        await saveApprovedBill({
-            userId,
-            userName: userName || 'User',
-            userEmail: userEmail || '',
-            amount: amountToAdd,
-            credits: amountToAdd,
-            transferTime: new Date().toISOString(),
-            content: `Nang cap Imagetool ${plan === 'pro' ? 'Pro' : 'Plus'}`,
-            senderName: userName || 'PayOS Checkout',
-            billHash,
-            timestamp: Date.now(),
-            verificationStatus: 'approved',
-            plan: finalPlan
-        });
-    } catch (e) {
-        console.warn('Could not save approved bill log:', e);
-    }
-
-    return { newBalance, plan: finalPlan };
+    throw new Error('Gói dịch vụ chỉ được kích hoạt sau khi PayOS xác nhận thanh toán.');
 };
 
 // Increment daily free image counter for Free tier users
@@ -1240,17 +1195,21 @@ export const subscribeToUserCredits = (
         if (docSnap.exists()) {
             const data = docSnap.data();
             const credits = data.credits || 0;
-            const plan = resolveEffectivePlan(data.plan, credits);
+            const remainingImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+            const planExpiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
+            const plan = resolveEffectivePlan(data.plan, credits, remainingImages, planExpiresAt);
             const dailyFreeUsed = data.dailyFreeDate === today ? (data.dailyFreeUsed || 0) : 0;
 
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('user_balance_raw_' + userId, credits.toString());
                 localStorage.setItem('user_plan_' + userId, plan);
+                localStorage.setItem('user_remaining_images_' + userId, remainingImages.toString());
+                localStorage.setItem('user_plan_expires_' + userId, String(planExpiresAt || 0));
                 localStorage.setItem('user_credits_' + userId, Math.floor(credits / 100).toString());
                 localStorage.setItem('user_free_date_' + userId, today);
                 localStorage.setItem('user_free_used_' + userId, dailyFreeUsed.toString());
                 window.dispatchEvent(new CustomEvent('user-balance-changed', {
-                    detail: { balance: credits, plan, dailyFreeUsed }
+                    detail: { balance: credits, plan, dailyFreeUsed, remainingImages, planExpiresAt }
                 }));
             }
 
@@ -1258,19 +1217,29 @@ export const subscribeToUserCredits = (
                 credits,
                 plan,
                 dailyFreeUsed,
-                dailyFreeDate: today
+                dailyFreeDate: today,
+                remainingImages: plan === 'free' ? 0 : remainingImages,
+                planStartedAt: data.planStartedAt || null,
+                planExpiresAt,
+                planAllowanceImages: data.planAllowanceImages || 0
             });
         } else {
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('user_balance_raw_' + userId, '0');
                 localStorage.setItem('user_plan_' + userId, 'free');
+                localStorage.setItem('user_remaining_images_' + userId, '0');
+                localStorage.setItem('user_plan_expires_' + userId, '0');
                 localStorage.setItem('user_credits_' + userId, '0');
             }
             callback(0, {
                 credits: 0,
                 plan: 'free',
                 dailyFreeUsed: getCachedDailyFreeUsed(userId),
-                dailyFreeDate: today
+                dailyFreeDate: today,
+                remainingImages: 0,
+                planStartedAt: null,
+                planExpiresAt: null,
+                planAllowanceImages: 0
             });
         }
     });
@@ -1394,8 +1363,8 @@ export interface TermsData {
 const DEFAULT_TERMS_CONTENT = `📜 ĐIỀU KHOẢN SỬ DỤNG IMAGETOOL
 1. Chấp thuận: Đăng ký tài khoản đồng nghĩa bạn đã đọc, hiểu và đồng ý toàn bộ điều khoản này.
 2. Bảo mật: Bạn tự chịu trách nhiệm bảo mật mật khẩu và mọi hoạt động dưới tài khoản của mình.
-3. Gói cước: Gói Free tặng 10 ảnh/ngày; gói Plus/Pro nạp kích hoạt tự động, tính phí 500đ/ảnh.
-4. Không hoàn tiền: Số dư và gói dịch vụ sau khi nạp thành công không thể quy đổi hay hoàn lại tiền mặt.
+3. Gói cước: Gói Free tặng 10 ảnh/ngày; gói Plus có 100 ảnh, gói Pro có 200 ảnh trong 30 ngày kể từ khi kích hoạt. Gói kết thúc khi hết lượt hoặc hết hạn, tùy điều kiện nào đến trước.
+4. Không hoàn tiền: Gói dịch vụ sau khi thanh toán thành công không thể quy đổi hay hoàn lại tiền mặt.
 5. Bảo mật ảnh: Ảnh tải lên chỉ phục vụ xử lý AI, cam kết không bán hay chia sẻ cho bên thứ 3.
 6. Lưu trữ: Lịch sử ảnh tạm tự động xóa sau 72 giờ để bảo mật, bạn vui lòng tải ảnh về máy ngay khi tạo.
 7. Quyền sở hữu: Bạn có toàn quyền sử dụng hình ảnh do AI tạo ra cho mục đích cá nhân hoặc thương mại.

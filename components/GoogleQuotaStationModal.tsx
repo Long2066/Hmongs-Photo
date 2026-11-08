@@ -14,13 +14,15 @@ interface GoogleQuotaStationModalProps {
     onClose: () => void;
     user: User;
     onBalanceUpdated: () => void;
+    embedded?: boolean;
 }
 
 export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = ({
     isOpen,
     onClose,
     user,
-    onBalanceUpdated
+    onBalanceUpdated,
+    embedded = false
 }) => {
     const [step, setStep] = useState<'idle' | 'authorizing' | 'submitting' | 'success'>('idle');
     const [authUrl, setAuthUrl] = useState<string>('');
@@ -181,11 +183,11 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const totalFreeImagesEarned = contributedList.reduce((acc, curr) => acc + (curr.rewardImages || 10), 0);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+        <div className={embedded ? "w-full" : "fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in"}>
             <div
-                className="bg-white rounded-3xl shadow-2xl ring-1 ring-slate-900/10 max-w-lg w-full overflow-hidden flex flex-col max-h-[92vh] animate-scale-up"
-                role="dialog"
-                aria-modal="true"
+                className={embedded ? "bg-white rounded-3xl shadow-sm ring-1 ring-slate-900/5 w-full overflow-hidden flex flex-col" : "bg-white rounded-3xl shadow-2xl ring-1 ring-slate-900/10 max-w-lg w-full overflow-hidden flex flex-col max-h-[92vh] animate-scale-up"}
+                role={embedded ? undefined : "dialog"}
+                aria-modal={embedded ? undefined : true}
             >
                 {/* Header Banner */}
                 <div className="relative p-5 sm:p-6 bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 text-white overflow-hidden shrink-0">
@@ -211,7 +213,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                             </div>
                         </div>
 
-                        <button
+                        {!embedded && <button
                             onClick={onClose}
                             className="p-2 text-indigo-200 hover:text-white hover:bg-white/10 rounded-full transition-colors active:scale-95 min-w-[40px] min-h-[40px] flex items-center justify-center"
                             aria-label="Đóng"
@@ -219,12 +221,12 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
-                        </button>
+                        </button>}
                     </div>
                 </div>
 
                 {/* Body Content */}
-                <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+                <div className={embedded ? "p-4 sm:p-6 space-y-4" : "p-5 sm:p-6 overflow-y-auto space-y-4"}>
                     {/* Value Proposition Bento Card */}
                     <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-indigo-50 border border-amber-200/60 shadow-xs">
                         <div className="flex items-start gap-3">
@@ -402,7 +404,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                 </div>
 
                 {/* Modal Footer */}
-                <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0">
+                {!embedded && <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0">
                     <span className="text-[11px] text-slate-400">
                         Bảo mật 100% • Xác thực Google chuẩn OAuth 2.0
                     </span>
@@ -412,7 +414,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                     >
                         Đóng
                     </button>
-                </div>
+                </div>}
             </div>
         </div>
     );

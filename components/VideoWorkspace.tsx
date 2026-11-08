@@ -1,10 +1,53 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { downloadImage } from '../services/downloadService';
+
+// Vector SVG Icons
+const DownloadIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+);
+
+const PlayIcon = () => (
+    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+        <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+);
+
+const FilmIcon = () => (
+    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+        <line x1="7" y1="2" x2="7" y2="22" />
+        <line x1="17" y1="2" x2="17" y2="22" />
+        <line x1="2" y1="12" x2="22" y2="12" />
+        <line x1="2" y1="7" x2="7" y2="7" />
+        <line x1="2" y1="17" x2="7" y2="17" />
+        <line x1="17" y1="17" x2="22" y2="17" />
+        <line x1="17" y1="7" x2="22" y2="7" />
+    </svg>
+);
+
+const ClockIcon = () => (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+    </svg>
+);
+
+const VideoIcon = () => (
+    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    </svg>
+);
 
 export interface VideoEntry {
     url: string;
     firstFrame?: string;
     createdAt: number;
+    prompt?: string;
+    modelUsed?: string;
+    duration?: number;
+    aspectRatio?: string;
 }
 
 interface VideoWorkspaceProps {
@@ -13,13 +56,36 @@ interface VideoWorkspaceProps {
     loadingStatus: string;
     error: string | null;
 }
-/** Playback and download stay inside ImageTool; this does not embed or sign into Google Flow. */
-export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({ videos, isLoading, loadingStatus, error }) => {
+
+export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
+    videos,
+    isLoading,
+    loadingStatus,
+    error
+}) => {
     const [selectedUrl, setSelectedUrl] = useState('');
     const [downloading, setDownloading] = useState(false);
     const [downloadMessage, setDownloadMessage] = useState('');
+    const [renderTime, setRenderTime] = useState(0);
+
+    // Live render stopwatch
+    useEffect(() => {
+        let timer: any = null;
+        if (isLoading) {
+            setRenderTime(0);
+            timer = setInterval(() => {
+                setRenderTime(prev => prev + 1);
+            }, 1000);
+        } else {
+            setRenderTime(0);
+        }
+        return () => {
+            if (timer) clearInterval(timer);
+        };
+    }, [isLoading]);
 
     const active = videos.find(item => item.url === selectedUrl) || videos[0];
+
     const frameSrc = active?.firstFrame
         ? active.firstFrame.startsWith('data:') || /^https?:\/\//i.test(active.firstFrame)
             ? active.firstFrame
@@ -30,13 +96,16 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({ videos, isLoadin
         if (!active || downloading) return;
         setDownloading(true);
         setDownloadMessage('');
+
         try {
-            const filename = `imagetool_video_${active.createdAt}.mp4`;
+            const filename = `ImageTool_OmniVideo_${active.createdAt}.mp4`;
             let result;
+
             if (!(window as any).electronAPI?.isElectron && /^https?:\/\//i.test(active.url)) {
                 const response = await fetch(active.url);
                 if (!response.ok) throw new Error(`Không tải được video (HTTP ${response.status}).`);
-                const blobUrl = URL.createObjectURL(await response.blob());
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
                 try {
                     const link = document.createElement('a');
                     link.href = blobUrl;
@@ -44,93 +113,248 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({ videos, isLoadin
                     document.body.appendChild(link);
                     link.click();
                     link.remove();
-                    result = { success: true, message: 'Đã bắt đầu tải video.' };
+                    result = { success: true, message: 'Đã tải video MP4 về máy.' };
                 } finally {
                     setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
                 }
             } else {
                 result = await downloadImage(active.url, filename);
             }
-            setDownloadMessage(result.success ? (result.message || 'Đã lưu video.') : (result.message || 'Không thể lưu video.'));
-        } catch (err) {
-            setDownloadMessage(err instanceof Error ? err.message : 'Không thể tải video.');
+
+            setDownloadMessage(result.success ? (result.message || 'Đã lưu video thành công.') : (result.message || 'Không thể lưu video.'));
+        } catch (err: any) {
+            setDownloadMessage(err?.message || 'Không thể tải video.');
         } finally {
             setDownloading(false);
         }
     };
 
+    const formatSeconds = (sec: number) => {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    };
+
     return (
-        <section className="w-full max-w-6xl mx-auto space-y-6" aria-label="Video AI Studio">
-            <div className="rounded-2xl bg-slate-900 p-4 sm:p-6 text-white shadow-sm">
+        <section className="w-full max-w-5xl mx-auto space-y-5" aria-label="Khung chiếu Video Studio">
+            {/* Header Stage */}
+            <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-4 sm:p-5 text-white shadow-sm border border-indigo-900/30 flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-3">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-xl" aria-hidden="true">🎬</span>
-                    <div>
-                        <h2 className="text-lg font-semibold leading-tight">Video AI Studio</h2>
-                        <p className="mt-1 text-sm leading-relaxed text-slate-300">Tạo, xem và tải video ngay trong ImageTool</p>
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white shadow-sm text-xl shrink-0">
+                        🎬
                     </div>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-base sm:text-lg font-bold leading-tight">
+                                Video AI Studio &bull; OpenRouter Omni
+                            </h2>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                                4K Cinematic
+                            </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-300">
+                            Render chuyển động mượt mà &bull; Kèm âm thanh gốc &bull; Xem và tải trực tiếp
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-mono text-slate-300">
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80">
+                        {videos.length} video đã tạo
+                    </span>
                 </div>
             </div>
 
-            {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm font-medium leading-relaxed text-rose-800 ring-1 ring-rose-900/10">{error}</div>}
-
-            {isLoading && (
-                <div role="status" className="rounded-2xl bg-white p-4 sm:p-6 shadow-sm ring-1 ring-slate-900/5">
-                    <p className="text-sm font-semibold text-slate-900">{loadingStatus || 'Đang tạo video...'}</p>
-                    <p className="mt-1 text-xs text-slate-600">Quá trình xử lý có thể mất vài phút.</p>
-                    <div className="mt-4 h-2 w-full animate-pulse rounded-full bg-amber-100" />
+            {/* Error Message */}
+            {error && (
+                <div role="alert" className="rounded-2xl bg-rose-50 p-4 text-xs sm:text-sm font-semibold leading-relaxed text-rose-800 border border-rose-200 shadow-2xs">
+                    {error}
                 </div>
             )}
 
+            {/* In-Progress State */}
+            {isLoading && (
+                <div role="status" className="rounded-2xl bg-white p-6 shadow-sm border border-slate-200 text-center animate-fade-in">
+                    <div className="relative w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                        <div className="absolute inset-0 rounded-full border-4 border-amber-200 border-t-amber-600 animate-spin" />
+                        <span className="text-amber-600"><FilmIcon /></span>
+                    </div>
+
+                    <h3 className="text-base font-bold text-slate-900">
+                        {loadingStatus || 'Đang kết xuất chuyển động video...'}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+                        Đang phân tích khung hình gốc và render các khung hình liên tục qua Google Gemini Omni Flash.
+                    </p>
+
+                    <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs font-mono font-bold text-slate-700">
+                        <span className="text-amber-600"><ClockIcon /></span>
+                        <span>Thời gian đã xử lý: {formatSeconds(renderTime)}</span>
+                    </div>
+
+                    <div className="mt-5 h-2 w-full max-w-md mx-auto overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full w-full bg-gradient-to-r from-amber-500 to-orange-500 animate-pulse" />
+                    </div>
+                </div>
+            )}
+
+            {/* Active Video Player Stage */}
             {active ? (
                 <>
-                    <div className="grid grid-cols-1 gap-4 rounded-2xl bg-slate-800 p-4 shadow-sm ring-1 ring-slate-900/10 lg:grid-cols-[minmax(0,1.6fr)_minmax(260px,1fr)] lg:gap-6 lg:p-6">
-                        <div className="min-w-0 overflow-hidden rounded-xl bg-slate-950">
-                            <video key={active.url} src={active.url} controls playsInline preload="metadata" className="aspect-video w-full bg-slate-950 object-contain" aria-label="Phát video đã tạo">
-                                Trình duyệt không hỗ trợ phát video này.
-                            </video>
+                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)] gap-5 rounded-2xl bg-slate-900 p-4 sm:p-6 shadow-sm border border-slate-800 text-white">
+                        {/* Video Player Main View */}
+                        <div className="min-w-0 flex flex-col gap-3">
+                            <div className="relative overflow-hidden rounded-xl bg-black border border-slate-800 shadow-inner flex items-center justify-center">
+                                <video
+                                    key={active.url}
+                                    src={active.url}
+                                    controls
+                                    playsInline
+                                    autoPlay
+                                    loop
+                                    preload="metadata"
+                                    className="max-h-[520px] w-full object-contain bg-black"
+                                >
+                                    Trình duyệt không hỗ trợ xem video này trực tiếp.
+                                </video>
+                            </div>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-4 text-white">
-                            <div>
-                                <div className="flex items-center justify-between gap-2">
-                                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200">Khung hình gốc (First Frame)</h3>
-                                    <span className="text-xs font-medium text-emerald-300">Đã render</span>
+
+                        {/* Video Metadata & Download Panel */}
+                        <div className="flex min-w-0 flex-col justify-between gap-4">
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                                        Ảnh khung hình gốc
+                                    </span>
+                                    <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-800/40">
+                                        Hoàn tất render
+                                    </span>
                                 </div>
+
                                 {frameSrc ? (
-                                    <img src={frameSrc} alt="Ảnh nguồn của video" className="mt-3 aspect-video w-full rounded-xl bg-slate-950 object-contain" />
+                                    <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800">
+                                        <img
+                                            src={frameSrc}
+                                            alt="Khung hình gốc"
+                                            className="w-full h-full object-contain"
+                                        />
+                                    </div>
                                 ) : (
-                                    <div className="mt-3 flex aspect-video items-center justify-center rounded-xl bg-slate-700 p-4 text-center text-sm text-slate-200">Video tạo không kèm ảnh nguồn</div>
+                                    <div className="aspect-video w-full rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                                        Tạo từ văn bản (Không có ảnh gốc)
+                                    </div>
+                                )}
+
+                                <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
+                                    <div className="flex items-center justify-between text-slate-300">
+                                        <span>Định dạng xuất:</span>
+                                        <span className="font-mono font-bold text-white">MP4 (H.264)</span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-slate-300">
+                                        <span>Thời gian tạo:</span>
+                                        <span className="font-mono text-white">
+                                            {new Date(active.createdAt).toLocaleTimeString('vi-VN')}
+                                        </span>
+                                    </div>
+                                    {active.modelUsed && (
+                                        <div className="flex items-center justify-between text-slate-300">
+                                            <span>Mô hình xử lý:</span>
+                                            <span className="font-mono text-[11px] text-amber-300 truncate max-w-[160px]">
+                                                {active.modelUsed.split('/').pop()}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="space-y-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={handleDownload}
+                                    disabled={downloading}
+                                    className="min-h-[46px] w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <DownloadIcon />
+                                    <span>{downloading ? 'Đang tải MP4...' : 'Tải video MP4 về máy'}</span>
+                                </button>
+
+                                {downloadMessage && (
+                                    <p role="status" className="text-xs text-center text-emerald-400 font-medium">
+                                        {downloadMessage}
+                                    </p>
                                 )}
                             </div>
-                            <div className="flex items-center justify-between gap-2 text-sm text-slate-200">
-                                <span>Định dạng tải</span><span className="font-mono tabular-nums font-semibold text-white">MP4</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 text-sm text-slate-200">
-                                <span>Thời gian nhận</span><time className="font-mono tabular-nums text-right font-semibold text-white">{new Date(active.createdAt).toLocaleTimeString('vi-VN')}</time>
-                            </div>
-                            <button type="button" onClick={handleDownload} disabled={downloading} className="min-h-[44px] w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm transition-all hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">
-                                {downloading ? 'Đang lưu video...' : '↓ Tải video này về máy'}
-                            </button>
-                            {downloadMessage && <p role="status" className="text-sm leading-relaxed text-amber-100">{downloadMessage}</p>}
                         </div>
                     </div>
-                    <div>
-                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-700">Video trong phiên này ({videos.length})</h3>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                            {videos.map((item, index) => (
-                                <button key={item.url} type="button" onClick={() => { setSelectedUrl(item.url); setDownloadMessage(''); }} aria-current={item.url === active.url ? 'true' : undefined} className={`min-h-[88px] overflow-hidden rounded-xl bg-slate-800 text-left text-white shadow-sm transition-all hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98] ${item.url === active.url ? 'ring-2 ring-amber-500' : 'ring-1 ring-slate-900/10'}`}>
-                                    {item.firstFrame ? <img src={item.firstFrame.startsWith('data:') || /^https?:\/\//i.test(item.firstFrame) ? item.firstFrame : `data:image/png;base64,${item.firstFrame}`} alt="" className="aspect-video w-full object-cover" /> : <div className="flex aspect-video items-center justify-center bg-slate-700 text-lg" aria-hidden="true">▶</div>}
-                                    <span className="block truncate px-3 py-2 text-xs font-semibold">Video #{videos.length - index}</span>
-                                </button>
-                            ))}
+
+                    {/* Gallery of Session Videos */}
+                    {videos.length > 1 && (
+                        <div>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
+                                Bộ sưu tập video trong phiên này ({videos.length})
+                            </h3>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                {videos.map((item, idx) => (
+                                    <button
+                                        key={item.url}
+                                        type="button"
+                                        onClick={() => { setSelectedUrl(item.url); setDownloadMessage(''); }}
+                                        className={`rounded-xl overflow-hidden text-left bg-slate-900 border transition-all cursor-pointer group ${
+                                            item.url === active.url
+                                                ? 'border-amber-500 ring-2 ring-amber-500/30'
+                                                : 'border-slate-800 hover:border-slate-700'
+                                        }`}
+                                    >
+                                        <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+                                            {item.firstFrame ? (
+                                                <img
+                                                    src={item.firstFrame.startsWith('data:') || /^https?:\/\//i.test(item.firstFrame) ? item.firstFrame : `data:image/png;base64,${item.firstFrame}`}
+                                                    alt=""
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                />
+                                            ) : (
+                                                <div className="text-slate-600">▶</div>
+                                            )}
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <PlayIcon />
+                                            </div>
+                                        </div>
+                                        <div className="p-2 text-xs text-white flex items-center justify-between">
+                                            <span className="font-semibold truncate">Video #{videos.length - idx}</span>
+                                            <span className="text-[10px] text-slate-400 font-mono">
+                                                {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </>
             ) : !isLoading && !error ? (
-                <div className="flex flex-col items-center rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-900/5">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-2xl" aria-hidden="true">🎞️</span>
-                    <h3 className="mt-4 text-base font-semibold text-slate-900">Chưa có video</h3>
-                    <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-600">Chọn model và ảnh nguồn ở bảng cấu hình, sau đó nhấn Tạo video. Video hoàn thành sẽ hiển thị tại đây.</p>
-                    <button type="button" onClick={() => Array.from(document.querySelectorAll<HTMLElement>('[data-video-config]')).find(element => element.getClientRects().length > 0)?.scrollIntoView({ behavior: 'smooth' })} className="mt-5 min-h-[44px] rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition-all hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98]">Đi tới cấu hình video</button>
+                /* Empty Ready State */
+                <div className="rounded-2xl bg-white p-8 sm:p-12 text-center shadow-sm border border-slate-200/80">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 shadow-sm border border-amber-100">
+                        <VideoIcon />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900">
+                        Khung xem video Studio sẵn sàng
+                    </h3>
+                    <p className="mt-2 text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                        Tải ảnh nguồn (First Frame), chọn góc chuyển động và nhấn &ldquo;Bắt đầu tạo video&rdquo; ở thanh bên trái để AI biến ảnh tĩnh thành clip 15s sống động.
+                    </p>
+                    <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            Omni 1.2 Flash
+                        </span>
+                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            Âm thanh gốc Native
+                        </span>
+                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Tự động Failover 1.1
+                        </span>
+                    </div>
                 </div>
             ) : null}
         </section>

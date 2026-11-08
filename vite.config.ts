@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      watch: { ignored: ['**/giao dien dang nhap/**'] }, // The source GIF is locked by some Windows media viewers.
     },
     build: {
       outDir: 'dist',

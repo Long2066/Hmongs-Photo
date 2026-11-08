@@ -138,10 +138,11 @@ export const isProUser = (): boolean => {
         return true;
     }
 
-    // NEW: Users who have purchased credits are also PRO
-    // Check localStorage for cached credits (faster than Firestore query)
-    const cachedCredits = localStorage.getItem('user_credits_' + user.id);
-    if (cachedCredits && parseInt(cachedCredits) > 0) {
+    // Purchased packages grant access only while their image entitlement is active.
+    const plan = localStorage.getItem('user_plan_' + user.id);
+    const images = Number(localStorage.getItem('user_remaining_images_' + user.id)) || 0;
+    const expiry = Number(localStorage.getItem('user_plan_expires_' + user.id)) || 0;
+    if ((plan === 'plus' || plan === 'pro') && images > 0 && expiry > Date.now()) {
         return true;
     }
 

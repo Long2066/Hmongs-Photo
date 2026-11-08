@@ -17,29 +17,35 @@ interface ImageUploaderProps {
   compact?: boolean;
 }
 
+const CloudUploadSvg: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+  </svg>
+);
+
 const UploaderSlot: React.FC<{ onClick: () => void, isDragging: boolean, compact?: boolean }> = memo(({ onClick, isDragging, compact }) => (
   <div
     onClick={onClick}
-    className={`relative flex flex-col items-center justify-center w-full border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-200 group overflow-hidden
-        ${compact ? 'aspect-square p-2' : 'aspect-square p-4'}
+    className={`relative flex flex-col items-center justify-center w-full border-[1.5px] border-dashed rounded-2xl cursor-pointer transition-all duration-200 group overflow-hidden min-h-[44px]
+        ${compact ? 'aspect-square p-2.5' : 'aspect-square p-4'}
         ${isDragging
-        ? 'border-indigo-600 bg-indigo-50/60 scale-[1.01] shadow-xs'
-        : 'border-slate-300 bg-white hover:border-indigo-500 hover:bg-slate-50 shadow-xs'
+        ? 'border-violet-600 bg-violet-50/80 scale-[1.01] shadow-sm'
+        : 'border-indigo-200/90 bg-[#fbfaff] hover:border-violet-400 hover:bg-violet-50/50 shadow-[0_1px_4px_rgba(99,102,241,0.04)]'
       }`}
   >
     {/* Inner content */}
     <div className="relative flex flex-col items-center justify-center text-center z-10">
-      <div className={`rounded-xl mb-1.5 transition-all duration-200
-        ${compact ? 'p-2' : 'p-3'} 
+      <div className={`rounded-full border transition-all duration-200 flex items-center justify-center mb-2
+        ${compact ? 'w-10 h-10' : 'w-12 h-12'} 
         ${isDragging
-          ? 'bg-indigo-100 text-indigo-700'
-          : 'bg-slate-100 group-hover:bg-indigo-50 text-slate-600 group-hover:text-indigo-600'
+          ? 'bg-violet-100 border-violet-300 text-violet-700'
+          : 'bg-white border-indigo-100 text-violet-600 group-hover:bg-violet-50 group-hover:border-violet-200 group-hover:scale-105 shadow-2xs'
         }`}>
-        <UploadIcon className={`${compact ? 'w-5 h-5' : 'w-7 h-7'}`} />
+        <CloudUploadSvg className={`${compact ? 'w-5 h-5' : 'w-6 h-6'}`} />
       </div>
       {!compact && (
         <>
-          <p className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors mb-0.5">
+          <p className="font-bold text-xs text-slate-800 group-hover:text-violet-700 transition-colors mb-0.5">
             Kéo thả ảnh vào đây
           </p>
           <p className="text-[10px] text-slate-500 font-medium group-hover:text-slate-700 transition-colors">
@@ -48,8 +54,8 @@ const UploaderSlot: React.FC<{ onClick: () => void, isDragging: boolean, compact
         </>
       )}
       {compact && (
-        <p className="font-bold text-[10px] text-slate-700 uppercase tracking-wide group-hover:text-indigo-600 transition-colors">
-          Thêm ảnh
+        <p className="font-bold text-[10.5px] text-slate-700 uppercase tracking-wider group-hover:text-violet-700 transition-colors">
+          THÊM ẢNH
         </p>
       )}
     </div>
@@ -272,22 +278,22 @@ export const ImageUploader: React.FC<ImageUploaderProps> = memo(({ onImagesChang
       className="w-full select-none"
     >
       {/* Header with label and count */}
-      <div className="flex justify-between items-center mb-2 px-1">
+      <div className="flex justify-between items-center mb-2 px-0.5">
         <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
-          <span className={`font-bold text-slate-800 uppercase tracking-wider ${compact ? 'text-[10px]' : 'text-xs'}`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-violet-600"></span>
+          <span className={`font-bold text-slate-800 uppercase tracking-wider ${compact ? 'text-[10.5px]' : 'text-xs'}`}>
             {label}
           </span>
         </div>
-        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border font-mono text-[10px] font-bold ${images.length === maxImages
-            ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-xs'
-            : 'bg-slate-100 text-slate-700 border-slate-200'
+        <div className={`flex items-center gap-1 font-mono text-[10.5px] font-semibold tabular-nums ${images.length === maxImages
+            ? 'text-violet-700'
+            : 'text-slate-500'
           }`}>
           <span>{images.length}</span>
           <span className="text-slate-400">/</span>
           <span>{maxImages}</span>
           {isUploading && (
-            <svg className="animate-spin h-3 w-3 text-indigo-600 ml-1" viewBox="0 0 24 24">
+            <svg className="animate-spin h-3 w-3 text-violet-600 ml-1" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>

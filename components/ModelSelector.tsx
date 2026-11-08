@@ -6,15 +6,12 @@ import {
 } from '../services/geminiCoreService';
 import * as nineRouterService from '../services/nineRouterService';
 import { SUPPORTED_IMAGE_MODELS } from '../services/nineRouterService';
-import { getCachedBalance } from '../services/balanceService';
 import { isAdmin } from '../services/storageService';
 import {
     SubscriptionPlan,
     FREE_DAILY_IMAGE_LIMIT,
-    IMAGE_COST_VND,
     getCachedUserPlan,
-    getDailyFreeRemaining,
-    resolveEffectivePlan
+    getDailyFreeRemaining
 } from '../services/firebaseService';
 
 interface ModelSelectorProps {
@@ -32,12 +29,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     onResolutionChange,
     className = '',
     showResolution = true,
-    userBalance: propBalance
+    userBalance: _propBalance
 }) => {
     // User Balance & Plan State
-    const [userBalance, setUserBalance] = useState<number>(() =>
-        propBalance !== undefined ? propBalance : getCachedBalance()
-    );
     const [userPlan, setUserPlan] = useState<SubscriptionPlan>(() =>
         isAdmin() ? 'pro' : getCachedUserPlan()
     );
@@ -51,9 +45,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     );
 
     // Effective Plan considering balance & admin status
-    const effectivePlan: SubscriptionPlan = isAdmin()
-        ? 'pro'
-        : resolveEffectivePlan(userPlan, userBalance);
+    const effectivePlan: SubscriptionPlan = isAdmin() ? 'pro' : userPlan;
 
     // Helper: Determine if a model is Paid according to Firebase real-time sync
     const checkIsPaid = useCallback((modelId: string): boolean => {
@@ -64,12 +56,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         return nineRouterService.isModelPaid(clean);
     }, [pricingMap]);
 
-    // Helper: Determine if a model is locked (Paid model when user balance is 0đ and not admin)
+    // Helper: Determine if a model requires an active paid package.
     const checkIsLocked = useCallback((modelId: string): boolean => {
         if (isAdmin()) return false;
-        const isPaid = checkIsPaid(modelId);
-        return isPaid && userBalance < IMAGE_COST_VND;
-    }, [checkIsPaid, userBalance]);
+        return !nineRouterService.isImageModelAllowedForPlan(modelId, effectivePlan);
+    }, [effectivePlan, pricingMap]);
 
     // Selected Image Model
     const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -107,12 +98,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         };
 
         const handleBalanceAndPlanChange = (e?: any) => {
-            const nextBal = e?.detail?.balance !== undefined
-                ? e.detail.balance
-                : propBalance !== undefined
-                    ? propBalance
-                    : getCachedBalance();
-            setUserBalance(nextBal);
             setUserPlan(isAdmin() ? 'pro' : getCachedUserPlan());
             setFreeRemaining(getDailyFreeRemaining());
         };
@@ -131,20 +116,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
             window.removeEventListener('user-balance-changed', handleBalanceAndPlanChange);
             clearInterval(interval);
         };
-    }, [propBalance]);
+    }, []);
 
-    useEffect(() => {
-        if (propBalance !== undefined) {
-            setUserBalance(propBalance);
-        }
-    }, [propBalance]);
-
-    // Dynamic auto-fallback: if currently selected model is locked (Paid model & 0đ balance),
+    // Dynamic auto-fallback: if the selected model is locked for the current package,
     // automatically fall back to the first available Free model
     useEffect(() => {
         if (checkIsLocked(selectedModel)) {
             const availableFree = SUPPORTED_IMAGE_MODELS.find(m => !checkIsPaid(m.id))?.id || 'gemini-3.1-flash-image';
-            console.log(`[ModelSelector] Active model ${selectedModel} is locked (0đ balance). Switching to free model: ${availableFree}`);
+            console.log(`[ModelSelector] Active model ${selectedModel} requires a package. Switching to free model: ${availableFree}`);
             setSelectedModel(availableFree);
             nineRouterService.setNineRouterImageModel(availableFree);
             onModelChange?.(availableFree);
@@ -179,7 +158,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     // Choose a model
     const handleSelectModel = useCallback((modelId: string) => {
         if (checkIsLocked(modelId)) {
-            alert('Mô hình này đang ở chế độ Trả phí (500đ/ảnh). Số dư của bạn hiện tại là 0đ. Vui lòng nạp thêm tiền trong Trang cá nhân hoặc chọn mô hình Miễn phí (như Gemini 3.1 Flash, GPT Image 1.5) để tiếp tục tạo ảnh!');
+            alert('Model này không thuộc gói hiện tại. Plus mở GPT Image 2.5, Flare, Sunburst và GPT Image 2; Pro mở toàn bộ model.');
             return;
         }
 
@@ -193,7 +172,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     const handleResolutionChange = useCallback((res: ResolutionType) => {
         const isHighRes = res === '2K' || res === '4K';
         if (isHighRes && effectivePlan !== 'pro') {
-            alert('Độ phân giải 2K và 4K chỉ dành cho Gói Pro (100.000đ). Gói Free và Gói Plus hỗ trợ tối đa mức FHD. Vui lòng nâng cấp Gói Pro trong Trang cá nhân để mở khóa!');
+            alert('Độ phân giải 2K và 4K chỉ dành cho Gói Pro (100.000đ). Gói Free và Gói Plus hỗ trợ tối đa mức FHD. Vui lòng nâng cấp Gói Pro tại Cấu hình & gói dịch vụ để mở khóa!');
             return;
         }
 
@@ -207,7 +186,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         const trimmed = customModelInput.trim();
         if (!trimmed) return;
         if (checkIsLocked(trimmed)) {
-            alert('Mô hình này yêu cầu số dư > 0đ để sử dụng.');
+            alert('Model này không thuộc gói hiện tại. Chọn Pro để mở toàn bộ model.');
             return;
         }
         setSelectedModel(trimmed);
@@ -229,20 +208,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         Model Tạo Ảnh
                     </label>
                     <span className="text-[11px] font-semibold">
-                        {!activeModelIsPaid ? (
-                            userBalance < IMAGE_COST_VND ? (
-                                <span className="text-emerald-700 font-mono tabular-nums">
-                                    Miễn phí • Còn {freeRemaining}/{FREE_DAILY_IMAGE_LIMIT} ảnh hôm nay
-                                </span>
-                            ) : (
-                                <span className="text-emerald-700 font-mono tabular-nums">
-                                    Model Miễn phí (0đ/ảnh)
-                                </span>
-                            )
+                        {effectivePlan === 'free' && !activeModelIsPaid ? (
+                            <span className="text-emerald-700 font-mono tabular-nums">Miễn phí • Còn {freeRemaining}/{FREE_DAILY_IMAGE_LIMIT} ảnh hôm nay</span>
                         ) : (
-                            <span className="text-indigo-600 font-mono tabular-nums">
-                                Trả phí • {IMAGE_COST_VND}đ/ảnh
-                            </span>
+                            <span className="text-indigo-700 font-mono tabular-nums">{effectivePlan === 'free' ? 'Cần gói Plus/Pro' : `${effectivePlan === 'pro' ? 'Pro' : 'Plus'} • Dùng lượt trong gói`}</span>
                         )}
                     </span>
                 </div>
@@ -268,7 +237,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                     : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                             }`}>
-                                {!activeModelIsPaid ? 'Miễn phí' : '500đ/ảnh'}
+                                {effectivePlan !== 'free' ? 'Trong gói' : !activeModelIsPaid ? 'Miễn phí' : 'Cần gói'}
                             </span>
                         </div>
 
@@ -304,7 +273,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                                         ? 'bg-indigo-50 text-indigo-700 font-bold cursor-pointer'
                                                         : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100/70 font-medium cursor-pointer'
                                             }`}
-                                            title={isLocked ? 'Mô hình Trả phí (500đ/ảnh). Cần số dư > 0đ để sử dụng' : model.description}
+                                            title={isLocked ? 'Model này không thuộc gói hiện tại' : model.description}
                                         >
                                             <div className="flex items-center gap-2 truncate min-w-0">
                                                 <span className="text-xs truncate">
@@ -317,7 +286,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                                             ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                                             : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                                                 }`}>
-                                                    {!isPaid ? 'Miễn phí' : isLocked ? 'Cần số dư > 0đ' : 'Trả phí • 500đ'}
+                                                    {effectivePlan !== 'free' ? 'Trong gói' : !isPaid ? 'Miễn phí' : 'Cần gói'}
                                                 </span>
                                             </div>
 

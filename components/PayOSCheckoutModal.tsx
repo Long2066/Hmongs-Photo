@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auth } from '../src/firebaseConfig';
 import { SUBSCRIPTION_PLANS, SubscriptionPlan } from '../services/firebaseService';
 import { formatVND, getSelectedResolution, setSelectedResolution } from '../services/geminiCoreService';
-import { getUserBalance, setCachedBalance } from '../services/balanceService';
 
 interface PayOSCheckoutModalProps {
     planId: 'plus' | 'pro';
@@ -15,13 +14,12 @@ interface PayOSCheckoutModalProps {
 }
 
 type Order = { orderCode: number; checkoutUrl: string };
-type OrderStatus = { status: string; balance?: number; plan?: SubscriptionPlan };
+type OrderStatus = { status: string; balance?: number; plan?: SubscriptionPlan; remainingImages?: number; planExpiresAt?: number };
 
 const paymentRequest = async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const user = auth.currentUser;
     if (!user) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
-    const localApp = ['localhost', '127.0.0.1'].includes(window.location.hostname) || window.location.protocol === 'file:';
-    const configuredOrigin = (import.meta.env.VITE_PAYOS_API_ORIGIN || (localApp ? 'https://vip-imagetools.vercel.app' : '')).replace(/\/$/, '');
+    const configuredOrigin = (import.meta.env.VITE_PAYOS_API_ORIGIN || (!import.meta.env.DEV && window.location.protocol === 'file:' ? 'https://vip-imagetools.vercel.app' : '')).replace(/\/$/, '');
     if (configuredOrigin && !/^https:\/\/[^/]+$/.test(configuredOrigin)) {
         throw new Error('Cấu hình máy chủ thanh toán HTTPS không hợp lệ.');
     }
@@ -31,7 +29,7 @@ const paymentRequest = async <T,>(url: string, init?: RequestInit): Promise<T> =
         headers: { Authorization: `Bearer ${await user.getIdToken()}`, ...(init?.headers || {}) }
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || 'Không kết nối được máy chủ thanh toán. Vui lòng thử lại.');
+    if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error(result.error || 'Không kết nối được API thanh toán local. Hãy chạy backend local trước khi thử mua gói.');
     return result as T;
 };
 
@@ -43,7 +41,8 @@ export const PayOSCheckoutModal: React.FC<PayOSCheckoutModalProps> = ({
     const [loading, setLoading] = useState(true);
     const [checking, setChecking] = useState(false);
     const [success, setSuccess] = useState(false);
-    const [balance, setBalance] = useState(currentBalance);
+    const [imagesGranted, setImagesGranted] = useState(0);
+    const [expiresAt, setExpiresAt] = useState<number | null>(null);
     const [message, setMessage] = useState('Đang tạo đơn thanh toán mới...');
     const [error, setError] = useState('');
     const completed = useRef(false);
@@ -81,15 +80,14 @@ export const PayOSCheckoutModal: React.FC<PayOSCheckoutModalProps> = ({
         if (manual) setChecking(true);
         try {
             const result = await paymentRequest<OrderStatus>(`/api/payos-status?orderCode=${encodeURIComponent(order.orderCode)}`);
-            if (result.status === 'PAID' && typeof result.balance === 'number' && result.plan) {
+            if (result.status === 'PAID' && typeof result.remainingImages === 'number' && typeof result.planExpiresAt === 'number' && result.plan) {
                 completed.current = true;
-                setBalance(result.balance);
+                setImagesGranted(result.remainingImages);
+                setExpiresAt(result.planExpiresAt);
                 setSuccess(true);
                 setError('');
-                const cached = getUserBalance();
-                setCachedBalance({ ...cached, balanceVND: result.balance, lastUpdated: Date.now() });
                 if (result.plan === 'plus' && ['2K', '4K'].includes(getSelectedResolution())) setSelectedResolution('FHD');
-                onSuccess(result.balance, result.plan);
+                onSuccess(result.balance ?? currentBalance, result.plan);
             } else if (['CANCELLED', 'EXPIRED'].includes(result.status)) {
                 setMessage('Đơn đã hết hạn hoặc bị hủy. Hãy đóng cửa sổ này và chọn mua lại để tạo đơn mới.');
             } else if (manual) {
@@ -114,7 +112,7 @@ export const PayOSCheckoutModal: React.FC<PayOSCheckoutModalProps> = ({
                 <header className="flex items-center justify-between gap-4 bg-slate-900 px-4 py-4 text-white sm:px-6">
                     <div>
                         <h2 className="text-lg font-semibold leading-tight">Thanh toán {plan.name}</h2>
-                        <p className="mt-1 text-sm text-slate-200">Nạp <span className="font-mono tabular-nums">{formatVND(plan.price)}</span> · Mỗi lần mua là một đơn riêng</p>
+                        <p className="mt-1 text-sm text-slate-200">Giá gói <span className="font-mono tabular-nums">{formatVND(plan.price)}</span> · {planId === 'plus' ? '100' : '200'} ảnh trong 30 ngày</p>
                     </div>
                     <button type="button" onClick={onClose} aria-label="Đóng thanh toán" className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-white hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-95">✕</button>
                 </header>
@@ -123,7 +121,7 @@ export const PayOSCheckoutModal: React.FC<PayOSCheckoutModalProps> = ({
                         <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 text-center">
                             <span aria-hidden="true" className="rounded-full bg-emerald-100 px-5 py-3 text-3xl text-emerald-800">✓</span>
                             <h3 className="text-xl font-semibold leading-tight text-slate-900">Thanh toán đã được xác nhận</h3>
-                            <p className="text-sm leading-relaxed text-slate-700">Số dư mới: <strong className="font-mono tabular-nums text-slate-900">{formatVND(balance)}</strong></p>
+                            <p className="text-sm leading-relaxed text-slate-700">Gói có <strong className="font-mono tabular-nums text-slate-900">{imagesGranted} ảnh</strong>{expiresAt && <> · Hạn đến <strong className="font-mono tabular-nums text-slate-900">{new Date(expiresAt).toLocaleDateString('vi-VN')}</strong></>}</p>
                             <button type="button" onClick={onClose} className="min-h-[44px] rounded-xl bg-indigo-700 px-6 font-semibold text-white hover:bg-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.98]">Hoàn tất</button>
                         </div>
                     ) : (

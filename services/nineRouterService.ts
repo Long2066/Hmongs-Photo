@@ -209,6 +209,16 @@ export const getModelPricing = (): Record<string, boolean> => {
     return { ...DEFAULT_MODEL_PRICING };
 };
 
+// Plus includes the four GPT models shown in the package; Pro can choose any model.
+export const PLUS_IMAGE_MODEL_IDS = ['gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2'] as const;
+
+export const isImageModelAllowedForPlan = (modelId: string, plan: 'free' | 'plus' | 'pro'): boolean => {
+    if (plan === 'pro') return true;
+    const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim().toLowerCase();
+    if (plan === 'plus' && PLUS_IMAGE_MODEL_IDS.some(id => id === cleanId)) return true;
+    return SUPPORTED_IMAGE_MODELS.some(model => model.id === cleanId) && !isModelPaid(cleanId);
+};
+
 export const isModelPaid = (modelId: string): boolean => {
     const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
     const pricing = getModelPricing();

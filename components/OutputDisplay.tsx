@@ -1,7 +1,7 @@
-
 import React, { useState } from 'react';
 import { downloadImage } from '../services/downloadService';
-import { ErrorIcon, ImageIcon } from './Icons';
+import { ErrorIcon } from './Icons';
+import { StudioHeroStage } from './StudioHeroStage';
 
 interface OutputDisplayProps {
     outputImages: (string | null)[];
@@ -40,7 +40,7 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({
     };
 
     return (
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 animate-fade-in ring-1 ring-slate-900/5 col-span-full max-w-2xl mx-auto w-full">
+        <div className="bg-white p-3.5 rounded-2xl border border-indigo-100/90 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 animate-fade-in ring-1 ring-slate-900/5 col-span-full max-w-2xl mx-auto w-full">
             <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
@@ -88,44 +88,30 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({
     );
 };
 
-const OutputImage: React.FC<{ base64: string; index: number, prompt: string, meta?: { name: string, job: string }, onClick: () => void }> = ({ base64, index, prompt, meta, onClick }) => {
+const OutputImage: React.FC<{ base64: string; index: number, onClick: () => void }> = ({ base64, index, onClick }) => {
     const imgSrc = base64.startsWith('data:') || base64.startsWith('http')
         ? base64
         : `data:image/png;base64,${base64}`;
 
     return (
-        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all duration-200 flex flex-col gap-2.5 animate-fade-in group ring-1 ring-slate-900/5">
-            <div
-                className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden cursor-pointer"
+        <div className="group overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-shadow hover:shadow-md">
+            <button
+                type="button"
                 onClick={onClick}
+                aria-label={`Xem chi tiết ảnh ${index + 1}`}
+                className="relative flex aspect-square min-h-[44px] w-full cursor-pointer items-center justify-center overflow-hidden bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 active:scale-[0.99]"
             >
-                <img src={imgSrc} alt={`Generated ${index + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" />
+                <img src={imgSrc} alt={`Ảnh được tạo ${index + 1}`} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
 
                 {/* Number Badge */}
-                <div className="absolute top-2 left-2 w-6 h-6 rounded-lg bg-white/95 flex items-center justify-center font-bold text-slate-900 shadow-xs z-10 text-xs border border-slate-200">
+                <span className="absolute left-2 top-2 z-10 flex h-7 min-w-7 items-center justify-center rounded-lg bg-white/95 px-1 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm">
                     {index + 1}
-                </div>
+                </span>
 
-                <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <button className="bg-white text-slate-900 px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm transform translate-y-1 group-hover:translate-y-0 transition-all">
-                        Xem chi tiết
-                    </button>
-                </div>
-            </div>
-
-            {/* Content Area */}
-            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
-                {meta ? (
-                    <div className="text-center">
-                        <h4 className="font-bold text-slate-900 text-xs truncate">{meta.name}</h4>
-                        <p className="text-[11px] text-indigo-700 font-bold mt-0.5 truncate">{meta.job}</p>
-                    </div>
-                ) : (
-                    <p className="text-[11px] text-slate-700 line-clamp-2 leading-relaxed font-medium" title={prompt}>
-                        {prompt || 'Đang xử lý prompt...'}
-                    </p>
-                )}
-            </div>
+                <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-slate-900/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <span className="rounded-xl bg-white px-4 py-3 text-xs font-bold text-slate-900 shadow-sm">Xem chi tiết</span>
+                </span>
+            </button>
         </div>
     );
 };
@@ -148,17 +134,17 @@ const ClockLoader: React.FC = () => (
         {/* Clock Face & Hands */}
         <div className="absolute inset-3 bg-white rounded-full shadow-md flex items-center justify-center border-2 border-indigo-100">
             {/* Center dot */}
-            <div className="w-3 h-3 bg-indigo-600 rounded-full z-20 shadow-sm"></div>
+            <div className="w-3 h-3 bg-violet-600 rounded-full z-20 shadow-sm"></div>
             {/* Hour Hand - rotates from center */}
             <div className="absolute w-[4px] h-[28%] bg-indigo-800 rounded-full animate-clock-hour" style={{ transformOrigin: 'center bottom', top: '22%', left: 'calc(50% - 2px)' }}></div>
             {/* Minute Hand - rotates from center */}
-            <div className="absolute w-[3px] h-[35%] bg-indigo-500 rounded-full animate-clock-minute" style={{ transformOrigin: 'center bottom', top: '15%', left: 'calc(50% - 1.5px)' }}></div>
+            <div className="absolute w-[3px] h-[35%] bg-violet-500 rounded-full animate-clock-minute" style={{ transformOrigin: 'center bottom', top: '15%', left: 'calc(50% - 1.5px)' }}></div>
         </div>
     </div>
 );
 
 const LoadingSlot: React.FC<{ index: number }> = ({ index }) => (
-    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 animate-pulse">
+    <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm flex flex-col gap-2 animate-pulse">
         <div className="w-full aspect-square bg-slate-50 rounded-lg flex items-center justify-center border border-slate-100 shadow-inner relative overflow-hidden">
             <div className="flex flex-col items-center gap-2 z-10">
                 <ClockLoader />
@@ -168,21 +154,27 @@ const LoadingSlot: React.FC<{ index: number }> = ({ index }) => (
     </div>
 );
 
-
 export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prompts, isLoading, loadingStatus, error, onImageClick, metadata, onReplaySlideshow }) => {
-    // We consider it "active" if there are items in the output array (even if null) or if loading.
     const isActive = outputImages.length > 0;
+
+    if (!isLoading && !error && !isActive) {
+        return (
+            <div className="flex-1 flex flex-col w-full h-full">
+                <StudioHeroStage />
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col gap-6 w-full">
             {/* Header / Status - More Compact */}
-            <div className={`bg-white rounded-2xl shadow-xs border border-slate-200 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative ${isActive ? '' : 'min-h-[180px]'}`}>
+            <div className="bg-white rounded-2xl shadow-xs border border-indigo-100/90 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative">
 
                 {/* REPLAY BUTTON (Top Right) */}
                 {isActive && !isLoading && onReplaySlideshow && (
                     <button
                         onClick={onReplaySlideshow}
-                        className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white font-bold rounded-xl shadow-xs hover:bg-indigo-700 transition-all text-xs z-20"
+                        className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-violet-600 text-white font-bold rounded-xl shadow-xs hover:bg-violet-700 transition-all text-xs z-20"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
@@ -210,7 +202,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                         </div>
                         <span className="font-semibold text-sm">{error}</span>
                     </div>
-                ) : isActive ? (
+                ) : (
                     <div className="animate-fade-in flex items-center gap-3">
                         <div className="p-2.5 bg-emerald-50 rounded-full text-emerald-600 border border-emerald-200">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -223,16 +215,6 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                                 Đã tạo thành công {outputImages.filter(i => i).length} {outputImages.some(i => i && isVideoUrl(i)) ? 'video điện ảnh' : 'ảnh chuẩn nét'}.
                             </p>
                         </div>
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center py-4 px-4 text-center">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600 mb-2.5 border border-slate-200 shadow-xs">
-                            <ImageIcon className="w-6 h-6 text-slate-600" />
-                        </div>
-                        <h4 className="text-sm font-bold text-slate-900">Khung xem ảnh Studio sẵn sàng</h4>
-                        <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
-                            Cấu hình ảnh mẫu, góc chụp, phong cách và nhấn "Bắt đầu tạo" để AI render bộ sưu tập ảnh sắc nét tại đây.
-                        </p>
                     </div>
                 )}
             </div>
@@ -255,10 +237,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                             const promptText = prompts && prompts[index] ? prompts[index] : "Video Veo AI";
                             return <OutputVideo key={index} url={image} index={index} prompt={promptText} />;
                         } else {
-                            const promptText = prompts && prompts[index] ? prompts[index] : "Ảnh được tạo từ AI";
-                            const meta = metadata && metadata[index] ? metadata[index] : undefined;
-
-                            return <OutputImage key={index} base64={image} index={index} prompt={promptText} meta={meta} onClick={() => onImageClick(image, index)} />;
+                            return <OutputImage key={index} base64={image} index={index} onClick={() => onImageClick(image, index)} />;
                         }
                     })}
                 </div>
