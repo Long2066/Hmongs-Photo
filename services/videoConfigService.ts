@@ -22,10 +22,27 @@ export interface VideoModelMetadata {
 }
 
 /**
- * Danh sách 2 Mô hình Video AI tốt nhất trên OpenRouter
+ * Danh sách các Mô hình Video AI trên Idea.ai & OpenRouter
  * Hỗ trợ đầy đủ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật (first_frame)
  */
 export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
+    {
+        id: 'idea.ai/vivix_w1',
+        provider: 'idea_ai',
+        providerLabel: 'idea.ai',
+        name: 'idea.ai: Vivix W1 (720p HD)',
+        shortName: 'Vivix W1 (idea.ai)',
+        badge: 'idea.ai • 260 Coins',
+        badgeColor: 'violet',
+        description: 'Mô hình tạo video 720p HD từ idea.ai: hỗ trợ cả Ảnh sang Video (I2V) & Văn bản (T2V), đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
+        supportedAspectRatios: ['16:9', '9:16', '1:1'],
+        supportedDurations: [5, 10, 15],
+        defaultResolution: '720p',
+        supportsAudio: false,
+        costPerSecondVnd: 400,
+        baseInputFeeVnd: 0,
+        priceLabel: '~2.000đ (5s) • ~4.000đ (10s)'
+    },
     {
         id: 'x-ai/grok-imagine-video-1.5-lite',
         provider: 'openrouter',
@@ -117,10 +134,10 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     enabled: true,
     openRouterEnabled: true,
     openRouterApiKey: '',
-    ideaAiEnabled: false,
+    ideaAiEnabled: true,
     ideaAiApiKey: '',
-    primaryModel: 'x-ai/grok-imagine-video-1.5-lite',
-    fallbackModel: 'alibaba/wan-3.0',
+    primaryModel: 'idea.ai/vivix_w1',
+    fallbackModel: 'x-ai/grok-imagine-video-1.5-lite',
     pricePerVideoVnd: 2000,
     costPerVideoVnd: 1785,
     profitMarkupPercent: 10,
