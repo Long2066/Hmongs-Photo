@@ -26,7 +26,6 @@ import {
     DEFAULT_AI_PROXY_CONFIG
 } from '../services/adminFirebaseService';
 import { AdminUser } from '../services/adminAuthService';
-import { FlowToolLinkManager } from './FlowToolLinkManager';
 import { OpenRouterVideoConfigManager } from './OpenRouterVideoConfigManager';
 
 interface AiConfigManagerProps {
@@ -313,8 +312,6 @@ export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {
             )}
 
             <OpenRouterVideoConfigManager admin={admin} />
-
-            <FlowToolLinkManager admin={admin} />
 
             {/* Master Toggle & Live Status Banner */}
             <div style={{

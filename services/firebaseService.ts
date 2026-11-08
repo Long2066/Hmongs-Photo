@@ -1101,6 +1101,50 @@ export const incrementDailyFreeUsage = async (userId: string, imageCount: number
     return newUsed;
 };
 
+// Direct deduction for active paid package quota (supports offline / Electron / fallback)
+export const consumeUserPlanImagesDirect = async (userId: string, count: number = 1): Promise<UserSubscriptionState | null> => {
+    try {
+        const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) return null;
+        const data = docSnap.data();
+        const currentRemaining = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+        const newRemaining = Math.max(0, currentRemaining - count);
+        const newPlan: SubscriptionPlan = newRemaining > 0
+            ? (data.plan === 'pro' || data.plan === 'plus' ? data.plan : 'free')
+            : 'free';
+
+        await setDoc(docRef, {
+            userId,
+            remainingImages: newRemaining,
+            plan: newPlan,
+            lastUpdated: Date.now()
+        }, { merge: true });
+
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('user_remaining_images_' + userId, newRemaining.toString());
+            localStorage.setItem('user_plan_' + userId, newPlan);
+            window.dispatchEvent(new CustomEvent('user-balance-changed', {
+                detail: { remainingImages: newRemaining, plan: newPlan }
+            }));
+        }
+
+        return {
+            credits: data.credits || 0,
+            plan: newPlan,
+            dailyFreeUsed: data.dailyFreeUsed || 0,
+            dailyFreeDate: data.dailyFreeDate || getTodayDateString(),
+            remainingImages: newRemaining,
+            planStartedAt: data.planStartedAt || null,
+            planExpiresAt: data.planExpiresAt || null,
+            planAllowanceImages: data.planAllowanceImages || 0
+        };
+    } catch (e) {
+        console.warn('[consumeUserPlanImagesDirect] error:', e);
+        return null;
+    }
+};
+
 // Save approved bill record with timeout protection
 export const saveApprovedBill = async (billData: BillData): Promise<void> => {
     try {

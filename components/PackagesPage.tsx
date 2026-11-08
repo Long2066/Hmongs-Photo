@@ -16,15 +16,8 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
     const [freeRemaining, setFreeRemaining] = useState(() => getDailyFreeRemaining(user.id));
     const [planExpiresAt, setPlanExpiresAt] = useState(0);
     const [checkoutPlan, setCheckoutPlan] = useState<'plus' | 'pro' | null>(null);
-    const [subscriptionLoading, setSubscriptionLoading] = useState(true);
-    const [subscriptionError, setSubscriptionError] = useState('');
-
     const loadSubscription = () => {
-        setSubscriptionLoading(true);
-        setSubscriptionError('');
-        void refreshSubscription().catch((error) => {
-            setSubscriptionError(error instanceof Error ? error.message : 'Không tải được lượt ảnh của gói.');
-        }).finally(() => setSubscriptionLoading(false));
+        void refreshSubscription().catch(() => {});
     };
 
     useEffect(() => { loadSubscription(); }, [user.id]);
@@ -56,11 +49,6 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                 <GoogleQuotaStationModal embedded isOpen onClose={onBack} user={user} onBalanceUpdated={onBalanceUpdated} />
             </section>
             <section aria-label="Gói dịch vụ">
-                {subscriptionLoading && <div className="mb-4 h-16 animate-pulse rounded-2xl bg-slate-200" role="status" aria-label="Đang tải gói dịch vụ" />}
-                {subscriptionError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-50 p-4 text-sm text-amber-950 ring-1 ring-amber-900/10">
-                    <span>Chưa đồng bộ được lượt ảnh: {subscriptionError}</span>
-                    <button type="button" onClick={loadSubscription} className="min-h-[44px] rounded-xl bg-white px-4 font-semibold text-amber-950 shadow-sm transition-all hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700 active:scale-[0.98]">Thử lại</button>
-                </div>}
             {/* 3 Subscription Packages Section (Replaces old Recharge Banner) */}
             <div className="mb-10">
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
@@ -240,7 +228,6 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                             <button
                                 type="button"
                                 onClick={() => setCheckoutPlan('plus')}
-                                disabled={subscriptionLoading || !!subscriptionError}
                                 className="w-full py-3.5 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white font-semibold text-sm shadow-sm transition-all min-h-[44px] flex items-center justify-center gap-2 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <span>{activePlan === 'plus' ? 'Mua thêm Gói Plus — 50.000đ' : 'Mua Gói Plus — 50.000đ'}</span>
@@ -325,7 +312,6 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                             <button
                                 type="button"
                                 onClick={() => setCheckoutPlan('pro')}
-                                disabled={subscriptionLoading || !!subscriptionError}
                                 className="w-full py-3.5 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-semibold text-sm shadow-md shadow-indigo-600/20 transition-all min-h-[44px] flex items-center justify-center gap-2 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <span>{activePlan === 'pro' ? 'Mua thêm Gói Pro — 100.000đ' : 'Mua Gói Pro — 100.000đ'}</span>
