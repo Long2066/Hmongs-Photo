@@ -148,8 +148,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
 
     if (!isLoading && !active) {
         return (
-            <div className="flex-1 flex flex-col w-full h-full animate-fade-in" aria-label="Khung chiếu Video Studio">
-                <div className="relative w-full h-full min-h-[480px] sm:min-h-[540px] lg:min-h-[calc(100vh-128px)] rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(79,70,229,0.10)] ring-1 ring-indigo-200/70 flex items-center justify-center select-none bg-[#cfe9ff]">
+            <div className="flex-1 flex flex-col w-full min-h-full h-auto animate-fade-in" aria-label="Khung chiếu Video Studio">
+                <div className="relative w-full h-full min-h-[360px] sm:min-h-[480px] lg:min-h-[calc(100vh-140px)] rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(79,70,229,0.10)] ring-1 ring-indigo-200/70 flex items-center justify-center select-none bg-[#cfe9ff]">
                     <img
                         src="/video.png"
                         alt="Không gian xem video sẽ xuất hiện tại đây"
@@ -248,7 +248,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
             {/* Active Video Player Stage */}
             {active ? (
                 <>
-                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)] gap-5 rounded-2xl bg-slate-900 p-4 sm:p-6 shadow-sm border border-slate-800 text-white">
+                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)] gap-5 rounded-2xl bg-slate-900 p-4 sm:p-6 shadow-sm border border-slate-800 text-white mb-6">
                         {/* Video Player Main View */}
                         <div className="min-w-0 flex flex-col gap-3">
                             <div className="relative overflow-hidden rounded-xl bg-black border border-slate-800 shadow-inner flex items-center justify-center">

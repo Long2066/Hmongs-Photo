@@ -331,13 +331,35 @@ const AnimatedRobot: React.FC = () => {
 interface SupportHubProps {
     userName?: string;
     userEmail?: string;
+    isBotOpenExternal?: boolean;
+    onBotCloseExternal?: () => void;
 }
 
-export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail = '' }) => {
+export const SupportHub: React.FC<SupportHubProps> = ({
+    userName = '',
+    userEmail = '',
+    isBotOpenExternal = false,
+    onBotCloseExternal
+}) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [showBot, setShowBot] = useState(false);
     const [showFeedback, setShowFeedback] = useState(false);
     const [currentIcon, setCurrentIcon] = useState<'bot' | 'feedback'>('bot');
+
+    // Sync external trigger from Header Bot AI button
+    useEffect(() => {
+        if (isBotOpenExternal) {
+            setShowBot(true);
+            setIsExpanded(false);
+            setShowFeedback(false);
+        }
+    }, [isBotOpenExternal]);
+
+    const handleCloseBotWindow = () => {
+        setShowBot(false);
+        setShowModelMenu(false);
+        onBotCloseExternal?.();
+    };
 
     // Selected text model for chatbot responses
     const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -585,10 +607,10 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
 
     return (
         <>
-            {/* Main Bubble Button - Rotates when not expanded */}
+            {/* Main Bubble Button - On mobile, bot button is situated at top right of Header */}
             <button
                 onClick={handleMainClick}
-                className={`fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-[60] w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-2xl transition-all duration-300 flex items-center justify-center ${isExpanded
+                className={`hidden sm:flex fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-2xl transition-all duration-300 items-center justify-center ${isExpanded
                     ? 'bg-slate-700 hover:bg-slate-800 ring-4 ring-slate-400/20'
                     : 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:scale-105 shadow-indigo-500/25 ring-4 ring-indigo-500/20'
                     }`}
@@ -661,7 +683,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
             {/* Bot Popup Window */}
             {showBot && (
                 <div
-                    className="fixed inset-x-3 bottom-20 sm:inset-auto sm:bottom-24 sm:right-6 z-[60] w-auto sm:w-[410px] max-w-[calc(100vw-24px)] h-[540px] max-h-[calc(100vh-100px)] sm:max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden animate-fade-in flex flex-col ring-1 ring-slate-900/10"
+                    className="fixed inset-x-2 top-16 bottom-4 sm:top-auto sm:inset-auto sm:bottom-24 sm:right-6 z-[90] w-auto sm:w-[410px] max-w-[calc(100vw-16px)] h-[calc(100dvh-80px)] sm:h-[550px] max-h-[calc(100dvh-80px)] sm:max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden animate-fade-in flex flex-col ring-1 ring-slate-900/10"
                     style={{ filter: 'drop-shadow(0 20px 25px rgba(15, 23, 42, 0.15))' }}
                 >
                     {/* Bot Header */}
@@ -713,8 +735,8 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
 
                             {/* Close Button */}
                             <button
-                                onClick={() => { setShowBot(false); setShowModelMenu(false); }}
-                                className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-all"
+                                onClick={handleCloseBotWindow}
+                                className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-all cursor-pointer"
                                 title="Đóng cửa sổ chat"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
@@ -977,7 +999,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({ userName = '', userEmail
 
             {/* Feedback Popup */}
             {showFeedback && (
-                <div className="fixed inset-x-3 bottom-20 sm:inset-auto sm:bottom-24 sm:right-6 z-[60] w-auto sm:w-[360px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+                <div className="fixed inset-x-2 top-16 bottom-4 sm:top-auto sm:inset-auto sm:bottom-24 sm:right-6 z-[90] w-auto sm:w-[360px] max-w-[calc(100vw-16px)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
                     <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-3.5 flex items-center justify-between text-white">
                         <div>
                             <h3 className="font-bold text-sm flex items-center gap-2">

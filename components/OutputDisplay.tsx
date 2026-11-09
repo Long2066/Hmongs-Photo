@@ -161,7 +161,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
 
     if (!isLoading && !isActive) {
         return (
-            <div className="relative flex-1 flex flex-col w-full h-full animate-fade-in">
+            <div className="relative flex-1 flex flex-col w-full min-h-full h-auto animate-fade-in">
                 <StudioHeroStage />
                 {error && (
                     <div
@@ -191,7 +191,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
     }
 
     return (
-        <div className="flex flex-col gap-6 w-full animate-fade-in">
+        <div className="flex flex-col gap-6 w-full animate-fade-in pb-8">
             {/* Header / Status - More Compact */}
             <div className="bg-white rounded-2xl shadow-xs border border-indigo-100/90 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative">
 

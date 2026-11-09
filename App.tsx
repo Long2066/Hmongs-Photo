@@ -102,6 +102,8 @@ const App: React.FC = () => {
         }
     });
     const [appVersion, setAppVersion] = useState(APP_VERSION); // Sync with package.json & Electron
+    const [isSupportBotOpen, setIsSupportBotOpen] = useState(false);
+    const outputSectionRef = useRef<HTMLDivElement>(null);
 
     // Loading & Error (Global mostly, but could be per mode if needed)
     const [isLoading, setIsLoading] = useState(false);
@@ -246,6 +248,19 @@ const App: React.FC = () => {
         setViewportHeight();
         window.addEventListener('resize', setViewportHeight);
         window.addEventListener('orientationchange', setViewportHeight);
+
+        // Auto-scroll to outputs on mobile after generation starts or media arrives
+        const hasMedia = currentData.outputs.some(Boolean) || videoEntries.length > 0;
+        if (isMobileScreen && (isLoading || hasMedia)) {
+            const timer = setTimeout(() => {
+                outputSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: isLoading ? 'start' : 'nearest' });
+            }, 180);
+            return () => {
+                window.removeEventListener('resize', setViewportHeight);
+                window.removeEventListener('orientationchange', setViewportHeight);
+                clearTimeout(timer);
+            };
+        }
 
         // Get app version
         const getVersion = async () => {
@@ -1090,7 +1105,7 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="h-screen text-slate-900 font-sans antialiased flex flex-col selection:bg-violet-100 relative overflow-hidden bg-[#f4f3fb]">
+        <div className="h-screen h-[100dvh] min-h-[100dvh] text-slate-900 font-sans antialiased flex flex-col selection:bg-violet-100 relative overflow-hidden bg-[#f4f3fb]">
 
             <Marquee />
 
@@ -1100,7 +1115,7 @@ const App: React.FC = () => {
                 onLogout={handleLogout}
                 onHistoryClick={() => { setPackagesVisible(false); setHistoryVisible(true); }}
                 onQuotaStationClick={() => { setPackagesOrigin(isHistoryVisible); setHistoryVisible(false); setPackagesVisible(true); }}
-
+                onBotClick={() => setIsSupportBotOpen(true)}
                 isHistoryVisible={isHistoryVisible}
                 currentMode={mode}
                 onModeChange={(nextMode) => {
@@ -1111,13 +1126,13 @@ const App: React.FC = () => {
             />
 
             {isPackagesVisible ? (
-                <main className="min-h-0 flex-1 overflow-y-auto bg-[#f4f3fb] custom-scrollbar">
+                <main className="min-h-0 flex-1 overflow-y-auto bg-[#f4f3fb] custom-scrollbar pb-36 lg:pb-0">
                     <PackagesPage user={currentUser} onBack={() => { setPackagesVisible(false); setHistoryVisible(packagesOrigin); }} onBalanceUpdated={() => setUserBalance(getCachedBalance())} />
                 </main>
             ) : (
             <>
             {/* Mobile: Vertical stacked layout. Desktop: Side by side */}
-            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10 min-h-0">
 
                 {/* Desktop Bento Sidebar */}
                 <aside className="hidden lg:flex lg:static lg:w-[356px] xl:w-[372px] lg:h-full lg:flex-shrink-0 w-full bg-[#f7f6fd] border-r border-indigo-100/80 flex-col overflow-hidden p-3 gap-3">
@@ -1232,13 +1247,13 @@ const App: React.FC = () => {
                 </aside>
 
                 {/* MAIN CONTENT AREA - Scenic Studio Canvas */}
-                <main className="flex-1 overflow-y-auto bg-[#f4f3fb] flex flex-col w-full relative custom-scrollbar pb-24 lg:pb-0">
+                <main className="flex-1 overflow-y-auto overscroll-contain bg-[#f4f3fb] flex flex-col w-full relative custom-scrollbar pb-40 lg:pb-8 min-h-0">
                     {isHistoryVisible && currentUser ? (
                         <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
                             <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />
                         </div>
                     ) : (
-                        <div className="flex-1 flex flex-col p-3 lg:p-4 w-full h-full">
+                        <div className="flex-1 flex flex-col p-3 sm:p-4 w-full min-h-full h-auto">
 
                             {/* MOBILE INLINE: Inputs + Config + Generate Button */}
                             {isMobileScreen && (
@@ -1263,28 +1278,30 @@ const App: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Render Results based on CURRENT MODE State */}
-                            {mode === 'video' ? (
-                                <VideoWorkspace
-                                    key="video"
-                                    videos={videoEntries}
-                                    isLoading={isLoading}
-                                    loadingStatus={loadingStatus}
-                                    error={error}
-                                    onDismissError={() => setError(null)}
-                                />
-                            ) : (
-                                <OutputDisplay
-                                    key={mode}
-                                    outputImages={currentData.outputs}
-                                    prompts={currentData.prompts}
-                                    isLoading={isLoading}
-                                    loadingStatus={loadingStatus}
-                                    error={error}
-                                    onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
-                                    onDismissError={() => setError(null)}
-                                />
-                            )}
+                            {/* Render Results based on CURRENT MODE State - with outputSectionRef */}
+                            <div ref={outputSectionRef} className="w-full flex-1 flex flex-col min-h-0">
+                                {mode === 'video' ? (
+                                    <VideoWorkspace
+                                        key="video"
+                                        videos={videoEntries}
+                                        isLoading={isLoading}
+                                        loadingStatus={loadingStatus}
+                                        error={error}
+                                        onDismissError={() => setError(null)}
+                                    />
+                                ) : (
+                                    <OutputDisplay
+                                        key={mode}
+                                        outputImages={currentData.outputs}
+                                        prompts={currentData.prompts}
+                                        isLoading={isLoading}
+                                        loadingStatus={loadingStatus}
+                                        error={error}
+                                        onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
+                                        onDismissError={() => setError(null)}
+                                    />
+                                )}
+                            </div>
 
                             {/* Professional Print Button for ID Photo Mode (A4 / A5 / A6 / A7) */}
                             {mode === 'id_photo' && !isLoading && currentData.outputs.some(img => img !== null) && (
@@ -1359,6 +1376,8 @@ const App: React.FC = () => {
             <SupportHub
                 userName={currentUser?.name}
                 userEmail={currentUser?.username}
+                isBotOpenExternal={isSupportBotOpen}
+                onBotCloseExternal={() => setIsSupportBotOpen(false)}
             />
 
 
