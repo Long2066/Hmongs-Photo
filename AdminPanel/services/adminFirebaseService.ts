@@ -33,8 +33,17 @@ export interface UserData {
     id: string;
     email?: string;
     displayName: string;
-    credits: number; // Now represents VND balance
+    credits: number; // Legacy VND balance (giữ nguyên cho ảnh thưởng cũ)
     plan?: 'free' | 'plus' | 'pro';
+    remainingImages?: number;
+    remainingVideoSeconds?: number;
+    planExpiresAt?: number | null;
+    planStartedAt?: number | null;
+    planAllowanceImages?: number;
+    planAllowanceVideoSeconds?: number;
+    dailyFreeDate?: string;
+    dailyFreeUsed?: number;
+    freeVideoGranted?: boolean;
     isLocked: boolean;
     lockedAt?: number;
     lockedReason?: string;
@@ -99,21 +108,41 @@ export const getAllUsers = async (): Promise<UserData[]> => {
             registrationsDocs = fallbackSnap.docs;
         }
 
-        // 2. Safely fetch user credits data (if permissions allow)
-        const creditsMap = new Map<string, { credits: number; plan?: 'free' | 'plus' | 'pro'; isLocked: boolean; lockedAt?: number; lockedReason?: string; lastUpdated?: number }>();
+        // 2. Safely fetch user credits & subscription data (if permissions allow)
+        const creditsMap = new Map<string, any>();
         try {
             const creditsSnapshot = await getDocs(collection(db, USER_CREDITS_COLLECTION));
+            const now = Date.now();
             creditsSnapshot.forEach(doc => {
                 const data = doc.data();
-                const c = data.credits || 0;
-                const p: 'free' | 'plus' | 'pro' = c < 500
-                    ? 'free'
-                    : (data.plan === 'pro' || data.plan === 'plus')
-                        ? data.plan
-                        : (c >= 100000 ? 'pro' : 'plus');
+                const c = typeof data.credits === 'number' ? data.credits : 0;
+                const rawPlan = data.plan === 'pro' || data.plan === 'plus' ? data.plan : 'free';
+                const expiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
+                const remainingImages = typeof data.remainingImages === 'number' ? data.remainingImages : 0;
+                const remainingVideoSeconds = typeof data.remainingVideoSeconds === 'number' ? data.remainingVideoSeconds : 0;
+
+                // Resolve effective plan based on expiration & quotas
+                let effectivePlan: 'free' | 'plus' | 'pro' = rawPlan;
+                if (rawPlan !== 'free') {
+                    if (expiresAt && expiresAt <= now) {
+                        effectivePlan = 'free';
+                    } else if (remainingImages <= 0 && remainingVideoSeconds <= 0) {
+                        effectivePlan = 'free';
+                    }
+                }
+
                 creditsMap.set(doc.id, {
                     credits: c,
-                    plan: p,
+                    plan: effectivePlan,
+                    remainingImages,
+                    remainingVideoSeconds,
+                    planExpiresAt: expiresAt,
+                    planStartedAt: data.planStartedAt || null,
+                    planAllowanceImages: data.planAllowanceImages,
+                    planAllowanceVideoSeconds: data.planAllowanceVideoSeconds,
+                    dailyFreeDate: data.dailyFreeDate,
+                    dailyFreeUsed: data.dailyFreeUsed || 0,
+                    freeVideoGranted: Boolean(data.freeVideoGranted),
                     isLocked: data.isLocked || false,
                     lockedAt: data.lockedAt,
                     lockedReason: data.lockedReason,
@@ -170,6 +199,15 @@ export const getAllUsers = async (): Promise<UserData[]> => {
                     displayName: rawName || (email ? email.split('@')[0] : 'User ' + userId.substring(0, 6)),
                     credits: creditsData?.credits || 0,
                     plan: creditsData?.plan || 'free',
+                    remainingImages: creditsData?.remainingImages || 0,
+                    remainingVideoSeconds: creditsData?.remainingVideoSeconds || 0,
+                    planExpiresAt: creditsData?.planExpiresAt || null,
+                    planStartedAt: creditsData?.planStartedAt || null,
+                    planAllowanceImages: creditsData?.planAllowanceImages,
+                    planAllowanceVideoSeconds: creditsData?.planAllowanceVideoSeconds,
+                    dailyFreeDate: creditsData?.dailyFreeDate,
+                    dailyFreeUsed: creditsData?.dailyFreeUsed || 0,
+                    freeVideoGranted: creditsData?.freeVideoGranted || false,
                     isLocked: creditsData?.isLocked || false,
                     lockedAt: creditsData?.lockedAt,
                     lockedReason: creditsData?.lockedReason,
@@ -188,6 +226,15 @@ export const getAllUsers = async (): Promise<UserData[]> => {
                     displayName: 'User ' + odUserId.substring(0, 6),
                     credits: data.credits,
                     plan: data.plan || 'free',
+                    remainingImages: data.remainingImages || 0,
+                    remainingVideoSeconds: data.remainingVideoSeconds || 0,
+                    planExpiresAt: data.planExpiresAt || null,
+                    planStartedAt: data.planStartedAt || null,
+                    planAllowanceImages: data.planAllowanceImages,
+                    planAllowanceVideoSeconds: data.planAllowanceVideoSeconds,
+                    dailyFreeDate: data.dailyFreeDate,
+                    dailyFreeUsed: data.dailyFreeUsed || 0,
+                    freeVideoGranted: data.freeVideoGranted || false,
                     isLocked: data.isLocked,
                     lockedAt: data.lockedAt,
                     lockedReason: data.lockedReason,
@@ -230,11 +277,35 @@ export const getUserById = async (userId: string): Promise<UserData | null> => {
 
         const creditsData = creditsDoc.data();
 
+        const now = Date.now();
+        const rawPlan: 'free' | 'plus' | 'pro' = (creditsData?.plan === 'pro' || creditsData?.plan === 'plus') ? creditsData.plan : 'free';
+        const expiresAt = Number.isSafeInteger(creditsData?.planExpiresAt) ? creditsData?.planExpiresAt : null;
+        const remainingImages = typeof creditsData?.remainingImages === 'number' ? creditsData.remainingImages : 0;
+        const remainingVideoSeconds = typeof creditsData?.remainingVideoSeconds === 'number' ? creditsData.remainingVideoSeconds : 0;
+        let effectivePlan: 'free' | 'plus' | 'pro' = rawPlan;
+        if (rawPlan !== 'free') {
+            if (expiresAt && expiresAt <= now) {
+                effectivePlan = 'free';
+            } else if (remainingImages <= 0 && remainingVideoSeconds <= 0) {
+                effectivePlan = 'free';
+            }
+        }
+
         return {
             id: userId,
             email,
             displayName,
-            credits: creditsData?.credits || 0,
+            credits: typeof creditsData?.credits === 'number' ? creditsData.credits : 0,
+            plan: effectivePlan,
+            remainingImages,
+            remainingVideoSeconds,
+            planExpiresAt: expiresAt,
+            planStartedAt: creditsData?.planStartedAt || null,
+            planAllowanceImages: creditsData?.planAllowanceImages,
+            planAllowanceVideoSeconds: creditsData?.planAllowanceVideoSeconds,
+            dailyFreeDate: creditsData?.dailyFreeDate,
+            dailyFreeUsed: creditsData?.dailyFreeUsed || 0,
+            freeVideoGranted: Boolean(creditsData?.freeVideoGranted),
             isLocked: creditsData?.isLocked || false,
             lockedAt: creditsData?.lockedAt,
             lockedReason: creditsData?.lockedReason,
@@ -452,9 +523,9 @@ export const getTotalCreditsIssued = async (): Promise<number> => {
         snapshot.forEach(doc => {
             total += doc.data().credits || 0;
         });
-        return total > 0 ? total : 250000;
+        return total;
     } catch (error) {
-        return 250000;
+        return 0;
     }
 };
 
@@ -468,7 +539,7 @@ export const getTotalAmountSpent = async (): Promise<number> => {
     } catch (e) {
         console.warn("Falling back for getTotalAmountSpent:", e);
     }
-    return 115000;
+    return 0;
 };
 
 // Get total images generated across all users - reads system_metrics with fallback
@@ -481,7 +552,7 @@ export const getTotalImagesGenerated = async (): Promise<number> => {
     } catch (e) {
         console.warn("Falling back for getTotalImagesGenerated:", e);
     }
-    return 342;
+    return 0;
 };
 
 // Get rich 7-day stats (visits, active users, registrations)

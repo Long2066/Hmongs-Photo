@@ -40,19 +40,19 @@ type ChartMetric = 'visits' | 'activeUsers' | 'registrations';
 
 const Dashboard: React.FC = () => {
     const [stats, setStats] = useState<Stats>({
-        totalUsers: 14,
-        activeToday: 2,
-        totalDeposited: 250000,
-        totalSpent: 115000,
-        totalImages: 342,
+        totalUsers: 0,
+        activeToday: 0,
+        totalDeposited: 0,
+        totalSpent: 0,
+        totalImages: 0,
         sevenDaysData: []
     });
 
     const [cloudStats, setCloudStats] = useState<RealtimeCloudStats>({
-        totalVisits: 115,
-        todayVisits: 52,
-        onlineCount: 1,
-        activeToday: 2,
+        totalVisits: 0,
+        todayVisits: 0,
+        onlineCount: 0,
+        activeToday: 0,
         activeSessions: []
     });
 
