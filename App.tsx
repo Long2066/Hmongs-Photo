@@ -36,7 +36,7 @@ import { MobileBottomSheet } from './components/MobileBottomSheet';
 import * as storage from './services/storageService';
 import { downloadImage } from './services/downloadService';
 import { subscribeToUserCredits, updateUserCredits } from './services/firebaseService';
-import { refreshSubscription, consumeSubscriptionImages } from './services/subscriptionService';
+import { refreshSubscription, consumeSubscriptionImages, consumeSubscriptionVideoSeconds } from './services/subscriptionService';
 import { getSystemApiKey } from './services/geminiCoreService';
 import { getCachedBalance } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
@@ -123,6 +123,7 @@ const App: React.FC = () => {
     // VIP Balance State (VND instead of credits)
     const [userBalance, setUserBalance] = useState(0); // Legacy balance kept for compatibility; not spent on paid images
     const [remainingPaidImages, setRemainingPaidImages] = useState(0);
+    const [remainingVideoSeconds, setRemainingVideoSeconds] = useState(0);
     const [currentSubscriptionPlan, setCurrentSubscriptionPlan] = useState<firebaseService.SubscriptionPlan>('free');
     const [subscriptionExpiresAt, setSubscriptionExpiresAt] = useState<number | null>(null);
 
@@ -325,15 +326,18 @@ const App: React.FC = () => {
         if (!currentUser) {
             setUserBalance(0);
             setRemainingPaidImages(0);
+            setRemainingVideoSeconds(0);
             setCurrentSubscriptionPlan('free');
             setSubscriptionExpiresAt(null);
             return;
         }
-        // Use local cached balance initially
+        // Use local cached balance & video seconds initially
         setUserBalance(getCachedBalance());
+        setRemainingVideoSeconds(firebaseService.getCachedRemainingVideoSeconds(currentUser.id));
 
         const unsubscribe = subscribeToUserCredits(currentUser.id, (balance, state) => {
             setRemainingPaidImages(state?.remainingImages ?? 0);
+            setRemainingVideoSeconds(state?.remainingVideoSeconds ?? 0);
             setCurrentSubscriptionPlan(state?.plan ?? 'free');
             setSubscriptionExpiresAt(state?.planExpiresAt ?? null);
             setUserBalance(balance);
@@ -898,7 +902,7 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
-    // 8. Video Generation (OpenRouter Gemini Omni 1.2 Flash + Omni 1.1 Flash Fallback)
+    // 8. Video Generation (Idea.ai Vivix W1 + OpenRouter Grok / Wan 3.0)
     const handleVideoGenerate = useCallback(async (
         prompt: string,
         aspectRatio: '16:9' | '9:16' | '1:1',
@@ -915,13 +919,30 @@ const App: React.FC = () => {
 
         const count = Math.max(1, Math.min(3, outputCount || 1));
         const modelMeta = getVideoModelMeta(model);
-        const pricePerVideo = calculateVideoPriceVnd(model, duration);
-        const totalCostVnd = pricePerVideo * count;
+        const totalSecondsNeeded = duration * count;
 
-        if (!storage.isAdmin() && userBalance < totalCostVnd) {
-            setError(`Số dư không đủ (${userBalance.toLocaleString('vi-VN')}đ). Cần ${totalCostVnd.toLocaleString('vi-VN')}đ để tạo ${count} video (${modelMeta.shortName} • ${duration}s). Vui lòng nạp tiền vào tài khoản.`);
-            setPackagesVisible(true);
-            return;
+        if (!storage.isAdmin()) {
+            let effectiveVideoSec = remainingVideoSeconds;
+            try {
+                const refreshed = await refreshSubscription();
+                if (refreshed && Number.isSafeInteger(refreshed.remainingVideoSeconds)) {
+                    effectiveVideoSec = refreshed.remainingVideoSeconds;
+                    setRemainingVideoSeconds(effectiveVideoSec);
+                }
+            } catch {
+                // fallback to current state
+            }
+
+            if (effectiveVideoSec < totalSecondsNeeded) {
+                const planLabel = currentSubscriptionPlan === 'pro' ? 'Pro' : currentSubscriptionPlan === 'plus' ? 'Plus' : 'Free';
+                setError(
+                    effectiveVideoSec <= 0
+                        ? `Bạn đã dùng hết số giây tạo video của gói ${planLabel}. Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s) tại Cấu hình & gói dịch vụ.`
+                        : `Số giây video còn lại (${effectiveVideoSec}s) không đủ để tạo ${count} video × ${duration}s (${totalSecondsNeeded}s). Vui lòng chọn thời lượng ngắn hơn hoặc nâng cấp gói.`
+                );
+                setPackagesVisible(true);
+                return;
+            }
         }
 
         setIsLoading(true);
@@ -953,13 +974,15 @@ const App: React.FC = () => {
                 .filter((url): url is string => typeof url === 'string' && url.length > 0);
             if (finalUrls.length === 0) throw new Error('Dịch vụ chưa trả về video. Vui lòng thử lại.');
 
-            // Deduct balance for non-admin VIP
-            if (!storage.isAdmin() && currentUser && totalCostVnd > 0) {
+            // Trừ số giây tạo video thực tế đã tạo thành công (Free 8s / Plus 60s / Pro 180s)
+            const consumedSeconds = (result.duration || duration) * finalUrls.length;
+            if (!storage.isAdmin() && currentUser && consumedSeconds > 0) {
                 try {
-                    const newBal = await updateUserCredits(currentUser.id, totalCostVnd, 'subtract');
-                    setUserBalance(newBal);
-                } catch (bErr) {
-                    console.warn('Lỗi trừ số dư video:', bErr);
+                    const updatedEntitlement = await consumeSubscriptionVideoSeconds(consumedSeconds);
+                    setRemainingVideoSeconds(updatedEntitlement.remainingVideoSeconds);
+                    setCurrentSubscriptionPlan(updatedEntitlement.plan);
+                } catch (vErr) {
+                    console.warn('Lỗi trừ số giây video:', vErr);
                 }
             }
 
@@ -997,7 +1020,7 @@ const App: React.FC = () => {
             setIsLoading(false);
             setLoadingStatus('');
         }
-    }, [modeStates, saveHistory, userBalance, currentUser]);
+    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser]);
 
     const handleLogout = async () => {
         await firebaseService.logoutUser();
@@ -1076,7 +1099,9 @@ const App: React.FC = () => {
                     isDisabled={!currentUser}
                     hasInputImage={mState.inputs.length > 0}
                     inputImagePreview={mState.inputs[0]?.base64}
-                    userBalance={userBalance}
+                    remainingVideoSeconds={remainingVideoSeconds}
+                    userPlan={currentSubscriptionPlan}
+                    isAdmin={storage.isAdmin()}
                     onRequestTopUp={() => setPackagesVisible(true)}
                 />
             );

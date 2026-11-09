@@ -256,22 +256,6 @@ export const Header: React.FC<HeaderProps> = ({
 
                         {/* User & Actions */}
                         <div className="flex items-center gap-2.5 flex-shrink-0">
-                            {/* Bot AI Button on Desktop */}
-                            <button
-                                onClick={onBotClick}
-                                aria-label="Mở Bot Hỗ trợ AI"
-                                className="h-10 px-3 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-700 border border-indigo-200/80 rounded-full transition-all shadow-2xs active:scale-95 flex items-center gap-1.5 cursor-pointer relative group"
-                                title="Bot Hỗ trợ AI - Giải đáp thắc mắc 24/7"
-                            >
-                                <div className="relative">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-4 h-4 text-indigo-600">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                                    </svg>
-                                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full ring-2 ring-white animate-pulse" />
-                                </div>
-                                <span className="text-xs font-bold">Bot AI</span>
-                            </button>
-
                             {/* Bánh răng Cấu hình */}
                             <button
                                 onClick={onQuotaStationClick}

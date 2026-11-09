@@ -281,12 +281,40 @@ export const updateUserCredits = async (
                     ? existingData.plan
                     : (newCredits >= 100000 ? 'pro' : 'plus');
 
-        await setDoc(docRef, {
+        const now = Date.now();
+        const TERM_MS = 30 * 24 * 60 * 60 * 1000;
+        const updatePayload: Record<string, any> = {
             userId,
             credits: newCredits,
             plan: nextPlan,
-            lastUpdated: Date.now()
-        }, { merge: true });
+            lastUpdated: now
+        };
+
+        // Nếu admin gán gói Plus hoặc Pro -> đồng bộ cả lượt ảnh và số giây video 30 ngày
+        if (planOverride === 'plus') {
+            updatePayload.remainingImages = 100;
+            updatePayload.planAllowanceImages = 100;
+            updatePayload.remainingVideoSeconds = 60;
+            updatePayload.planAllowanceVideoSeconds = 60;
+            updatePayload.planStartedAt = now;
+            updatePayload.planExpiresAt = now + TERM_MS;
+            updatePayload.freeVideoGranted = true;
+        } else if (planOverride === 'pro') {
+            updatePayload.remainingImages = 200;
+            updatePayload.planAllowanceImages = 200;
+            updatePayload.remainingVideoSeconds = 180;
+            updatePayload.planAllowanceVideoSeconds = 180;
+            updatePayload.planStartedAt = now;
+            updatePayload.planExpiresAt = now + TERM_MS;
+            updatePayload.freeVideoGranted = true;
+        } else if (planOverride === 'free') {
+            updatePayload.remainingImages = 0;
+            updatePayload.planAllowanceImages = 0;
+            updatePayload.remainingVideoSeconds = Number.isSafeInteger(existingData.remainingVideoSeconds) ? existingData.remainingVideoSeconds : 8;
+            updatePayload.freeVideoGranted = true;
+        }
+
+        await setDoc(docRef, updatePayload, { merge: true });
 
         // Atomically sync system_metrics in userAccess
         try {

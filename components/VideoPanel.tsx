@@ -6,9 +6,9 @@ import {
     DEFAULT_VIDEO_CONFIG,
     OPENROUTER_VIDEO_MODELS,
     getVideoModelMeta,
-    isVideoModelProviderEnabled,
-    calculateVideoPriceVnd
+    isVideoModelProviderEnabled
 } from '../services/videoConfigService';
+import type { SubscriptionPlan } from '../services/firebaseService';
 
 // Vector SVG Icons
 const SparklesIcon = () => (
@@ -66,7 +66,9 @@ export interface VideoPanelProps {
     isDisabled: boolean;
     hasInputImage: boolean;
     inputImagePreview?: string;
-    userBalance?: number;
+    remainingVideoSeconds?: number;
+    userPlan?: SubscriptionPlan;
+    isAdmin?: boolean;
     onRequestTopUp?: () => void;
 }
 
@@ -79,7 +81,9 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     isDisabled,
     hasInputImage,
     inputImagePreview,
-    userBalance = 0,
+    remainingVideoSeconds = 0,
+    userPlan = 'free',
+    isAdmin = false,
     onRequestTopUp
 }) => {
     const [videoConfig, setVideoConfig] = useState<OpenRouterVideoConfig>(DEFAULT_VIDEO_CONFIG);
@@ -166,10 +170,10 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         img.src = src;
     }, [inputImagePreview, activeModelMeta]);
 
-    // Calculate dynamic cost based on selected model & duration
-    const pricePerVideo = calculateVideoPriceVnd(selectedModel, duration);
-    const totalCost = pricePerVideo * outputCount;
-    const hasEnoughBalance = userBalance >= totalCost;
+    // Calculate video seconds needed based on duration & outputCount
+    const totalSecondsNeeded = duration * outputCount;
+    const hasEnoughSeconds = isAdmin || remainingVideoSeconds >= totalSecondsNeeded;
+    const planLabel = userPlan === 'pro' ? 'Gói Pro' : userPlan === 'plus' ? 'Gói Plus' : 'Gói Free';
 
     const handleSubmit = () => {
         if (isDisabled || isLoading || !anyProviderEnabled || !isCurrentModelEnabled) return;
@@ -179,11 +183,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             return;
         }
 
-        if (!hasEnoughBalance) {
+        if (!hasEnoughSeconds) {
             if (onRequestTopUp) {
                 onRequestTopUp();
             } else {
-                alert(`Số dư hiện tại (${userBalance.toLocaleString('vi-VN')}đ) không đủ để tạo video (${totalCost.toLocaleString('vi-VN')}đ). Vui lòng nạp thêm vào tài khoản.`);
+                alert(`Số giây video còn lại (${remainingVideoSeconds}s) không đủ để tạo video (${totalSecondsNeeded}s). Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s).`);
             }
             return;
         }
@@ -322,12 +326,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             Thời lượng video
                         </label>
                         <span className="text-xs font-bold text-amber-600 font-mono tabular-nums">
-                            {duration} giây ({calculateVideoPriceVnd(selectedModel, duration).toLocaleString('vi-VN')}đ)
+                            {duration} giây / video
                         </span>
                     </div>
                     <div className="grid grid-cols-4 gap-1.5">
                         {[
-                            { sec: 3, sub: 'Siêu rẻ' },
+                            { sec: 3, sub: 'Ngắn' },
                             { sec: 5, sub: 'Nhanh' },
                             { sec: 10, sub: 'Chuẩn' },
                             { sec: 15, sub: 'Dài' }
@@ -390,7 +394,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 </div>
             </div>
 
-            {/* 4. PRICING & BALANCE SUMMARY */}
+            {/* 4. VIDEO SECONDS QUOTA SUMMARY */}
             <div className="bg-gradient-to-br from-slate-50 to-indigo-50/40 rounded-2xl p-4 border border-indigo-100 shadow-sm flex flex-col gap-2.5">
                 <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-600">Mô hình đang chọn:</span>
@@ -402,24 +406,17 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5 text-slate-600">
                         <span className="text-amber-500"><CoinsIcon /></span>
-                        <span>Đơn giá ({duration}s):</span>
+                        <span>Thời lượng tiêu thụ:</span>
                     </div>
                     <span className="font-mono font-bold tabular-nums text-slate-900">
-                        {pricePerVideo.toLocaleString('vi-VN')}đ / video
+                        {totalSecondsNeeded} giây ({outputCount} video × {duration}s)
                     </span>
                 </div>
 
-                <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600">Số dư khả dụng của bạn:</span>
-                    <span className={`font-mono font-bold tabular-nums ${hasEnoughBalance ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {userBalance.toLocaleString('vi-VN')}đ
-                    </span>
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-indigo-100 text-xs font-bold">
-                    <span className="text-slate-900">Tổng thanh toán:</span>
-                    <span className="font-mono text-sm tabular-nums text-indigo-700">
-                        {totalCost.toLocaleString('vi-VN')}đ ({outputCount} video)
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-indigo-100">
+                    <span className="text-slate-700 font-semibold">Số giây video còn lại ({planLabel}):</span>
+                    <span className={`font-mono text-sm font-bold tabular-nums ${hasEnoughSeconds ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {isAdmin ? 'Không giới hạn' : `${remainingVideoSeconds} giây`}
                     </span>
                 </div>
 
@@ -430,16 +427,20 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </div>
                 )}
 
-                {!hasEnoughBalance && anyProviderEnabled && (
+                {!hasEnoughSeconds && anyProviderEnabled && (
                     <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between gap-2">
-                        <span>Số dư không đủ để tạo video.</span>
+                        <span>
+                            {remainingVideoSeconds <= 0
+                                ? `Đã hết số giây tạo video (${planLabel}).`
+                                : `Còn ${remainingVideoSeconds}s, cần ${totalSecondsNeeded}s để tạo video.`}
+                        </span>
                         {onRequestTopUp && (
                             <button
                                 type="button"
                                 onClick={onRequestTopUp}
-                                className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-[11px] hover:bg-rose-700 cursor-pointer transition-colors"
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600 text-white font-bold text-[11px] hover:bg-rose-700 cursor-pointer transition-colors shrink-0"
                             >
-                                Nạp tiền ngay
+                                Nâng cấp gói
                             </button>
                         )}
                     </div>
@@ -456,7 +457,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     onClick={handleSubmit}
                     disabled={isLoading || isDisabled || !anyProviderEnabled || !isCurrentModelEnabled || (!hasInputImage && subMode === 'image_to_video')}
                     className={`min-h-[48px] w-full rounded-xl font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
-                        hasEnoughBalance && anyProviderEnabled && (hasInputImage || subMode !== 'image_to_video')
+                        hasEnoughSeconds && anyProviderEnabled && (hasInputImage || subMode !== 'image_to_video')
                             ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white shadow-amber-500/20'
                             : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                     }`}
@@ -471,17 +472,21 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             <LockClosedIcon />
                             <span>Tính năng tạo video đang tạm khóa</span>
                         </>
-                    ) : !hasEnoughBalance ? (
+                    ) : !hasEnoughSeconds ? (
                         <>
-                            <CoinsIcon />
-                            <span>Nạp thêm {(totalCost - userBalance).toLocaleString('vi-VN')}đ để tạo video</span>
+                            <LockClosedIcon />
+                            <span>
+                                {remainingVideoSeconds <= 0
+                                    ? 'Hết giây tạo video • Nâng cấp gói'
+                                    : `Thiếu ${totalSecondsNeeded - remainingVideoSeconds}s video • Nâng cấp gói`}
+                            </span>
                         </>
                     ) : !hasInputImage && subMode === 'image_to_video' ? (
                         <span>Chờ tải ảnh nguồn ở trên...</span>
                     ) : (
                         <>
                             <PlayIcon />
-                            <span>Bắt đầu tạo video ({totalCost.toLocaleString('vi-VN')}đ)</span>
+                            <span>Bắt đầu tạo video (-{totalSecondsNeeded} giây)</span>
                         </>
                     )}
                 </button>

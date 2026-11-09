@@ -30,6 +30,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
     const [newPassword, setNewPassword] = useState('');
     const [message, setMessage] = useState('');
     const [remainingImages, setRemainingImages] = useState(0);
+    const [remainingVideoSeconds, setRemainingVideoSeconds] = useState(() => firebaseService.getCachedRemainingVideoSeconds(user.id));
     const [bonusImages, setBonusImages] = useState(0);
     const [activePlan, setActivePlan] = useState<SubscriptionPlan>(() => getCachedUserPlan(user.id));
     const [freeRemaining, setFreeRemaining] = useState<number>(() => getDailyFreeRemaining(user.id));
@@ -40,6 +41,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
     useEffect(() => {
         const unsubscribe = firebaseService.subscribeToUserCredits(user.id, (newBalance, subState) => {
             setRemainingImages(subState?.remainingImages ?? 0);
+            setRemainingVideoSeconds(subState?.remainingVideoSeconds ?? 0);
             setBonusImages(Math.max(0, Math.floor(newBalance / firebaseService.IMAGE_COST_VND)));
             if (subState) {
                 setActivePlan(subState.plan);
@@ -147,8 +149,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
                                 </span>
                                 <span className="text-xs text-white/90 font-mono tabular-nums bg-white/20 px-2 py-0.5 rounded-full font-semibold">
                                     {activePlan === 'free'
-                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh hôm nay${bonusImages ? ` + ${bonusImages} ảnh thưởng` : ''}`
-                                        : `Còn ${remainingImages} ảnh`}
+                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh • ${remainingVideoSeconds}s video`
+                                        : `Còn ${remainingImages} ảnh • ${remainingVideoSeconds}s video`}
                                 </span>
                             </div>
                         </div>

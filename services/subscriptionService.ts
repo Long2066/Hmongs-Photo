@@ -1,12 +1,14 @@
 import { auth } from '../src/firebaseConfig';
-import { consumeUserPlanImagesDirect } from './firebaseService';
+import { consumeUserPlanImagesDirect, consumeUserVideoSecondsDirect } from './firebaseService';
 
 export interface SubscriptionEntitlement {
     plan: 'free' | 'plus' | 'pro';
     remainingImages: number;
+    remainingVideoSeconds: number;
     planStartedAt: number | null;
     planExpiresAt: number | null;
     planAllowanceImages: number;
+    planAllowanceVideoSeconds?: number;
 }
 
 const resolveApiOrigin = (): string => {
@@ -36,7 +38,10 @@ const request = async (init?: RequestInit): Promise<SubscriptionEntitlement> => 
     if (!['free', 'plus', 'pro'].includes(body.plan) || !Number.isSafeInteger(body.remainingImages) || body.remainingImages < 0) {
         throw new Error('Dữ liệu gói không hợp lệ.');
     }
-    return body as SubscriptionEntitlement;
+    return {
+        ...body,
+        remainingVideoSeconds: Number.isSafeInteger(body.remainingVideoSeconds) ? body.remainingVideoSeconds : 0
+    } as SubscriptionEntitlement;
 };
 
 export const refreshSubscription = async (): Promise<SubscriptionEntitlement | null> => {
@@ -67,9 +72,43 @@ export const consumeSubscriptionImages = async (
                 return {
                     plan: fallback.plan,
                     remainingImages: fallback.remainingImages,
+                    remainingVideoSeconds: fallback.remainingVideoSeconds,
                     planStartedAt: fallback.planStartedAt,
                     planExpiresAt: fallback.planExpiresAt,
-                    planAllowanceImages: fallback.planAllowanceImages
+                    planAllowanceImages: fallback.planAllowanceImages,
+                    planAllowanceVideoSeconds: fallback.planAllowanceVideoSeconds
+                };
+            }
+        }
+        throw err;
+    }
+};
+
+export const consumeSubscriptionVideoSeconds = async (
+    seconds: number,
+    requestId: string = crypto.randomUUID()
+): Promise<SubscriptionEntitlement> => {
+    if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 180) throw new Error('Invalid video seconds');
+    try {
+        return await request({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'consume_video', seconds, requestId })
+        });
+    } catch (err) {
+        console.warn('[SubscriptionService] Server consume_video failed, using direct Firestore fallback:', err);
+        const user = auth.currentUser;
+        if (user) {
+            const fallback = await consumeUserVideoSecondsDirect(user.uid, seconds);
+            if (fallback) {
+                return {
+                    plan: fallback.plan,
+                    remainingImages: fallback.remainingImages,
+                    remainingVideoSeconds: fallback.remainingVideoSeconds,
+                    planStartedAt: fallback.planStartedAt,
+                    planExpiresAt: fallback.planExpiresAt,
+                    planAllowanceImages: fallback.planAllowanceImages,
+                    planAllowanceVideoSeconds: fallback.planAllowanceVideoSeconds
                 };
             }
         }

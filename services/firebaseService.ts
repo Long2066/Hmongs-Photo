@@ -396,13 +396,30 @@ export const subscribeToCloudStats = (callback: (stats: CloudStats) => void): ((
 // Record new user registration
 export const recordNewRegistration = async (userId: string, displayName: string, email?: string): Promise<void> => {
     try {
+        const now = Date.now();
         await addDoc(collection(db, REGISTRATIONS_COLLECTION), {
             userId,
             displayName,
             email: email || '',
-            timestamp: Date.now(),
+            timestamp: now,
             date: new Date().toISOString().split('T')[0] // YYYY-MM-DD format
         });
+
+        // Khởi tạo gói Free mặc định kèm 8 giây tạo video một lần cho tài khoản mới
+        const creditRef = doc(db, "userCredits", userId);
+        const snap = await getDoc(creditRef);
+        if (!snap.exists()) {
+            await setDoc(creditRef, {
+                userId,
+                credits: 0,
+                plan: 'free',
+                remainingImages: 0,
+                remainingVideoSeconds: 8,
+                planAllowanceVideoSeconds: 8,
+                freeVideoGranted: true,
+                lastUpdated: now
+            }, { merge: true });
+        }
     } catch (error) {
         console.error("Error recording registration:", error);
     }
@@ -793,6 +810,12 @@ export type SubscriptionPlan = 'free' | 'plus' | 'pro';
 
 export const IMAGE_COST_VND = 500;
 export const FREE_DAILY_IMAGE_LIMIT = 10;
+export const FREE_ACCOUNT_VIDEO_SECONDS = 8;
+export const PLAN_VIDEO_ALLOWANCE: Record<SubscriptionPlan, number> = {
+    free: 8,
+    plus: 60,
+    pro: 180
+};
 export const FREE_ALLOWED_MODEL = 'gpt-image-1.5';
 
 export interface PlanInfo {
@@ -804,6 +827,8 @@ export interface PlanInfo {
     costPerImage: number;
     maxResolution: 'FHD' | '4K';
     dailyFreeLimit?: number;
+    totalImages?: number;
+    videoSeconds: number;
     paymentId?: string;
     checkoutUrl?: string;
     description: string;
@@ -820,9 +845,11 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         costPerImage: 0,
         maxResolution: 'FHD',
         dailyFreeLimit: FREE_DAILY_IMAGE_LIMIT,
+        videoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
         description: 'Trải nghiệm tạo ảnh AI cơ bản mỗi ngày hoàn toàn miễn phí.',
         features: [
             'Tạo tối đa 10 ảnh / ngày',
+            'Tặng 8 giây tạo Video AI cho mỗi tài khoản mới',
             'Sử dụng model GPT Image 1.5',
             'Độ phân giải tiêu chuẩn (HD / FHD)',
             'Lưu trữ lịch sử tạo ảnh 72 giờ'
@@ -836,13 +863,15 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         price: 50000,
         costPerImage: IMAGE_COST_VND,
         maxResolution: 'FHD',
+        totalImages: 100,
+        videoSeconds: 60,
         description: 'Mở khóa toàn bộ tính năng sáng tạo với mức chi phí siêu tiết kiệm.',
         features: [
-            'Nhận 100 ảnh trong 30 ngày từ lúc kích hoạt',
+            'Nhận 100 ảnh + 60 giây tạo Video AI trong 30 ngày',
             'Sử dụng full tất cả các tính năng trên công cụ',
             'Mở khóa các Model AI: GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2 (cùng các model miễn phí)',
             'Tạo ảnh độ phân giải tối đa mức FHD (Full HD)',
-            'Hết lượt hoặc hết hạn sau 30 ngày sẽ quay về Free'
+            'Hết hạn sau 30 ngày tự động quay về gói Free'
         ]
     },
     pro: {
@@ -853,13 +882,15 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
         price: 100000,
         costPerImage: IMAGE_COST_VND,
         maxResolution: '4K',
+        totalImages: 200,
+        videoSeconds: 180,
         description: 'Sức mạnh tối đa không giới hạn cho Studio & Designer chuyên nghiệp.',
         features: [
-            'Nhận 200 ảnh trong 30 ngày từ lúc kích hoạt',
+            'Nhận 200 ảnh + 180 giây tạo Video AI trong 30 ngày',
             'Sử dụng full toàn bộ tính năng có trên Tool',
             'Mở khóa Full toàn bộ Model AI (không giới hạn model)',
             'Mở khóa mọi mức độ phân giải: HD, FHD, 2K, 4K Ultra',
-            'Hết lượt hoặc hết hạn sau 30 ngày sẽ quay về Free'
+            'Hết hạn sau 30 ngày tự động quay về gói Free'
         ]
     }
 };
@@ -888,9 +919,11 @@ export interface UserSubscriptionState {
     dailyFreeUsed: number;
     dailyFreeDate: string;
     remainingImages: number;
+    remainingVideoSeconds: number;
     planStartedAt: number | null;
     planExpiresAt: number | null;
     planAllowanceImages: number;
+    planAllowanceVideoSeconds: number;
 }
 
 export const getTodayDateString = (): string => {
@@ -905,9 +938,11 @@ export const resolveEffectivePlan = (
     rawPlan?: string,
     _credits: number = 0,
     remainingImages: number = 0,
-    planExpiresAt: number | null = null
+    planExpiresAt: number | null = null,
+    remainingVideoSeconds: number = 0
 ): SubscriptionPlan => {
-    if (remainingImages <= 0 || !planExpiresAt || planExpiresAt <= Date.now()) return 'free';
+    if (!planExpiresAt || planExpiresAt <= Date.now()) return 'free';
+    if (remainingImages <= 0 && remainingVideoSeconds <= 0) return 'free';
     return rawPlan === 'plus' || rawPlan === 'pro' ? rawPlan : 'free';
 };
 
@@ -917,10 +952,24 @@ export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
         if (!uid) return 'free';
         const rawPlan = localStorage.getItem('user_plan_' + uid) || undefined;
         const images = Number(localStorage.getItem('user_remaining_images_' + uid)) || 0;
+        const videoSec = Number(localStorage.getItem('user_remaining_video_seconds_' + uid)) || 0;
         const expiry = Number(localStorage.getItem('user_plan_expires_' + uid)) || 0;
-        return resolveEffectivePlan(rawPlan, 0, images, expiry);
+        return resolveEffectivePlan(rawPlan, 0, images, expiry, videoSec);
     } catch {
         return 'free';
+    }
+};
+
+export const getCachedRemainingVideoSeconds = (userId?: string): number => {
+    try {
+        const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
+        if (!uid) return FREE_ACCOUNT_VIDEO_SECONDS;
+        const raw = localStorage.getItem('user_remaining_video_seconds_' + uid);
+        if (raw === null) return FREE_ACCOUNT_VIDEO_SECONDS;
+        const parsed = parseInt(raw, 10);
+        return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+    } catch {
+        return FREE_ACCOUNT_VIDEO_SECONDS;
     }
 };
 export const getCachedDailyFreeUsed = (userId?: string): number => {
@@ -1108,9 +1157,25 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
         const docSnap = await getDoc(docRef);
         if (!docSnap.exists()) return null;
         const data = docSnap.data();
+        const now = Date.now();
+        const planExpiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
+
+        // Nếu gói đã hết hạn 30 ngày -> reset cả ảnh và giây video về 0, hạ gói về Free
+        if ((data.plan === 'plus' || data.plan === 'pro') && (!planExpiresAt || planExpiresAt <= now)) {
+            await setDoc(docRef, {
+                userId,
+                plan: 'free',
+                remainingImages: 0,
+                remainingVideoSeconds: 0,
+                lastUpdated: now
+            }, { merge: true });
+            return null;
+        }
+
         const currentRemaining = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+        const currentVideoSec = Number.isSafeInteger(data.remainingVideoSeconds) ? data.remainingVideoSeconds : 0;
         const newRemaining = Math.max(0, currentRemaining - count);
-        const newPlan: SubscriptionPlan = newRemaining > 0
+        const newPlan: SubscriptionPlan = (newRemaining > 0 || currentVideoSec > 0)
             ? (data.plan === 'pro' || data.plan === 'plus' ? data.plan : 'free')
             : 'free';
 
@@ -1118,14 +1183,14 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
             userId,
             remainingImages: newRemaining,
             plan: newPlan,
-            lastUpdated: Date.now()
+            lastUpdated: now
         }, { merge: true });
 
         if (typeof localStorage !== 'undefined') {
             localStorage.setItem('user_remaining_images_' + userId, newRemaining.toString());
             localStorage.setItem('user_plan_' + userId, newPlan);
             window.dispatchEvent(new CustomEvent('user-balance-changed', {
-                detail: { remainingImages: newRemaining, plan: newPlan }
+                detail: { remainingImages: newRemaining, remainingVideoSeconds: currentVideoSec, plan: newPlan }
             }));
         }
 
@@ -1135,12 +1200,83 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
             dailyFreeUsed: data.dailyFreeUsed || 0,
             dailyFreeDate: data.dailyFreeDate || getTodayDateString(),
             remainingImages: newRemaining,
+            remainingVideoSeconds: currentVideoSec,
             planStartedAt: data.planStartedAt || null,
-            planExpiresAt: data.planExpiresAt || null,
-            planAllowanceImages: data.planAllowanceImages || 0
+            planExpiresAt,
+            planAllowanceImages: data.planAllowanceImages || 0,
+            planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || 0
         };
     } catch (e) {
         console.warn('[consumeUserPlanImagesDirect] error:', e);
+        return null;
+    }
+};
+
+// Direct deduction for video seconds quota (Free 8s / Plus 60s / Pro 180s)
+export const consumeUserVideoSecondsDirect = async (userId: string, seconds: number): Promise<UserSubscriptionState | null> => {
+    try {
+        const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
+        const docSnap = await getDoc(docRef);
+        const now = Date.now();
+        const data = docSnap.exists() ? docSnap.data() : {};
+        const planExpiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
+
+        // Nếu gói trả phí đã hết hạn 30 ngày -> reset cả ảnh và giây video về 0, hạ gói về Free
+        if ((data.plan === 'plus' || data.plan === 'pro') && (!planExpiresAt || planExpiresAt <= now)) {
+            await setDoc(docRef, {
+                userId,
+                plan: 'free',
+                remainingImages: 0,
+                remainingVideoSeconds: 0,
+                freeVideoGranted: true,
+                lastUpdated: now
+            }, { merge: true });
+            return null;
+        }
+
+        const currentImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+        const currentVideoSec = Number.isSafeInteger(data.remainingVideoSeconds)
+            ? data.remainingVideoSeconds
+            : (!data.freeVideoGranted ? FREE_ACCOUNT_VIDEO_SECONDS : 0);
+
+        if (currentVideoSec < seconds) return null;
+
+        const newVideoSec = Math.max(0, currentVideoSec - seconds);
+        const isPaid = data.plan === 'pro' || data.plan === 'plus';
+        const newPlan: SubscriptionPlan = isPaid
+            ? (currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
+            : 'free';
+
+        await setDoc(docRef, {
+            userId,
+            remainingVideoSeconds: newVideoSec,
+            freeVideoGranted: true,
+            plan: newPlan,
+            lastUpdated: now
+        }, { merge: true });
+
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('user_remaining_video_seconds_' + userId, newVideoSec.toString());
+            localStorage.setItem('user_plan_' + userId, newPlan);
+            window.dispatchEvent(new CustomEvent('user-balance-changed', {
+                detail: { remainingImages: currentImages, remainingVideoSeconds: newVideoSec, plan: newPlan }
+            }));
+        }
+
+        return {
+            credits: data.credits || 0,
+            plan: newPlan,
+            dailyFreeUsed: data.dailyFreeUsed || 0,
+            dailyFreeDate: data.dailyFreeDate || getTodayDateString(),
+            remainingImages: newPlan === 'free' ? 0 : currentImages,
+            remainingVideoSeconds: newVideoSec,
+            planStartedAt: data.planStartedAt || null,
+            planExpiresAt,
+            planAllowanceImages: data.planAllowanceImages || 0,
+            planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (isPaid ? PLAN_VIDEO_ALLOWANCE[data.plan] : FREE_ACCOUNT_VIDEO_SECONDS)
+        };
+    } catch (e) {
+        console.warn('[consumeUserVideoSecondsDirect] error:', e);
         return null;
     }
 };
@@ -1236,24 +1372,60 @@ export const subscribeToUserCredits = (
 
     return onSnapshot(docRef, (docSnap) => {
         const today = getTodayDateString();
+        const now = Date.now();
         if (docSnap.exists()) {
             const data = docSnap.data();
             const credits = data.credits || 0;
-            const remainingImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+            const rawPlan = data.plan;
+            const isPaidRaw = rawPlan === 'plus' || rawPlan === 'pro';
             const planExpiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
-            const plan = resolveEffectivePlan(data.plan, credits, remainingImages, planExpiresAt);
+            const isExpiredPaid = isPaidRaw && (!planExpiresAt || planExpiresAt <= now);
+
+            let remainingImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+            let remainingVideoSeconds = Number.isSafeInteger(data.remainingVideoSeconds)
+                ? data.remainingVideoSeconds
+                : (!data.freeVideoGranted
+                    ? (isPaidRaw ? PLAN_VIDEO_ALLOWANCE[rawPlan] : FREE_ACCOUNT_VIDEO_SECONDS)
+                    : (isPaidRaw && !data.videoQuotaMigratedAt ? PLAN_VIDEO_ALLOWANCE[rawPlan] : 0));
+
+            // Nếu gói Plus/Pro đã quá hạn 30 ngày -> đưa cả ảnh và giây video về 0, hạ gói về Free
+            if (isExpiredPaid) {
+                remainingImages = 0;
+                remainingVideoSeconds = 0;
+                setDoc(docRef, {
+                    userId,
+                    plan: 'free',
+                    remainingImages: 0,
+                    remainingVideoSeconds: 0,
+                    freeVideoGranted: true,
+                    lastUpdated: now
+                }, { merge: true }).catch(() => {});
+            } else if (!data.freeVideoGranted || (isPaidRaw && !data.videoQuotaMigratedAt)) {
+                setDoc(docRef, {
+                    userId,
+                    remainingVideoSeconds,
+                    planAllowanceVideoSeconds: isPaidRaw ? PLAN_VIDEO_ALLOWANCE[rawPlan] : FREE_ACCOUNT_VIDEO_SECONDS,
+                    freeVideoGranted: true,
+                    ...(isPaidRaw ? { videoQuotaMigratedAt: now } : {}),
+                    lastUpdated: now
+                }, { merge: true }).catch(() => {});
+            }
+
+            const plan = resolveEffectivePlan(rawPlan, credits, remainingImages, planExpiresAt, remainingVideoSeconds);
             const dailyFreeUsed = data.dailyFreeDate === today ? (data.dailyFreeUsed || 0) : 0;
+            const effectiveRemainingImages = plan === 'free' ? 0 : remainingImages;
 
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('user_balance_raw_' + userId, credits.toString());
                 localStorage.setItem('user_plan_' + userId, plan);
-                localStorage.setItem('user_remaining_images_' + userId, remainingImages.toString());
+                localStorage.setItem('user_remaining_images_' + userId, effectiveRemainingImages.toString());
+                localStorage.setItem('user_remaining_video_seconds_' + userId, remainingVideoSeconds.toString());
                 localStorage.setItem('user_plan_expires_' + userId, String(planExpiresAt || 0));
                 localStorage.setItem('user_credits_' + userId, Math.floor(credits / 100).toString());
                 localStorage.setItem('user_free_date_' + userId, today);
                 localStorage.setItem('user_free_used_' + userId, dailyFreeUsed.toString());
                 window.dispatchEvent(new CustomEvent('user-balance-changed', {
-                    detail: { balance: credits, plan, dailyFreeUsed, remainingImages, planExpiresAt }
+                    detail: { balance: credits, plan, dailyFreeUsed, remainingImages: effectiveRemainingImages, remainingVideoSeconds, planExpiresAt }
                 }));
             }
 
@@ -1262,16 +1434,31 @@ export const subscribeToUserCredits = (
                 plan,
                 dailyFreeUsed,
                 dailyFreeDate: today,
-                remainingImages: plan === 'free' ? 0 : remainingImages,
+                remainingImages: effectiveRemainingImages,
+                remainingVideoSeconds,
                 planStartedAt: data.planStartedAt || null,
                 planExpiresAt,
-                planAllowanceImages: data.planAllowanceImages || 0
+                planAllowanceImages: data.planAllowanceImages || 0,
+                planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (plan !== 'free' ? PLAN_VIDEO_ALLOWANCE[plan] : FREE_ACCOUNT_VIDEO_SECONDS)
             });
         } else {
+            // Tài khoản mới chưa có doc userCredits -> cấp ngay 8s video miễn phí một lần
+            setDoc(docRef, {
+                userId,
+                credits: 0,
+                plan: 'free',
+                remainingImages: 0,
+                remainingVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
+                planAllowanceVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
+                freeVideoGranted: true,
+                lastUpdated: now
+            }, { merge: true }).catch(() => {});
+
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('user_balance_raw_' + userId, '0');
                 localStorage.setItem('user_plan_' + userId, 'free');
                 localStorage.setItem('user_remaining_images_' + userId, '0');
+                localStorage.setItem('user_remaining_video_seconds_' + userId, String(FREE_ACCOUNT_VIDEO_SECONDS));
                 localStorage.setItem('user_plan_expires_' + userId, '0');
                 localStorage.setItem('user_credits_' + userId, '0');
             }
@@ -1281,9 +1468,11 @@ export const subscribeToUserCredits = (
                 dailyFreeUsed: getCachedDailyFreeUsed(userId),
                 dailyFreeDate: today,
                 remainingImages: 0,
+                remainingVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
                 planStartedAt: null,
                 planExpiresAt: null,
-                planAllowanceImages: 0
+                planAllowanceImages: 0,
+                planAllowanceVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS
             });
         }
     });
