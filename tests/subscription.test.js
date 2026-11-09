@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeSubscription, purchaseSubscription, consumeImages, TERM_MS } from '../lib/payos/subscription.js';
 
@@ -26,7 +26,7 @@ test('new purchase has fixed images and resets 30-day term', () => {
   assert.equal(upgrade.credits, 0);
 });
 test('exhaustion and expiry return Free without migrating again', () => {
-  const plus = purchaseSubscription({}, 'plus', NOW);
+  const plus = { ...purchaseSubscription({}, 'plus', NOW), remainingVideoSeconds: 0 };
   assert.equal(consumeImages(plus, 100, NOW + 1).plan, 'free');
   assert.equal(consumeImages(plus, 101, NOW + 1), null);
   const expired = normalizeSubscription(plus, NOW + TERM_MS);
