@@ -160,37 +160,64 @@ const QUICK_SUGGESTIONS = [
     { label: '📞 Hotline hỗ trợ 24/7', prompt: 'Cho em xin số hotline và thông tin liên hệ hỗ trợ khi cần?' }
 ];
 
-// TypingText component for natural typing animation
-const TypingText: React.FC<{ text: string; onComplete: () => void }> = ({ text, onComplete }) => {
+// TypingText component for ultra-smooth, jitter-free typing animation
+const TypingText: React.FC<{
+    text: string;
+    onComplete: () => void;
+    onStep?: () => void;
+}> = ({ text, onComplete, onStep }) => {
     const [displayedText, setDisplayedText] = useState('');
     const [isComplete, setIsComplete] = useState(false);
+
+    // Keep latest callbacks in refs so parent re-renders NEVER reset or duplicate the typing loop
+    const onCompleteRef = useRef(onComplete);
+    const onStepRef = useRef(onStep);
+
+    useEffect(() => {
+        onCompleteRef.current = onComplete;
+    }, [onComplete]);
+
+    useEffect(() => {
+        onStepRef.current = onStep;
+    }, [onStep]);
 
     useEffect(() => {
         setDisplayedText('');
         setIsComplete(false);
         let index = 0;
+        let timerId: ReturnType<typeof setTimeout> | null = null;
+        let isCancelled = false;
 
-        const typeNextChar = () => {
+        // Adaptive step size so responses stream at 60fps without excessive React re-renders
+        const stepSize = text.length > 350 ? 4 : text.length > 160 ? 3 : 2;
+
+        const typeNextChunk = () => {
+            if (isCancelled) return;
             if (index < text.length) {
-                setDisplayedText(text.slice(0, index + 1));
-                index++;
-                const delay = 15 + Math.random() * 25;
-                setTimeout(typeNextChar, delay);
+                index = Math.min(text.length, index + stepSize);
+                setDisplayedText(text.slice(0, index));
+                onStepRef.current?.();
+                timerId = setTimeout(typeNextChunk, 18);
             } else {
                 setIsComplete(true);
-                onComplete();
+                onStepRef.current?.();
+                onCompleteRef.current();
             }
         };
 
-        const startTimeout = setTimeout(typeNextChar, 60);
-        return () => clearTimeout(startTimeout);
-    }, [text, onComplete]);
+        timerId = setTimeout(typeNextChunk, 30);
+
+        return () => {
+            isCancelled = true;
+            if (timerId) clearTimeout(timerId);
+        };
+    }, [text]);
 
     return (
-        <>
+        <div className="whitespace-pre-wrap">
             {displayedText}
-            {!isComplete && <span className="inline-block w-1.5 h-4 ml-0.5 bg-indigo-500 animate-pulse align-middle"></span>}
-        </>
+            {!isComplete && <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-indigo-500 animate-pulse align-middle rounded-xs" />}
+        </div>
     );
 };
 
@@ -385,6 +412,17 @@ export const SupportHub: React.FC<SupportHubProps> = ({
     const [inputMessage, setInputMessage] = useState('');
     const [isTyping, setIsTyping] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottomInstant = () => {
+        const el = chatContainerRef.current;
+        if (!el) return;
+        // Auto-scroll only if user hasn't scrolled far up
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (distanceFromBottom < 140) {
+            el.scrollTop = el.scrollHeight;
+        }
+    };
 
     // Feedback state
     const [isSending, setIsSending] = useState(false);
@@ -408,19 +446,22 @@ export const SupportHub: React.FC<SupportHubProps> = ({
         setShowModelMenu(false);
     };
 
-    // Rotate icon when not expanded
+    // Rotate icon only when all panels are closed
     useEffect(() => {
-        if (!isExpanded) {
+        if (!isExpanded && !showBot && !showFeedback) {
             const interval = setInterval(() => {
                 setCurrentIcon(prev => prev === 'bot' ? 'feedback' : 'bot');
             }, 3000);
             return () => clearInterval(interval);
         }
-    }, [isExpanded]);
+    }, [isExpanded, showBot, showFeedback]);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, isTyping]);
+        const el = chatContainerRef.current;
+        if (el) {
+            el.scrollTop = el.scrollHeight;
+        }
+    }, [messages.length, isTyping]);
 
     useEffect(() => {
         setFormData(prev => ({ ...prev, name: userName || prev.name, email: userEmail || prev.email }));
@@ -836,7 +877,7 @@ export const SupportHub: React.FC<SupportHubProps> = ({
                     )}
 
                     {/* Chat Messages Area */}
-                    <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar bg-slate-50/60">
+                    <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar bg-slate-50/60">
                         {messages.map((msg) => {
                             const isWelcome = msg.id === 'welcome' || msg.id.startsWith('welcome-');
 
@@ -899,13 +940,17 @@ export const SupportHub: React.FC<SupportHubProps> = ({
                                     className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                                 >
                                     <div
-                                        className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed transition-all ${msg.role === 'user'
+                                        className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.role === 'user'
                                             ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-xs shadow-md shadow-indigo-500/10'
                                             : 'bg-white text-slate-800 rounded-bl-xs border border-slate-200/80 shadow-sm'
                                             }`}
                                     >
                                         {msg.role === 'assistant' && !msg.isTypingComplete ? (
-                                            <TypingText text={msg.content} onComplete={() => handleTypingComplete(msg.id)} />
+                                            <TypingText
+                                                text={msg.content}
+                                                onComplete={() => handleTypingComplete(msg.id)}
+                                                onStep={scrollToBottomInstant}
+                                            />
                                         ) : (
                                             <div className="whitespace-pre-wrap">{msg.content}</div>
                                         )}
