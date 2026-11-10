@@ -673,9 +673,9 @@ const App: React.FC = () => {
         }
     }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate]);
 
-    // 3. Edit Image (Batch Support)
-    const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', outputCount: number, extraData?: any) => {
-        console.log('[DEBUG] handleEditImage called:', { prompt, type, outputCount });
+    // 3. Edit Image (Batch 1-to-1 Support, max 10 images)
+    const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', _outputCount: number, extraData?: any) => {
+        console.log('[DEBUG] handleEditImage called:', { prompt, type });
 
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
@@ -683,39 +683,24 @@ const App: React.FC = () => {
         const inputs = modeStates['edit'].inputs;
         console.log('[DEBUG] Edit inputs length:', inputs.length);
 
-        if (type !== 'mix' && inputs.length === 0) { setError("Vui lòng tải lên ảnh."); return; }
-        if (type === 'mix' && inputs.length < 2) { setError("Vui lòng tải lên 2 ảnh để phối đồ."); return; }
+        if (type !== 'mix' && inputs.length === 0) { setError("Vui lòng tải lên từ 1 đến 10 ảnh đầu vào."); return; }
+        if (type === 'mix' && inputs.length < 2) { setError("Vui lòng tải lên 2 ảnh vào Slot 1 và Slot 2 để phối đồ."); return; }
 
-        const actualCount = type === 'general' ? outputCount : 1;
+        // 1-to-1 Mapping: input count equals output count (mix requires 2 inputs -> 1 output)
+        const actualCount = type === 'mix' ? 1 : inputs.length;
         if (!await validateSubscriptionBeforeGenerate(actualCount)) return;
 
-        console.log('[DEBUG] Starting edit generation...');
+        console.log(`[DEBUG] Starting 1-to-1 edit generation for ${actualCount} slots...`);
         setIsLoading(true); setError(null); setIsMenuOpen(false);
-        updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
+        updateModeState(() => ({ outputs: Array(actualCount).fill(null) }));
 
-        const localResults: (string | null)[] = Array(outputCount).fill(null);
+        const localResults: (string | null)[] = Array(actualCount).fill(null);
 
         try {
             let historyPrompt = prompt;
 
-            if (type === 'general') {
-                // Use batch editImages for multiple outputs
-                await editImages(
-                    apiKey,
-                    { data: inputs[0].base64, mimeType: inputs[0].mimeType },
-                    prompt,
-                    outputCount,
-                    (status) => setLoadingStatus(status),
-                    (index, base64) => {
-                        updateModeState((prev) => {
-                            const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
-                        });
-                        localResults[index] = base64;
-                        if (autoDownload && base64) triggerDownload(base64, `edited_${index + 1}.png`);
-                    }
-                );
-            } else if (type === 'mix') {
-                setLoadingStatus('Đang phối đồ Mix & Match...');
+            if (type === 'mix') {
+                setLoadingStatus('Đang phối đồ Mix & Match (Slot 1 + Slot 2)...');
                 const result = await mixMatchOutfit(
                     apiKey,
                     { data: inputs[0].base64, mimeType: inputs[0].mimeType },
@@ -725,25 +710,68 @@ const App: React.FC = () => {
                 updateModeState(() => ({ outputs: [result] }));
                 historyPrompt = "Outfit Mix & Match";
                 if (autoDownload && result) triggerDownload(result, 'mix_match.png');
-            } else if (type === 'relight') {
-                setLoadingStatus('Đang thay đổi ánh sáng...');
-                const result = await relightImage(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType }, extraData.lighting);
-                localResults[0] = result;
-                updateModeState(() => ({ outputs: [result] }));
-                historyPrompt = `Relighting: ${extraData.lighting}`;
-                if (autoDownload && result) triggerDownload(result, 'relighted.png');
-            } else if (type === 'extract') {
-                setLoadingStatus('Đang tách trang phục (Ghost Mannequin)...');
-                const result = await extractClothing(apiKey, { data: inputs[0].base64, mimeType: inputs[0].mimeType });
-                localResults[0] = result;
-                updateModeState(() => ({ outputs: [result] }));
-                historyPrompt = "Clothing Extraction";
-                if (autoDownload && result) triggerDownload(result, 'extracted.png');
+            } else {
+                // Strict 1-to-1 Mapping: input slot i -> output slot i
+                for (let i = 0; i < inputs.length; i++) {
+                    const inputPart = { data: inputs[i].base64, mimeType: inputs[i].mimeType };
+
+                    if (type === 'general') {
+                        setLoadingStatus(`Đang chỉnh sửa ảnh Slot ${i + 1}/${inputs.length}...`);
+                        try {
+                            const result = await editImage(apiKey, inputPart, prompt);
+                            localResults[i] = result;
+                            updateModeState((prev) => {
+                                const n = [...prev.outputs];
+                                n[i] = result;
+                                return { outputs: n };
+                            });
+                            if (autoDownload && result) triggerDownload(result, `edited_slot_${i + 1}.png`);
+                        } catch (err) {
+                            console.error(`[Edit] Failed slot ${i + 1}:`, err);
+                        }
+                    } else if (type === 'relight') {
+                        const styleLabel = extraData?.lighting || 'studio';
+                        setLoadingStatus(`Đang đổi ánh sáng ảnh Slot ${i + 1}/${inputs.length}...`);
+                        try {
+                            const result = await relightImage(apiKey, inputPart, styleLabel);
+                            localResults[i] = result;
+                            updateModeState((prev) => {
+                                const n = [...prev.outputs];
+                                n[i] = result;
+                                return { outputs: n };
+                            });
+                            if (autoDownload && result) triggerDownload(result, `relighted_slot_${i + 1}.png`);
+                        } catch (err) {
+                            console.error(`[Relight] Failed slot ${i + 1}:`, err);
+                        }
+                    } else if (type === 'extract') {
+                        setLoadingStatus(`Đang tách trang phục ảnh Slot ${i + 1}/${inputs.length}...`);
+                        try {
+                            const result = await extractClothing(apiKey, inputPart);
+                            localResults[i] = result;
+                            updateModeState((prev) => {
+                                const n = [...prev.outputs];
+                                n[i] = result;
+                                return { outputs: n };
+                            });
+                            if (autoDownload && result) triggerDownload(result, `extracted_slot_${i + 1}.png`);
+                        } catch (err) {
+                            console.error(`[Extract] Failed slot ${i + 1}:`, err);
+                        }
+                    }
+
+                    // Small polite delay between multiple requests to respect rate limits
+                    if (i < inputs.length - 1) {
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                }
+
+                historyPrompt = type === 'general' ? prompt : type === 'relight' ? `Relighting: ${extraData?.lighting}` : "Clothing Extraction";
             }
 
-            updateModeState(() => ({ prompts: [historyPrompt] }));
+            updateModeState(() => ({ prompts: Array(actualCount).fill(historyPrompt) }));
             const validImages = localResults.filter((img): img is string => img !== null);
-            // Deduct credits for VIP users
+            // Deduct credits for VIP users for valid generated images
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'edit');
                 saveHistory('Edit Tool', historyPrompt, validImages, type);
@@ -1048,9 +1076,9 @@ const App: React.FC = () => {
             return (
                 <div className="p-3">
                     <ImageUploader
-                        label={mode === 'edit' ? "Ảnh đầu vào (Upload 2 ảnh nếu Mix đồ)" : mode === 'restore' ? "Ảnh cũ cần phục hồi" : "Ảnh đầu vào"}
+                        label={mode === 'edit' ? "Ảnh đầu vào (Tối đa 10 ảnh • 1 Input = 1 Output)" : mode === 'restore' ? "Ảnh cũ cần phục hồi" : "Ảnh đầu vào"}
                         onImagesChange={handleImagesChange}
-                        maxImages={mode === 'edit' ? 2 : 1}
+                        maxImages={mode === 'edit' ? 10 : 1}
                     />
                 </div>
             );
@@ -1084,7 +1112,7 @@ const App: React.FC = () => {
             return <PromptPanel onGenerate={handleCreativeGenerate} onCancel={handleCancelGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} selectedImageCount={totalCreative} inputCounts={{ male: creativeInputs.male.length, female: creativeInputs.female.length, maleAcc: creativeInputs.maleAcc.length, femaleAcc: creativeInputs.femaleAcc.length }} refImages={creativeRefImages} />;
         }
         if (mode === 'id_photo') return <IdPhotoPanel onGenerate={handleIdPhotoGenerate} isLoading={isLoading} isDisabled={!currentUser} hasApiKey={hasGeminiKey} hasInputImage={mState.inputs.length > 0} />;
-        if (mode === 'edit') return <EditImagePanel onGenerate={handleEditImage} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
+        if (mode === 'edit') return <EditImagePanel onGenerate={handleEditImage} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} inputCount={mState.inputs.length} />;
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'profile_pro') return <ProfileProPanel onGenerate={handleProfilePro} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'restore') return <RestorePhotoPanel onGenerate={handleRestorePhoto} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;

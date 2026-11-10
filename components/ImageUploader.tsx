@@ -121,8 +121,8 @@ const ImagePreviewSlot: React.FC<{
     </div>
 
     {/* Number badge */}
-    <div className="absolute top-2 left-2 w-6 h-6 bg-black/50 rounded-full flex items-center justify-center">
-      <span className="text-white text-[10px] font-bold">{index + 1}</span>
+    <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/75 backdrop-blur-xs rounded-md flex items-center justify-center shadow-xs border border-white/20">
+      <span className="text-white text-[10px] font-bold font-mono tracking-tight">#{index + 1}</span>
     </div>
   </div>
 ));

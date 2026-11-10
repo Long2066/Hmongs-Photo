@@ -105,8 +105,8 @@ const OutputImage: React.FC<{ base64: string; index: number, onClick: () => void
                 <img src={imgSrc} alt={`Ảnh được tạo ${index + 1}`} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
 
                 {/* Number Badge */}
-                <span className="absolute left-2 top-2 z-10 flex h-7 min-w-7 items-center justify-center rounded-lg bg-white/95 px-1 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm">
-                    {index + 1}
+                <span className="absolute left-2 top-2 z-10 flex h-7 min-w-7 items-center justify-center rounded-lg bg-white/95 px-1.5 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm border border-slate-200">
+                    #{index + 1}
                 </span>
 
                 <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-slate-900/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -145,13 +145,18 @@ const ClockLoader: React.FC = () => (
 );
 
 const LoadingSlot: React.FC<{ index: number }> = ({ index }) => (
-    <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm flex flex-col gap-2 animate-pulse">
+    <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm flex flex-col gap-2 animate-pulse relative">
+        <span className="absolute left-2.5 top-2.5 z-10 flex h-6 min-w-6 items-center justify-center rounded-lg bg-indigo-50 font-mono text-[11px] font-bold text-indigo-700 border border-indigo-200 shadow-2xs">
+            #{index + 1}
+        </span>
         <div className="w-full aspect-square bg-slate-50 rounded-lg flex items-center justify-center border border-slate-100 shadow-inner relative overflow-hidden">
             <div className="flex flex-col items-center gap-2 z-10">
                 <ClockLoader />
             </div>
         </div>
-        <div className="bg-slate-100 rounded-lg h-8 w-full"></div>
+        <div className="bg-slate-50 rounded-lg h-7 w-full flex items-center justify-center border border-slate-100">
+            <span className="text-[10px] text-slate-600 font-bold">Đang xử lý Slot #{index + 1}...</span>
+        </div>
     </div>
 );
 
