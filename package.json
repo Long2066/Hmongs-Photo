@@ -1,7 +1,7 @@
 {
   "name": "hmongs-photo",
   "productName": "Hmongs Photo",
-  "version": "2.25.47",
+  "version": "2.25.48",
   "description": "Hmongs Photo - AI Studio for Photo Generation",
   "private": true,
   "main": "electron/main.cjs",
@@ -25,6 +25,7 @@
     "@capacitor/filesystem": "^8.1.0",
     "@emailjs/browser": "^4.4.1",
     "@google/genai": "^1.20.0",
+    "@mediapipe/tasks-vision": "^1.2.2",
     "@payos/node": "^2.0.5",
     "electron-updater": "^6.1.7",
     "firebase": "^12.6.0",

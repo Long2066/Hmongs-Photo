@@ -4,6 +4,8 @@
  * Renders 10 distinct studio-grade poster templates with zero API cost and instant speed.
  */
 
+import { detectFacesInImage, calculateSmartCrop, type FaceBox } from './aiFaceDetectService';
+
 export type PosterTemplateId =
     | 'tnt_wood_classic'
     | 'bff_thanh_xuan'
@@ -194,6 +196,7 @@ function drawCoverImage(
     w: number,
     h: number,
     radius: number = 0,
+    faces?: FaceBox[],
     cropBiasY: number = 0.3
 ) {
     ctx.save();
@@ -202,23 +205,8 @@ function drawCoverImage(
         ctx.clip();
     }
 
-    const imgRatio = img.width / img.height;
-    const targetRatio = w / h;
-    let sWidth: number, sHeight: number, sx: number, sy: number;
-
-    if (imgRatio > targetRatio) {
-        sHeight = img.height;
-        sWidth = img.height * targetRatio;
-        sx = (img.width - sWidth) / 2;
-        sy = 0;
-    } else {
-        sWidth = img.width;
-        sHeight = img.width / targetRatio;
-        sx = 0;
-        sy = Math.max(0, Math.min(img.height - sHeight, (img.height - sHeight) * cropBiasY));
-    }
-
-    ctx.drawImage(img, sx, sy, sWidth, sHeight, x, y, w, h);
+    const crop = calculateSmartCrop(img, w, h, faces || [], cropBiasY);
+    ctx.drawImage(img, crop.sx, crop.sy, crop.sWidth, crop.sHeight, x, y, w, h);
     ctx.restore();
 }
 
@@ -228,7 +216,8 @@ function drawBlurredBackground(
     w: number,
     h: number,
     blurPx: number = 28,
-    overlayColor: string = 'rgba(15, 23, 42, 0.45)'
+    overlayColor: string = 'rgba(15, 23, 42, 0.45)',
+    faces?: FaceBox[]
 ) {
     ctx.save();
     try {
@@ -238,7 +227,7 @@ function drawBlurredBackground(
     }
     // Overdraw slightly to avoid transparent blur edges
     const bleed = blurPx * 2;
-    drawCoverImage(ctx, img, -bleed, -bleed, w + bleed * 2, h + bleed * 2, 0, 0.4);
+    drawCoverImage(ctx, img, -bleed, -bleed, w + bleed * 2, h + bleed * 2, 0, faces, 0.3);
     ctx.restore();
 
     ctx.fillStyle = overlayColor;
@@ -465,7 +454,22 @@ export async function renderStudioPoster(
         throw new Error('Không có ảnh hợp lệ để xử lý poster.');
     }
 
+    // Parallel on-device AI Face Detection for every loaded image
+    const faceMap = new Map<HTMLImageElement, FaceBox[]>();
+    await Promise.all(
+        loadedImages.map(async (img) => {
+            try {
+                const faces = await detectFacesInImage(img);
+                faceMap.set(img, faces);
+            } catch (err) {
+                console.warn('[Poster] Face detect fallback for image:', err);
+                faceMap.set(img, []);
+            }
+        })
+    );
+
     const getImg = (index: number) => loadedImages[index % loadedImages.length];
+    const getFaces = (index: number) => faceMap.get(getImg(index)) || [];
 
     // Define base design space (designW x designH) per template
     let designW = 2000;
@@ -523,7 +527,7 @@ export async function renderStudioPoster(
     // 1. TNT Khung Gỗ 3D (Mẫu 2 & 3 TNT Media)
     // =========================================================================
     if (options.templateId === 'tnt_wood_classic') {
-        drawBlurredBackground(ctx, getImg(0), designW, designH, 30, 'rgba(15, 23, 42, 0.42)');
+        drawBlurredBackground(ctx, getImg(0), designW, designH, 30, 'rgba(15, 23, 42, 0.42)', getFaces(0));
 
         // Header Top-Left: "TOP 10+" + "Concept HOT"
         drawOutlinedText(
@@ -608,7 +612,7 @@ export async function renderStudioPoster(
             ctx.fill();
             ctx.restore();
 
-            drawCoverImage(ctx, getImg(i), sx, topY, topW, topH, 32, biasY);
+            drawCoverImage(ctx, getImg(i), sx, topY, topW, topH, 32, getFaces(i), biasY);
 
             ctx.save();
             roundRect(ctx, sx, topY, topW, topH, 32);
@@ -626,7 +630,7 @@ export async function renderStudioPoster(
         const frameW = 48;
 
         draw3DWoodFrame(ctx, woodX, botY, woodW, botH, frameW);
-        drawCoverImage(ctx, getImg(3), woodX + frameW, botY + frameW, woodW - 2 * frameW, botH - 2 * frameW, 0, biasY);
+        drawCoverImage(ctx, getImg(3), woodX + frameW, botY + frameW, woodW - 2 * frameW, botH - 2 * frameW, 0, getFaces(3), biasY);
 
         // Bottom Row Right: Tall Portrait + Facebook Emoji Cluster
         const rSlotX = 1335;
@@ -640,7 +644,7 @@ export async function renderStudioPoster(
         ctx.fill();
         ctx.restore();
 
-        drawCoverImage(ctx, getImg(4), rSlotX, botY, rSlotW, botH, 32, biasY);
+        drawCoverImage(ctx, getImg(4), rSlotX, botY, rSlotW, botH, 32, getFaces(4), biasY);
 
         ctx.save();
         roundRect(ctx, rSlotX, botY, rSlotW, botH, 32);
@@ -689,20 +693,32 @@ export async function renderStudioPoster(
         const leftW = 1030;
         const rightW = designW - leftW;
         const slotH = Math.ceil(designH / 3);
-        const overlap = 70;
+        const seamOverlap = 80;
 
         for (let i = 0; i < 3; i++) {
             const curY = i * slotH;
-            drawCoverImage(ctx, getImg(i), 0, curY, leftW, slotH, 0, biasY);
-
-            // Soft blurred vignette blending between rows
-            if (i > 0) {
-                const gTop = ctx.createLinearGradient(0, curY - overlap, 0, curY + overlap);
-                gTop.addColorStop(0, 'rgba(15, 23, 42, 0)');
-                gTop.addColorStop(0.5, 'rgba(30, 58, 95, 0.72)');
-                gTop.addColorStop(1, 'rgba(15, 23, 42, 0)');
-                ctx.fillStyle = gTop;
-                ctx.fillRect(0, curY - overlap, leftW, overlap * 2);
+            if (i === 0) {
+                drawCoverImage(ctx, getImg(0), 0, 0, leftW, slotH + seamOverlap, 0, getFaces(0), biasY);
+            } else {
+                // Smooth alpha-feathered gradient blend onto preceding photo
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = leftW;
+                tempCanvas.height = slotH + seamOverlap;
+                const tCtx = tempCanvas.getContext('2d');
+                if (tCtx) {
+                    drawCoverImage(tCtx, getImg(i), 0, 0, leftW, slotH + seamOverlap, 0, getFaces(i), biasY);
+                    tCtx.save();
+                    tCtx.globalCompositeOperation = 'destination-in';
+                    const grad = tCtx.createLinearGradient(0, 0, 0, seamOverlap);
+                    grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                    grad.addColorStop(1, 'rgba(0, 0, 0, 1)');
+                    tCtx.fillStyle = grad;
+                    tCtx.fillRect(0, 0, leftW, seamOverlap);
+                    tCtx.restore();
+                    ctx.drawImage(tempCanvas, 0, curY);
+                } else {
+                    drawCoverImage(ctx, getImg(i), 0, curY, leftW, slotH, 0, getFaces(i), biasY);
+                }
             }
         }
 
@@ -733,7 +749,7 @@ export async function renderStudioPoster(
         ctx.restore();
 
         // Right Side: Large Vertical Hero Frame
-        drawCoverImage(ctx, getImg(3), leftW, 0, rightW, designH, 0, 0.25);
+        drawCoverImage(ctx, getImg(3), leftW, 0, rightW, designH, 0, getFaces(3), biasY);
 
         // Soft dreamy light bloom along seam & top-left corner
         const seamBloom = ctx.createLinearGradient(leftW - 20, 0, leftW + 100, 0);
@@ -764,43 +780,45 @@ export async function renderStudioPoster(
         ctx.fillStyle = '#f8fafc';
         ctx.fillRect(0, 0, designW, designH);
 
-        const pad = 70;
-        const gap = 30;
-        const col4 = 442.5;
-        const wide2 = 915;
+        const pad = 65;
+        const gap = 26;
+        const col4 = 448;
+        const wide2 = 922;
 
-        // Top-Left: Big 2x2 Hero
-        drawCoverImage(ctx, getImg(0), pad, pad, wide2, wide2, 28, biasY);
+        // Top-Left: Big Hero
+        drawCoverImage(ctx, getImg(0), pad, pad, wide2, 840, 28, getFaces(0), biasY);
 
         // Top-Right Info Banner + 2 Slots underneath
         const infoX = pad + wide2 + gap;
         ctx.save();
-        roundRect(ctx, infoX, pad, wide2, 220, 28);
+        roundRect(ctx, infoX, pad, wide2, 190, 28);
         ctx.fillStyle = options.accentColor;
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.font = '900 48px "Oswald", "Plus Jakarta Sans", sans-serif';
-        ctx.fillText(concept.toUpperCase(), infoX + 36, pad + 78);
+        ctx.fillText(concept.toUpperCase(), infoX + 36, pad + 68);
         ctx.font = '700 26px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText(`${studio}  •  ${yearTag}`, infoX + 36, pad + 130);
+        ctx.fillText(`${studio}  •  ${yearTag}`, infoX + 36, pad + 116);
         ctx.font = '600 22px "Plus Jakarta Sans", sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.fillText(`${slogan}  |  Hotline: ${hotline}`, infoX + 36, pad + 178);
+        ctx.fillText(`${slogan}  |  Hotline: ${hotline}`, infoX + 36, pad + 158);
         ctx.restore();
 
-        drawCoverImage(ctx, getImg(1), infoX, pad + 250, col4, 665, 26, biasY);
-        drawCoverImage(ctx, getImg(2), infoX + col4 + gap, pad + 250, col4, 665, 26, biasY);
+        drawCoverImage(ctx, getImg(1), infoX, pad + 216, col4, 624, 26, getFaces(1), biasY);
+        drawCoverImage(ctx, getImg(2), infoX + col4 + gap, pad + 216, col4, 624, 26, getFaces(2), biasY);
 
-        // Middle Row (y = 1015): 2 square + 1 wide
-        const r2Y = pad + wide2 + gap;
-        drawCoverImage(ctx, getImg(3), pad, r2Y, col4, col4, 26, biasY);
-        drawCoverImage(ctx, getImg(4), pad + col4 + gap, r2Y, col4, col4, 26, biasY);
-        drawCoverImage(ctx, getImg(5), infoX, r2Y, wide2, col4, 26, biasY);
+        // Middle Row (y = 931): 2 square + 1 wide
+        const r2Y = pad + 840 + gap;
+        const r2H = 480;
+        drawCoverImage(ctx, getImg(3), pad, r2Y, col4, r2H, 26, getFaces(3), biasY);
+        drawCoverImage(ctx, getImg(4), pad + col4 + gap, r2Y, col4, r2H, 26, getFaces(4), biasY);
+        drawCoverImage(ctx, getImg(5), infoX, r2Y, wide2, r2H, 26, getFaces(5), biasY);
 
-        // Bottom Row (y = 1487.5): 2 wide
-        const r3Y = r2Y + col4 + gap;
-        drawCoverImage(ctx, getImg(6), pad, r3Y, wide2, col4, 26, biasY);
-        drawCoverImage(ctx, getImg(7), infoX, r3Y, wide2, col4, 26, biasY);
+        // Bottom Row (y = 1437): 2 wide balanced slots
+        const r3Y = r2Y + r2H + gap;
+        const r3H = designH - r3Y - pad;
+        drawCoverImage(ctx, getImg(6), pad, r3Y, wide2, r3H, 26, getFaces(6), biasY);
+        drawCoverImage(ctx, getImg(7), infoX, r3Y, wide2, r3H, 26, getFaces(7), biasY);
     }
 
     // =========================================================================
@@ -828,15 +846,15 @@ export async function renderStudioPoster(
         const t1Y = pad + 155;
         const t1W = (designW - 2 * pad - gap) / 2;
         const t1H = 680;
-        drawCoverImage(ctx, getImg(0), pad, t1Y, t1W, t1H, 22, biasY);
-        drawCoverImage(ctx, getImg(1), pad + t1W + gap, t1Y, t1W, t1H, 22, biasY);
+        drawCoverImage(ctx, getImg(0), pad, t1Y, t1W, t1H, 22, getFaces(0), biasY);
+        drawCoverImage(ctx, getImg(1), pad + t1W + gap, t1Y, t1W, t1H, 22, getFaces(1), biasY);
 
         // Tier 2: 3 Medium Photos
         const t2Y = t1Y + t1H + gap;
         const t2W = (designW - 2 * pad - 2 * gap) / 3;
         const t2H = 620;
         for (let i = 0; i < 3; i++) {
-            drawCoverImage(ctx, getImg(2 + i), pad + i * (t2W + gap), t2Y, t2W, t2H, 20, biasY);
+            drawCoverImage(ctx, getImg(2 + i), pad + i * (t2W + gap), t2Y, t2W, t2H, 20, getFaces(2 + i), biasY);
         }
 
         // Tier 3: 5 Portrait Slots
@@ -844,7 +862,7 @@ export async function renderStudioPoster(
         const t3W = (designW - 2 * pad - 4 * gap) / 5;
         const t3H = 740;
         for (let i = 0; i < 5; i++) {
-            drawCoverImage(ctx, getImg(5 + i), pad + i * (t3W + gap), t3Y, t3W, t3H, 18, biasY);
+            drawCoverImage(ctx, getImg(5 + i), pad + i * (t3W + gap), t3Y, t3W, t3H, 18, getFaces(5 + i), biasY);
         }
 
         // Bottom Brand Pill
@@ -869,7 +887,7 @@ export async function renderStudioPoster(
     // 5. Bìa Tạp Chí Vogue Editorial
     // =========================================================================
     else if (options.templateId === 'magazine_vogue') {
-        drawCoverImage(ctx, getImg(0), 0, 0, designW, designH, 0, 0.25);
+        drawCoverImage(ctx, getImg(0), 0, 0, designW, designH, 0, getFaces(0), biasY);
 
         // Editorial vignette top & bottom
         const gTop = ctx.createLinearGradient(0, 0, 0, 420);
@@ -922,7 +940,7 @@ export async function renderStudioPoster(
             ctx.fillStyle = '#ffffff';
             ctx.fill();
             ctx.restore();
-            drawCoverImage(ctx, getImg(1 + i), tx + 8, thumbY + 8, thumbW - 16, thumbH - 16, 12, biasY);
+            drawCoverImage(ctx, getImg(1 + i), tx + 8, thumbY + 8, thumbW - 16, thumbH - 16, 12, getFaces(1 + i), biasY);
         }
 
         // Vector Barcode Bottom Left
@@ -990,7 +1008,7 @@ export async function renderStudioPoster(
             ctx.translate(-cx, -cy);
 
             const pad = 28;
-            drawCoverImage(ctx, getImg(idx), p.x + pad, p.y + pad, p.w - pad * 2, p.h - pad * 2 - 95, 6, biasY);
+            drawCoverImage(ctx, getImg(idx), p.x + pad, p.y + pad, p.w - pad * 2, p.h - pad * 2 - 95, 6, getFaces(idx), biasY);
 
             ctx.font = 'italic 700 38px "Dancing Script", cursive';
             ctx.fillStyle = '#334155';
@@ -1054,7 +1072,7 @@ export async function renderStudioPoster(
 
         for (let i = 0; i < 4; i++) {
             const fy = startY + i * (frameH + frameGap);
-            drawCoverImage(ctx, getImg(i), innerX, fy, innerW, frameH, 10, biasY);
+            drawCoverImage(ctx, getImg(i), innerX, fy, innerW, frameH, 10, getFaces(i), biasY);
 
             ctx.save();
             ctx.font = '700 24px monospace';
@@ -1115,7 +1133,7 @@ export async function renderStudioPoster(
         const mainY = pad + 220;
         const mainW = designW - 2 * pad - 50;
         const mainH = 980;
-        drawCoverImage(ctx, getImg(0), pad + 25, mainY, mainW, mainH, 0, biasY);
+        drawCoverImage(ctx, getImg(0), pad + 25, mainY, mainW, mainH, 0, getFaces(0), biasY);
 
         // Big Newspaper Headline
         ctx.save();
@@ -1132,7 +1150,7 @@ export async function renderStudioPoster(
         const colTitles = ['KHOẢNH KHẮC ĐẸP', 'CÙNG NHAU TỎA SÁNG', 'MÃI MỘT TUỔI TRẺ'];
         for (let i = 0; i < 3; i++) {
             const sx = pad + 25 + i * (subW + 25);
-            drawCoverImage(ctx, getImg(1 + i), sx, subY, subW, subH, 0, biasY);
+            drawCoverImage(ctx, getImg(1 + i), sx, subY, subW, subH, 0, getFaces(1 + i), biasY);
 
             ctx.save();
             ctx.textAlign = 'center';
@@ -1196,7 +1214,7 @@ export async function renderStudioPoster(
         specs.forEach((sp, idx) => {
             const py = centerY - sp.h / 2;
             draw3DWoodFrame(ctx, curX, py, sp.w, sp.h, 28);
-            drawCoverImage(ctx, getImg(idx), curX + 28, py + 28, sp.w - 56, sp.h - 56, 0, biasY);
+            drawCoverImage(ctx, getImg(idx), curX + 28, py + 28, sp.w - 56, sp.h - 56, 0, getFaces(idx), biasY);
             curX += sp.w + gap;
         });
     }
@@ -1205,7 +1223,7 @@ export async function renderStudioPoster(
     // 10. Story 9:16 + Trình Phát Nhạc (Reels/TikTok)
     // =========================================================================
     else if (options.templateId === 'story_9_16_music') {
-        drawBlurredBackground(ctx, getImg(0), designW, designH, 32, 'rgba(15, 23, 42, 0.55)');
+        drawBlurredBackground(ctx, getImg(0), designW, designH, 32, 'rgba(15, 23, 42, 0.55)', getFaces(0));
 
         const pad = 75;
 
@@ -1230,14 +1248,14 @@ export async function renderStudioPoster(
         ctx.fillStyle = '#ffffff';
         ctx.fill();
         ctx.restore();
-        drawCoverImage(ctx, getImg(0), pad, heroY, designW - 2 * pad, heroH, 36, biasY);
+        drawCoverImage(ctx, getImg(0), pad, heroY, designW - 2 * pad, heroH, 36, getFaces(0), biasY);
 
         // 2 Sub Photos Row
         const subY = heroY + heroH + 35;
         const subW = (designW - 2 * pad - 30) / 2;
         const subH = 540;
-        drawCoverImage(ctx, getImg(1), pad, subY, subW, subH, 28, biasY);
-        drawCoverImage(ctx, getImg(2), pad + subW + 30, subY, subW, subH, 28, biasY);
+        drawCoverImage(ctx, getImg(1), pad, subY, subW, subH, 28, getFaces(1), biasY);
+        drawCoverImage(ctx, getImg(2), pad + subW + 30, subY, subW, subH, 28, getFaces(2), biasY);
 
         // Music Player Widget Bottom
         const wY = subY + subH + 55;
@@ -1252,7 +1270,7 @@ export async function renderStudioPoster(
 
         // Circular Vinyl Disc Thumbnail
         const discSize = 180;
-        drawCoverImage(ctx, getImg(3), pad + 40, wY + 55, discSize, discSize, discSize / 2, biasY);
+        drawCoverImage(ctx, getImg(3), pad + 40, wY + 55, discSize, discSize, discSize / 2, getFaces(3), biasY);
 
         // Track Title & Artist
         const tx = pad + 250;

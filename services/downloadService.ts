@@ -7,6 +7,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { ApkInstaller } from './appUpdateService';
 
 interface DownloadResult {
     success: boolean;
@@ -29,23 +30,47 @@ export function isElectronPlatform(): boolean {
 }
 
 /**
- * Download base64 image to device
+ * Download base64 image or media URL to device
+ * - On Native Android/iOS: Uses MediaStore (Movies/ImageTool or Pictures/ImageTool) to save directly to Gallery
  * - On Electron Desktop: Saves directly to configured custom folder using electronAPI.saveFile
- * - On Android/iOS: Saves to Downloads folder using Capacitor Filesystem
- * - On Web: Uses traditional data URL download
+ * - On Web: Uses traditional data URL / blob download
  */
-export async function downloadImage(base64: string, filename: string): Promise<DownloadResult> {
+export async function downloadImage(dataOrUrl: string, filename: string): Promise<DownloadResult> {
     // Ensure filename has valid media extension
     if (!filename.endsWith('.png') && !filename.endsWith('.jpg') && !filename.endsWith('.jpeg') && !filename.endsWith('.webp') && !filename.endsWith('.mp4')) {
         filename = `${filename}.png`;
     }
 
     if (isElectronPlatform() && (window as any).electronAPI?.saveFile) {
-        return downloadElectron(base64, filename);
+        return downloadElectron(dataOrUrl, filename);
     } else if (isNativePlatform()) {
-        return downloadNative(base64, filename);
+        const isVideo = filename.endsWith('.mp4');
+        const mimeType = isVideo ? 'video/mp4' : 'image/png';
+
+        // 1. Try Native MediaStore downloader via ApkInstaller plugin
+        try {
+            const isUrl = /^https?:\/\//i.test(dataOrUrl);
+            const res = await ApkInstaller.saveMediaToGallery?.({
+                url: isUrl ? dataOrUrl : undefined,
+                base64: !isUrl ? dataOrUrl : undefined,
+                filename,
+                mimeType
+            });
+            if (res && res.success) {
+                return {
+                    success: true,
+                    message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                    path: res.path
+                };
+            }
+        } catch (nativeErr) {
+            console.warn('[Download] Native saveMediaToGallery failed, falling back to Filesystem:', nativeErr);
+        }
+
+        // 2. Fallback to Filesystem (handles both base64 and https:// URLs)
+        return downloadNative(dataOrUrl, filename);
     } else {
-        return downloadWeb(base64, filename);
+        return downloadWeb(dataOrUrl, filename);
     }
 }
 
@@ -82,7 +107,7 @@ async function downloadElectron(base64: string, filename: string): Promise<Downl
 /**
  * Native download using Capacitor Filesystem
  */
-async function downloadNative(base64: string, filename: string): Promise<DownloadResult> {
+async function downloadNative(dataOrUrl: string, filename: string): Promise<DownloadResult> {
     try {
         // Request permissions first (Android requires this)
         const permResult = await Filesystem.checkPermissions();
@@ -91,20 +116,39 @@ async function downloadNative(base64: string, filename: string): Promise<Downloa
             if (reqResult.publicStorage !== 'granted') {
                 return {
                     success: false,
-                    message: 'Cần cấp quyền truy cập bộ nhớ để tải ảnh'
+                    message: 'Cần cấp quyền truy cập bộ nhớ để tải tệp'
                 };
             }
+        }
+
+        // If URL, fetch and convert to base64 first
+        let base64Data = dataOrUrl;
+        if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
+            const res = await fetch(dataOrUrl);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            base64Data = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const str = reader.result as string;
+                    resolve(str.includes(',') ? str.split(',')[1] : str);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        } else if (base64Data.includes(',')) {
+            base64Data = base64Data.split(',')[1];
         }
 
         // Generate unique filename with timestamp
         const timestamp = Date.now();
         const uniqueFilename = `ToolPhoto_${timestamp}_${filename}`;
 
-        // Write file to Downloads directory
+        // Write file to Documents directory
         const result = await Filesystem.writeFile({
             path: uniqueFilename,
-            data: base64,
-            directory: Directory.Documents, // Use Documents as it's more accessible
+            data: base64Data,
+            directory: Directory.Documents,
             recursive: true
         });
 
@@ -118,14 +162,17 @@ async function downloadNative(base64: string, filename: string): Promise<Downloa
     } catch (error: any) {
         console.error('[Download] Native download failed:', error);
 
-        // Fallback: try saving to cache and letting user share
+        // Fallback: try saving to cache
         try {
             const timestamp = Date.now();
             const uniqueFilename = `ToolPhoto_${timestamp}_${filename}`;
 
+            let fallbackData = dataOrUrl;
+            if (fallbackData.includes(',')) fallbackData = fallbackData.split(',')[1];
+
             const result = await Filesystem.writeFile({
                 path: uniqueFilename,
-                data: base64,
+                data: fallbackData,
                 directory: Directory.Cache
             });
 
@@ -137,28 +184,49 @@ async function downloadNative(base64: string, filename: string): Promise<Downloa
         } catch (fallbackError) {
             return {
                 success: false,
-                message: `Lỗi tải ảnh: ${error.message || 'Unknown error'}`
+                message: `Lỗi tải tệp: ${error.message || 'Unknown error'}`
             };
         }
     }
 }
 
 /**
- * Web download using traditional data URL method
+ * Web download using traditional data URL / blob method
  */
-function downloadWeb(base64: string, filename: string): DownloadResult {
+function downloadWeb(dataOrUrl: string, filename: string): DownloadResult {
     try {
-        const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
-        // Convert base64 to blob for better compatibility
+        if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
+            // Async background blob trigger
+            fetch(dataOrUrl)
+                .then(r => r.blob())
+                .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(url), 60000);
+                })
+                .catch(e => console.error('[Download] Web fetch error:', e));
+
+            return {
+                success: true,
+                message: `✅ Đang tải: ${filename}`
+            };
+        }
+
+        const cleanBase64 = dataOrUrl.includes(',') ? dataOrUrl.split(',')[1] : dataOrUrl;
         const byteCharacters = atob(cleanBase64);
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
             byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
         const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'image/png' });
+        const isVideo = filename.endsWith('.mp4');
+        const blob = new Blob([byteArray], { type: isVideo ? 'video/mp4' : 'image/png' });
 
-        // Create object URL and trigger download
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -166,7 +234,7 @@ function downloadWeb(base64: string, filename: string): DownloadResult {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
 
         return {
             success: true,
@@ -176,7 +244,7 @@ function downloadWeb(base64: string, filename: string): DownloadResult {
         console.error('[Download] Web download failed:', error);
         return {
             success: false,
-            message: `Lỗi tải ảnh: ${error.message || 'Unknown error'}`
+            message: `Lỗi tải tệp: ${error.message || 'Unknown error'}`
         };
     }
 }

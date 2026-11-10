@@ -26,6 +26,7 @@ export interface ApkInstallerPlugin {
     canRequestPackageInstalls(): Promise<{ value: boolean }>;
     openInstallPermissionSettings(): Promise<void>;
     install(options: { filePath: string }): Promise<{ success: boolean }>;
+    saveMediaToGallery?(options: { url?: string; base64?: string; filename: string; mimeType?: string }): Promise<{ success: boolean; path?: string; message?: string }>;
 }
 
 export const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller');

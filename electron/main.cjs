@@ -271,7 +271,9 @@ function startLocalServer(distDir) {
         '.woff2': 'font/woff2',
         '.ttf': 'font/ttf',
         '.webp': 'image/webp',
-        '.mp4': 'video/mp4'
+        '.mp4': 'video/mp4',
+        '.wasm': 'application/wasm',
+        '.tflite': 'application/octet-stream'
     };
 
     return new Promise((resolve) => {

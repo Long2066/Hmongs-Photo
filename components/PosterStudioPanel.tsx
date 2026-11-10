@@ -267,7 +267,7 @@ export const PosterStudioPanel: React.FC<PosterStudioPanelProps> = ({
                         Ghép Poster Studio (0đ • Siêu Tốc)
                     </h3>
                     <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                        Nhận tối đa <strong className="text-violet-700 font-semibold">10 ảnh</strong>, tự động ghép khung gỗ 3D, blend thanh xuân & branding sắc nét không trừ quota.
+                        Nhận tối đa <strong className="text-violet-700 font-semibold">10 ảnh</strong>, tích hợp AI tự động khóa khuôn mặt & mũ trên cả ảnh ngang/dọc, không bị cắt mất đầu.
                     </p>
                 </div>
             </div>
@@ -429,12 +429,12 @@ export const PosterStudioPanel: React.FC<PosterStudioPanelProps> = ({
                 {/* Căn Khung Khuôn Mặt + Độ Phân Giải */}
                 <div className="grid grid-cols-2 gap-2">
                     <div>
-                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">Căn khung mặt</span>
+                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">AI Căn Khung Mặt</span>
                         <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
                             {[
-                                { label: 'Trên', val: 0.15 },
-                                { label: 'Chuẩn', val: 0.3 },
-                                { label: 'Giữa', val: 0.5 }
+                                { label: 'Mũ/Đầu', val: 0.15 },
+                                { label: 'AI Chuẩn', val: 0.3 },
+                                { label: 'Ngực', val: 0.5 }
                             ].map((opt) => (
                                 <button
                                     key={opt.label}

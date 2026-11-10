@@ -1,15 +1,20 @@
 package com.toolphoto.app;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.util.Base64;
 import android.webkit.WebSettings;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
@@ -24,6 +29,7 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.zip.ZipEntry;
@@ -253,6 +259,117 @@ class ApkInstallerPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Lỗi khi mở trình cài đặt APK: " + e.getMessage());
         }
+    }
+
+    /**
+     * Native MediaStore Downloader (Gallery / Movies / Pictures)
+     * Directly streams and saves image/video into Android Gallery so users can immediately view it!
+     */
+    @PluginMethod
+    public void saveMediaToGallery(PluginCall call) {
+        String urlStr = call.getString("url");
+        String base64Str = call.getString("base64");
+        String filename = call.getString("filename");
+        String mimeType = call.getString("mimeType");
+
+        if (filename == null || filename.trim().isEmpty()) {
+            filename = "ImageTool_" + System.currentTimeMillis() + ".mp4";
+        }
+        if (mimeType == null || mimeType.trim().isEmpty()) {
+            mimeType = filename.endsWith(".mp4") ? "video/mp4" : "image/png";
+        }
+
+        final boolean isVideo = mimeType.startsWith("video/") || filename.endsWith(".mp4");
+        final String finalFilename = filename;
+        final String finalMimeType = mimeType;
+
+        new Thread(() -> {
+            OutputStream out = null;
+            Uri mediaUri = null;
+            File legacyFile = null;
+            try {
+                Context ctx = getContext();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(isVideo ? MediaStore.Video.Media.DISPLAY_NAME : MediaStore.Images.Media.DISPLAY_NAME, finalFilename);
+                    values.put(isVideo ? MediaStore.Video.Media.MIME_TYPE : MediaStore.Images.Media.MIME_TYPE, finalMimeType);
+                    values.put(isVideo ? MediaStore.Video.Media.RELATIVE_PATH : MediaStore.Images.Media.RELATIVE_PATH,
+                            (isVideo ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) + "/ImageTool");
+                    values.put(isVideo ? MediaStore.Video.Media.IS_PENDING : MediaStore.Images.Media.IS_PENDING, 1);
+
+                    Uri collection = isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                    mediaUri = ctx.getContentResolver().insert(collection, values);
+                    if (mediaUri == null) {
+                        call.reject("Không thể tạo bản ghi MediaStore");
+                        return;
+                    }
+                    out = ctx.getContentResolver().openOutputStream(mediaUri);
+                } else {
+                    File targetDir = Environment.getExternalStoragePublicDirectory(
+                            isVideo ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES);
+                    File appDir = new File(targetDir, "ImageTool");
+                    if (!appDir.exists()) appDir.mkdirs();
+                    legacyFile = new File(appDir, finalFilename);
+                    out = new FileOutputStream(legacyFile);
+                }
+
+                if (out == null) {
+                    call.reject("Không thể mở luồng ghi tệp");
+                    return;
+                }
+
+                if (urlStr != null && (urlStr.startsWith("http://") || urlStr.startsWith("https://"))) {
+                    URL u = new URL(urlStr);
+                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(60000);
+                    conn.setInstanceFollowRedirects(true);
+                    conn.connect();
+
+                    try (InputStream in = new BufferedInputStream(conn.getInputStream())) {
+                        byte[] buffer = new byte[16384];
+                        int len;
+                        while ((len = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, len);
+                        }
+                        out.flush();
+                    }
+                } else if (base64Str != null && !base64Str.isEmpty()) {
+                    String clean = base64Str.contains(",") ? base64Str.substring(base64Str.indexOf(",") + 1) : base64Str;
+                    byte[] bytes = Base64.decode(clean, Base64.DEFAULT);
+                    out.write(bytes);
+                    out.flush();
+                } else {
+                    call.reject("Dữ liệu video hoặc link tải không hợp lệ");
+                    return;
+                }
+
+                out.close();
+                out = null;
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mediaUri != null) {
+                    ContentValues values = new ContentValues();
+                    values.put(isVideo ? MediaStore.Video.Media.IS_PENDING : MediaStore.Images.Media.IS_PENDING, 0);
+                    ctx.getContentResolver().update(mediaUri, values, null, null);
+                } else if (legacyFile != null) {
+                    MediaScannerConnection.scanFile(ctx, new String[]{legacyFile.getAbsolutePath()}, new String[]{finalMimeType}, null);
+                }
+
+                JSObject res = new JSObject();
+                res.put("success", true);
+                res.put("message", "✅ Đã lưu vào Bộ sưu tập (" + (isVideo ? "Movies/ImageTool" : "Pictures/ImageTool") + ")");
+                res.put("path", mediaUri != null ? mediaUri.toString() : (legacyFile != null ? legacyFile.getAbsolutePath() : ""));
+                call.resolve(res);
+            } catch (Exception e) {
+                if (out != null) {
+                    try { out.close(); } catch (Exception ignored) {}
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mediaUri != null) {
+                    try { getContext().getContentResolver().delete(mediaUri, null, null); } catch (Exception ignored) {}
+                }
+                call.reject("Lỗi lưu media vào máy: " + e.getMessage());
+            }
+        }).start();
     }
 }
 

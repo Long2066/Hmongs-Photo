@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { downloadImage } from '../services/downloadService';
+import { downloadImage, isNativePlatform, isElectronPlatform } from '../services/downloadService';
 
 // Vector SVG Icons
 const DownloadIcon = () => (
@@ -112,7 +112,11 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
             const filename = `ImageTool_OmniVideo_${active.createdAt}.mp4`;
             let result;
 
-            if (!(window as any).electronAPI?.isElectron && /^https?:\/\//i.test(active.url)) {
+            if (isNativePlatform() || isElectronPlatform()) {
+                // Native Mobile (MediaStore Gallery) & Electron Desktop (custom folder)
+                result = await downloadImage(active.url, filename);
+            } else if (/^https?:\/\//i.test(active.url)) {
+                // Web Browser (fetch blob -> <a download>)
                 const response = await fetch(active.url);
                 if (!response.ok) throw new Error(`Không tải được video (HTTP ${response.status}).`);
                 const blob = await response.blob();
