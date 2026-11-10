@@ -66,7 +66,7 @@ KIẾN THỨC VỀ TÍNH NĂNG TẠO VIDEO AI (TÍNH NĂNG MỚI ĐỈNH CAO):
 - Đầy đủ 3 tỷ lệ khung hình chuẩn: 16:9 (ngang xem Youtube, máy tính, TV), 9:16 (dọc tối ưu đăng TikTok, Reels, Shorts), 1:1 (vuông Instagram, Facebook).
 - Thời lượng video tùy chọn linh hoạt: 3s, 5s, 10s, 15s. Tự động lưu và cho phép tải video MP4 chất lượng cao về máy tính.
 
-KIẾN THỨC TOÀN DIỆN VỀ 7 CHẾ ĐỘ SÁNG TẠO CHÍNH CỦA IMAGETOOL:
+KIẾN THỨC TOÀN DIỆN VỀ 8 CHẾ ĐỘ SÁNG TẠO CHÍNH CỦA IMAGETOOL:
 1. Sáng tạo (Creative): Tạo ảnh nghệ thuật từ mô tả văn bản hoặc tải ảnh mẫu tham chiếu. Thế mạnh vượt trội về visual Idol Hàn Quốc khoác 100% trang phục thổ cẩm truyền thống H'Mông, tái hiện chuẩn xác từng hoa văn thêu tay tinh xảo, bối cảnh thiên nhiên Tây Bắc hùng vĩ, tùy chỉnh góc máy và tỷ lệ ảnh.
 2. Ảnh thẻ (ID Photo): Tự động tạo ảnh thẻ làm hộ chiếu, visa các nước, CCCD, bằng lái từ ảnh chụp selfie thường ngày. Tự động tách phông nền trắng hoặc xanh, tự động thay trang phục comple vest hoặc áo sơ mi trang trọng. Có sẵn tính năng dàn trang in ảnh thẻ khổ A4 chuẩn tiệm ảnh chuyên nghiệp.
 3. Chỉnh sửa (Edit): Inpaint chỉnh sửa thông minh cho ảnh có sẵn: thay đổi trang phục thời trang, đổi kiểu tóc, xóa phông nền, đổi màu sắc và ánh sáng nghệ thuật mà vẫn giữ nguyên 100% đường nét khuôn mặt của nhân vật gốc.
@@ -74,6 +74,7 @@ KIẾN THỨC TOÀN DIỆN VỀ 7 CHẾ ĐỘ SÁNG TẠO CHÍNH CỦA IMAGETOOL
 5. Profile Pro: Tạo bộ ảnh chân dung đại diện cao cấp phong cách studio doanh nhân, phong thái chuyên nghiệp dành cho trang cá nhân Facebook, Zalo, LinkedIn hoặc CV xin việc.
 6. Phục hồi (Restore): Phục chế ảnh cũ bị rách, xước, mờ nhòe, ố vàng, đồng thời tự động tô màu ảnh đen trắng thành ảnh màu sống động tự nhiên như mới chụp.
 7. Tạo Video: Biến ảnh tĩnh hoặc câu lệnh mô tả thành video chuyển động điện ảnh mượt mà có âm thanh qua 2 model Grok 1.5 Lite và Alibaba Wan 3.0.
+8. Ghép Poster Studio: Tính năng miễn phí (0đ, không trừ quota) cho phép tải 1–10 ảnh và ghép tự động vào 10 kiểu poster kỷ yếu, catalog, khung tranh gỗ 3D, blend thanh xuân, bìa tạp chí Vogue, dải phim 35mm, bảng Polaroid và Story 9:16 kèm thông tin Studio & Hotline cá nhân hóa.
 
 HỆ THỐNG MODEL AI CỦA TOOL:
 - Model tạo ảnh: Gemini 3.1 Flash (chuẩn ảnh mẫu tham chiếu), GPT Image 2.5 (OpenAI cao cấp 8K), GPT Image 2.5 Flare (hiệu ứng ánh sáng rực rỡ), GPT Image 2.5 Sunburst (ánh nắng tự nhiên ấm áp), GPT Image 2 (ổn định cao), GPT Image 1.5 (tiết kiệm, tạo nhanh).

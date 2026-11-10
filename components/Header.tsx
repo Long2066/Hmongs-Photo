@@ -12,8 +12,8 @@ interface HeaderProps {
     onQuotaStationClick?: () => void;
     onBotClick?: () => void;
     isHistoryVisible: boolean;
-    currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video';
-    onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video') => void;
+    currentMode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video' | 'poster';
+    onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video' | 'poster') => void;
 }
 
 const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible }) => {
@@ -131,7 +131,8 @@ export const Header: React.FC<HeaderProps> = ({
         upscale: { icon: '🔍', label: 'Tăng nét', desc: 'Siêu phân giải 2K & 4K Ultra Sharp' },
         profile_pro: { icon: '👤', label: 'Profile Pro', desc: 'Ảnh chân dung doanh nhân, studio đẳng cấp' },
         restore: { icon: '🔧', label: 'Phục hồi', desc: 'Phục chế ảnh cũ rách, tô màu đen trắng' },
-        video: { icon: '🎬', label: 'Tạo Video', desc: 'Video AI điện ảnh Grok 1.5 & Alibaba Wan' }
+        video: { icon: '🎬', label: 'Tạo Video', desc: 'Video AI điện ảnh Grok 1.5 & Alibaba Wan' },
+        poster: { icon: '🖼️', label: 'Ghép Poster', desc: '10 kiểu poster kỷ yếu, catalog & khung tranh 3D' }
     };
 
     return (
@@ -407,14 +408,14 @@ export const Header: React.FC<HeaderProps> = ({
                                 </svg>
                             </button>
 
-                            {/* 3. MENU TÍNH NĂNG (7 CHẾ ĐỘ SÁNG TẠO) */}
+                            {/* 3. MENU TÍNH NĂNG (8 CHẾ ĐỘ SÁNG TẠO) */}
                             <div>
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                                        Danh mục tính năng (7 Chế độ)
+                                        Danh mục tính năng (8 Chế độ)
                                     </span>
                                     <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                                        7 Chế độ AI
+                                        8 Chế độ Studio
                                     </span>
                                 </div>
 

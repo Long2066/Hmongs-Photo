@@ -10,6 +10,9 @@ import { ProfileProPanel } from './components/ProfileProPanel';
 import { RestorePhotoPanel } from './components/RestorePhotoPanel';
 import { VideoPanel } from './components/VideoPanel';
 import { VideoWorkspace, type VideoEntry } from './components/VideoWorkspace';
+import { PosterStudioPanel } from './components/PosterStudioPanel';
+import { PosterWorkspace } from './components/PosterWorkspace';
+import { renderStudioPoster, POSTER_TEMPLATES, type PosterOptions, type PosterTemplateId } from './services/posterRenderService';
 import { FlowEmbeddedPage } from './components/FlowEmbeddedPage';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
@@ -128,7 +131,8 @@ const App: React.FC = () => {
     const [subscriptionExpiresAt, setSubscriptionExpiresAt] = useState<number | null>(null);
 
     // --- MODE MANAGEMENT ---
-    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video'>('creative');
+    const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video' | 'poster'>('creative');
+    const [posterTemplateId, setPosterTemplateId] = useState<PosterTemplateId>('tnt_wood_classic');
     const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('image_to_video');
     const [videoEntries, setVideoEntries] = useState<VideoEntry[]>([]);
 
@@ -141,6 +145,7 @@ const App: React.FC = () => {
         profile_pro: JSON.parse(JSON.stringify(initialModeState)),
         restore: JSON.parse(JSON.stringify(initialModeState)),
         video: JSON.parse(JSON.stringify(initialModeState)),
+        poster: JSON.parse(JSON.stringify(initialModeState)),
     });
 
     // Helper to update current mode state - memoized to avoid stale closures
@@ -1050,6 +1055,80 @@ const App: React.FC = () => {
         }
     }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser]);
 
+    // 9. Poster Studio Generation (Client-Side High-DPI Canvas Engine - 0 API cost)
+    const handleGeneratePoster = useCallback(async (
+        options: PosterOptions,
+        batchMode: 'single' | 'top4' | 'all10',
+        shuffleSeed: number = 0
+    ) => {
+        const inputs = modeStates['poster']?.inputs || [];
+        if (inputs.length === 0) {
+            setError('Vui lòng tải lên ít nhất 1 ảnh ở khung "Dữ liệu đầu vào" để ghép Poster.');
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setIsMenuOpen(false);
+
+        const rawSources = inputs.map((img) =>
+            img.base64.startsWith('data:') ? img.base64 : `data:${img.mimeType};base64,${img.base64}`
+        );
+        const arrangedSources = shuffleSeed === 0
+            ? rawSources
+            : rawSources.map((_, i) => rawSources[(i + shuffleSeed) % rawSources.length]);
+
+        const targetTemplateIds: PosterTemplateId[] =
+            batchMode === 'single'
+                ? [options.templateId]
+                : batchMode === 'top4'
+                ? ['tnt_wood_classic', 'bff_thanh_xuan', 'bento_catalog_8', 'magazine_vogue']
+                : POSTER_TEMPLATES.map((t) => t.id);
+
+        try {
+            const results: (string | null)[] = [];
+            const labels: string[] = [];
+
+            for (let i = 0; i < targetTemplateIds.length; i++) {
+                const tplId = targetTemplateIds[i];
+                const meta = POSTER_TEMPLATES.find((t) => t.id === tplId);
+                setLoadingStatus(`Đang kết xuất ${meta?.name || tplId} (${i + 1}/${targetTemplateIds.length})...`);
+
+                const renderedUrl = await renderStudioPoster(arrangedSources, {
+                    ...options,
+                    templateId: tplId,
+                    resolution: batchMode === 'all10' ? 'HD' : options.resolution
+                });
+                results.push(renderedUrl);
+                labels.push(meta?.name || tplId);
+
+                if (autoDownload && batchMode === 'single' && renderedUrl) {
+                    triggerDownload(renderedUrl, `poster_${tplId}.jpg`);
+                }
+            }
+
+            setModeStates(prev => ({
+                ...prev,
+                poster: { ...prev.poster, outputs: results, prompts: labels }
+            }));
+
+            const validOutputs = results.filter((r): r is string => r !== null);
+            if (validOutputs.length > 0) {
+                saveHistory(
+                    'Poster Studio',
+                    `Ghép Poster: ${labels[0]}${validOutputs.length > 1 ? ` (+${validOutputs.length - 1} mẫu)` : ''}`,
+                    validOutputs.slice(0, 4),
+                    options.conceptName || 'Poster'
+                );
+            }
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Lỗi kết xuất poster.');
+        } finally {
+            setIsLoading(false);
+            setLoadingStatus('');
+        }
+    }, [modeStates, autoDownload, saveHistory]);
+
     const handleLogout = async () => {
         await firebaseService.logoutUser();
         storage.logoutUser();
@@ -1092,6 +1171,17 @@ const App: React.FC = () => {
                     />
                 </div>
             );
+        } else if (mode === 'poster') {
+            return (
+                <div className="p-3">
+                    <ImageUploader
+                        key="poster-uploader"
+                        label="Ảnh ghép Poster (Tối đa 10 ảnh • Chọn từ #1 đến #10)"
+                        onImagesChange={handleImagesChange}
+                        maxImages={10}
+                    />
+                </div>
+            );
         }
         return <div className="p-4 text-xs text-slate-400 text-center italic">Chế độ này không cần ảnh đầu vào.</div>;
     };
@@ -1116,6 +1206,18 @@ const App: React.FC = () => {
         if (mode === 'upscale') return <UpscalePanel onGenerate={handleUpscale} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'profile_pro') return <ProfileProPanel onGenerate={handleProfilePro} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
         if (mode === 'restore') return <RestorePhotoPanel onGenerate={handleRestorePhoto} isLoading={isLoading} isDisabled={!currentUser} hasInputImage={mState.inputs.length > 0} />;
+        if (mode === 'poster') {
+            return (
+                <PosterStudioPanel
+                    onGeneratePoster={handleGeneratePoster}
+                    isLoading={isLoading}
+                    hasInputImage={mState.inputs.length > 0}
+                    inputCount={mState.inputs.length}
+                    selectedTemplateId={posterTemplateId}
+                    onTemplateSelect={setPosterTemplateId}
+                />
+            );
+        }
         if (mode === 'video') {
             return (
                 <VideoPanel
@@ -1205,6 +1307,8 @@ const App: React.FC = () => {
                                     {mode === 'upscale' && 'Siêu phân giải'}
                                     {mode === 'profile_pro' && 'Xây dựng thương hiệu'}
                                     {mode === 'restore' && 'Phục hồi ảnh cũ'}
+                                    {mode === 'poster' && 'Ghép Poster Studio'}
+                                    {mode === 'video' && 'Tạo Video AI'}
                                 </h2>
                             </div>
                             <button className="lg:hidden p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
@@ -1341,6 +1445,22 @@ const App: React.FC = () => {
                                         loadingStatus={loadingStatus}
                                         error={error}
                                         onDismissError={() => setError(null)}
+                                    />
+                                ) : mode === 'poster' ? (
+                                    <PosterWorkspace
+                                        key="poster"
+                                        outputImages={currentData.outputs}
+                                        prompts={currentData.prompts}
+                                        isLoading={isLoading}
+                                        loadingStatus={loadingStatus}
+                                        error={error}
+                                        onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
+                                        onDismissError={() => setError(null)}
+                                        hasInputImages={currentData.inputs.length > 0}
+                                        onQuickPickTemplate={(id) => {
+                                            setPosterTemplateId(id as PosterTemplateId);
+                                            setIsAiConfigExpanded(true);
+                                        }}
                                     />
                                 ) : (
                                     <OutputDisplay
