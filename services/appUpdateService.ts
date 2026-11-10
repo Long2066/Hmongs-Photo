@@ -1,9 +1,11 @@
 /**
  * App Update Service
- * Checks for updates from GitHub Releases for both Desktop (Electron) and Mobile (Android)
+ * Checks for updates from GitHub Releases for Desktop (Electron) and Mobile (Android APK)
+ * Supports in-app 1-touch APK download & installation with progress tracking
  */
 
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import { version as packageVersion } from '../package.json';
 
 // GitHub repository info
@@ -11,7 +13,16 @@ const GITHUB_OWNER = 'Long2066';
 const GITHUB_REPO = 'Hmongs-Photo';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
-// Keep the displayed version in sync with the packaged Electron app.
+// Native APK Installer Plugin registered in MainActivity.java
+export interface ApkInstallerPlugin {
+    canRequestPackageInstalls(): Promise<{ value: boolean }>;
+    openInstallPermissionSettings(): Promise<void>;
+    install(options: { filePath: string }): Promise<{ success: boolean }>;
+}
+
+export const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller');
+
+// Keep the displayed version in sync with the packaged app
 export const APP_VERSION = packageVersion;
 
 export interface UpdateInfo {
@@ -25,14 +36,14 @@ export interface UpdateInfo {
 }
 
 /**
- * Check if running on Android/iOS via Capacitor
+ * Check if running on native mobile (Android/iOS) via Capacitor
  */
 export function isMobilePlatform(): boolean {
     return Capacitor.isNativePlatform();
 }
 
 /**
- * Check if running in Electron
+ * Check if running in Electron desktop
  */
 export function isElectronPlatform(): boolean {
     return typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
@@ -42,7 +53,7 @@ export function isElectronPlatform(): boolean {
  * Compare two semver versions
  * Returns true if latest > current
  */
-function isNewerVersion(current: string, latest: string): boolean {
+export function isNewerVersion(current: string, latest: string): boolean {
     const parseVersion = (v: string): number[] => {
         return v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
     };
@@ -54,7 +65,7 @@ function isNewerVersion(current: string, latest: string): boolean {
     if (l1 < c1) return false;
     if (l2 > c2) return true;
     if (l2 < c2) return false;
-    return l3 > c3;
+    return (l3 || 0) > (c3 || 0);
 }
 
 /**
@@ -73,7 +84,6 @@ function findApkUrl(assets: any[]): string | null {
 
 /**
  * Check for updates from GitHub Releases
- * Works for both mobile and desktop (though desktop uses Electron's built-in updater)
  */
 export async function checkForUpdate(): Promise<UpdateInfo> {
     const isAndroid = isMobilePlatform();
@@ -83,10 +93,8 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
         const response = await fetch(GITHUB_API_URL, {
             headers: {
                 'Accept': 'application/vnd.github.v3+json',
-                // No auth needed for public repos
             },
-            // Short timeout
-            signal: AbortSignal.timeout(10000)
+            signal: AbortSignal.timeout(12000)
         });
 
         if (!response.ok) {
@@ -133,7 +141,140 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 }
 
 /**
- * Get the current app version
+ * Helper: Convert Uint8Array to base64 in safe chunks
+ */
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const len = bytes.byteLength;
+    const chunkSize = 0x8000; // 32KB chunking
+    for (let i = 0; i < len; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)) as any);
+    }
+    return btoa(binary);
+}
+
+/**
+ * In-app APK Downloader & Installer for Android
+ * Downloads APK with progress reporting and directly launches Android Package Installer
+ */
+export async function downloadAndInstallApk(
+    apkUrl: string,
+    onProgress?: (percent: number) => void
+): Promise<{ success: boolean; message?: string }> {
+    if (!isMobilePlatform()) {
+        await openDownloadPage(apkUrl);
+        return { success: true };
+    }
+
+    try {
+        console.log('[AppUpdate] Starting APK download from:', apkUrl);
+        onProgress?.(5);
+
+        // Check if permission to install unknown apps is granted (Android 8.0+)
+        try {
+            const perm = await ApkInstaller.canRequestPackageInstalls();
+            if (perm && !perm.value) {
+                console.warn('[AppUpdate] Install permission not granted yet, requesting settings');
+                await ApkInstaller.openInstallPermissionSettings();
+            }
+        } catch (permErr) {
+            console.warn('[AppUpdate] Could not check package install permission:', permErr);
+        }
+
+        // Fetch APK with progress tracking
+        const res = await fetch(apkUrl);
+        if (!res.ok) throw new Error(`Tải APK thất bại (HTTP ${res.status})`);
+
+        const contentLength = Number(res.headers.get('content-length')) || 0;
+        const reader = res.body?.getReader();
+
+        if (!reader) {
+            // Fallback: arrayBuffer directly
+            const buffer = await res.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            onProgress?.(80);
+
+            const base64Data = uint8ArrayToBase64(bytes);
+            const fileName = 'ImageTool_latest.apk';
+
+            await Filesystem.writeFile({
+                path: fileName,
+                data: base64Data,
+                directory: Directory.Cache,
+                recursive: true
+            });
+
+            const uriResult = await Filesystem.getUri({
+                directory: Directory.Cache,
+                path: fileName
+            });
+
+            onProgress?.(100);
+            await ApkInstaller.install({ filePath: uriResult.uri });
+            return { success: true };
+        }
+
+        let receivedLength = 0;
+        const chunks: Uint8Array[] = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            chunks.push(value);
+            receivedLength += value.length;
+
+            if (contentLength > 0) {
+                const percent = Math.min(95, Math.round((receivedLength / contentLength) * 90) + 5);
+                onProgress?.(percent);
+            }
+        }
+
+        // Merge chunks
+        const allBytes = new Uint8Array(receivedLength);
+        let position = 0;
+        for (const chunk of chunks) {
+            allBytes.set(chunk, position);
+            position += chunk.length;
+        }
+
+        onProgress?.(95);
+
+        // Convert and write to Cache directory
+        const base64Data = uint8ArrayToBase64(allBytes);
+        const fileName = 'ImageTool_latest.apk';
+
+        await Filesystem.writeFile({
+            path: fileName,
+            data: base64Data,
+            directory: Directory.Cache,
+            recursive: true
+        });
+
+        const uriResult = await Filesystem.getUri({
+            directory: Directory.Cache,
+            path: fileName
+        });
+
+        onProgress?.(100);
+        console.log('[AppUpdate] APK saved to:', uriResult.uri, 'Launching installer...');
+
+        // Trigger native system package installer
+        await ApkInstaller.install({ filePath: uriResult.uri });
+        return { success: true };
+    } catch (err: any) {
+        console.error('[AppUpdate] Direct install failed, falling back to browser download:', err);
+        // Fallback: Open in device browser
+        await openDownloadPage(apkUrl);
+        return {
+            success: false,
+            message: err?.message || 'Không thể tự động cài đặt. Đang mở trình duyệt để tải file APK.'
+        };
+    }
+}
+
+/**
+ * Get current app version
  */
 export function getCurrentVersion(): string {
     return APP_VERSION;
@@ -146,7 +287,6 @@ export async function openDownloadPage(url?: string): Promise<void> {
     const downloadUrl = url || `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
     if (isMobilePlatform()) {
-        // On mobile, use Capacitor Browser or fallback to window.open
         try {
             const { Browser } = await import('@capacitor/browser');
             await Browser.open({ url: downloadUrl });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MagicWandIcon, UserCircleIcon, ImageIcon, SparklesIcon } from './Icons';
 import { User } from '../types';
+import { APP_VERSION } from '../services/appUpdateService';
 
 interface HeaderProps {
     user: User | null;
@@ -460,6 +461,20 @@ export const Header: React.FC<HeaderProps> = ({
                             <div className="flex items-center justify-between text-xs text-slate-600">
                                 <span>Hotline / Zalo 24/7:</span>
                                 <a href="tel:0342733640" className="font-bold text-indigo-600 hover:underline">0342.733.640</a>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/60">
+                                <span>Phiên bản: <strong>v{APP_VERSION}</strong></span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setDrawerOpen(false);
+                                        window.dispatchEvent(new CustomEvent('check-app-update'));
+                                    }}
+                                    className="text-indigo-600 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                                >
+                                    <span>🔄</span>
+                                    <span>Kiểm tra cập nhật</span>
+                                </button>
                             </div>
                             <p className="text-[10px] text-slate-400 text-center">ImageTool © All rights reserved</p>
                         </div>
