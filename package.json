@@ -1,7 +1,7 @@
 {
   "name": "hmongs-photo",
   "productName": "Hmongs Photo",
-  "version": "2.25.43",
+  "version": "2.25.39",
   "description": "Hmongs Photo - AI Studio for Photo Generation",
   "private": true,
   "main": "electron/main.cjs",

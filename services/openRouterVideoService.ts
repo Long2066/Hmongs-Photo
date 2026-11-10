@@ -27,18 +27,20 @@ export interface GenerateOpenRouterVideoResult {
 
 const OPENROUTER_VIDEOS_ENDPOINT = 'https://openrouter.ai/api/v1/videos';
 const IDEA_AI_STUDIO_BASE = 'https://studio-media-matrix.creativefabrica.com/creativefabrica.studiomediamatrix.v1.StudioMediaMatrixService';
+const VIVIX_API_BASE = 'https://api.vivix.ai/v1';
 
 /**
- * Tránh lỗi CORS từ Cloudflare của idea.ai khi chạy trên trình duyệt web:
+ * Tránh lỗi CORS khi gọi idea.ai hoặc api.vivix.ai trên trình duyệt web:
  * Tự động route qua cors-proxy an toàn của hệ thống
  */
-const resolveIdeaAiUrl = (targetUrl: string): string => {
+const resolveProxyUrl = (targetUrl: string): string => {
     const isElectron = typeof window !== 'undefined' && Boolean((window as any).electron || (window as any).process?.versions?.electron);
     if (!isElectron) {
         return `https://vip-imagetools.vercel.app/api/cors-proxy?url=${encodeURIComponent(targetUrl)}`;
     }
     return targetUrl;
 };
+const resolveIdeaAiUrl = resolveProxyUrl;
 
 /**
  * Trích xuất URL video từ phản hồi trạng thái của OpenRouter Video Generation API (/api/v1/videos)
@@ -68,25 +70,33 @@ export const extractVideoFromResponse = (data: any): string | null => {
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Chuyển chuỗi Base64 / Data URL của ảnh nguồn thành đối tượng Blob nhị phân để upload presigned S3 (idea.ai)
+ * Chuyển chuỗi Base64 / Data URL của ảnh nguồn thành đối tượng Blob nhị phân chuẩn magic-bytes
  */
 const base64ToImageBlob = async (base64Input: string): Promise<{ blob: Blob; fileName: string }> => {
     const trimmed = base64Input.trim();
     if (trimmed.startsWith('data:') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
         const resp = await fetch(trimmed);
-        const blob = await resp.blob();
-        const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
+        const rawBlob = await resp.blob();
+        const buf = new Uint8Array(await rawBlob.arrayBuffer());
+        const isJpg = buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+        const isWebp = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46;
+        const realMime = isJpg ? 'image/jpeg' : isPng ? 'image/png' : isWebp ? 'image/webp' : (rawBlob.type || 'image/jpeg');
+        const ext = realMime.includes('png') ? 'png' : realMime.includes('webp') ? 'webp' : 'jpg';
+        const blob = realMime === rawBlob.type ? rawBlob : new Blob([buf], { type: realMime });
         return { blob, fileName: `input-frame.${ext}` };
     }
 
-    const mimeType = trimmed.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
-    const ext = mimeType === 'image/jpeg' ? 'jpg' : 'png';
     const byteCharacters = atob(trimmed);
-    const byteNumbers = new Array(byteCharacters.length);
+    const byteArray = new Uint8Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+        byteArray[i] = byteCharacters.charCodeAt(i);
     }
-    const byteArray = new Uint8Array(byteNumbers);
+    const isJpg = byteArray[0] === 0xFF && byteArray[1] === 0xD8 && byteArray[2] === 0xFF;
+    const isPng = byteArray[0] === 0x89 && byteArray[1] === 0x50 && byteArray[2] === 0x4E && byteArray[3] === 0x47;
+    const isWebp = byteArray[0] === 0x52 && byteArray[1] === 0x49 && byteArray[2] === 0x46 && byteArray[3] === 0x46;
+    const mimeType = isJpg ? 'image/jpeg' : isPng ? 'image/png' : isWebp ? 'image/webp' : 'image/png';
+    const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
     return {
         blob: new Blob([byteArray], { type: mimeType }),
         fileName: `input-frame.${ext}`
@@ -531,7 +541,178 @@ const executeOpenRouterVideoCall = async (
 };
 
 /**
- * Điều phối gọi API theo đúng nhà cung cấp của model (idea.ai hoặc OpenRouter)
+ * Gửi một lượt yêu cầu tạo video tới máy chủ chính chủ Vivix (Vivix W1 real)
+ * API: POST https://api.vivix.ai/v1/videos/jobs & GET /v1/videos/jobs/{job_id}
+ */
+const executeVivixVideoCall = async (
+    modelId: string,
+    vivixApiKey: string,
+    config: OpenRouterVideoConfig,
+    options: GenerateOpenRouterVideoOptions,
+    aspectRatio: '16:9' | '9:16' | '1:1',
+    duration: number
+): Promise<string> => {
+    const meta = getVideoModelMeta(modelId);
+    const cleanPrompt = options.prompt.trim() || 'Smooth cinematic camera motion, natural movement, high quality';
+    const key = vivixApiKey.trim();
+
+    // Model name on Vivix API: "vivix-w1" | "vivix-w1-fast" | "vivix-w1-ultrafast"
+    const vivixModel = config.vivixModelVariant || 'vivix-w1';
+
+    const validAspectRatio = meta.supportedAspectRatios.includes(aspectRatio)
+        ? aspectRatio
+        : meta.supportedAspectRatios[0];
+
+    // Vivix W1 requires duration between 5 and 15
+    const validDuration = Math.max(5, Math.min(15, duration || 5));
+
+    let firstFrameUrl: string | undefined = undefined;
+
+    // Bước 1: Nếu có ảnh đầu vào (Image-to-Video), tải ảnh lên POST /v1/files/images
+    if (options.inputImageBase64) {
+        options.onProgress?.(`Đang tải ảnh nguồn lên máy chủ ${meta.shortName}...`);
+        const prepared = await base64ToImageBlob(options.inputImageBase64);
+
+        const formData = new FormData();
+        formData.append('file', prepared.blob, prepared.fileName);
+
+        const uploadUrl = resolveProxyUrl(`${VIVIX_API_BASE}/files/images`);
+        let uploadResp: Response;
+        try {
+            uploadResp = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${key}`
+                },
+                body: formData
+            });
+        } catch (uploadErr) {
+            // Fallback direct upload
+            uploadResp = await fetch(`${VIVIX_API_BASE}/files/images`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${key}`
+                },
+                body: formData
+            });
+        }
+
+        const uploadJson = await uploadResp.json().catch(() => ({}));
+        if (!uploadResp.ok || uploadJson?.code !== 0 || !uploadJson?.data?.url) {
+            const errDetail = uploadJson?.message || `HTTP ${uploadResp.status}`;
+            throw new Error(`[${meta.shortName}] Tải ảnh nguồn thất bại: ${errDetail}`);
+        }
+
+        firstFrameUrl = uploadJson.data.url;
+    }
+
+    // Bước 2: Gửi yêu cầu tạo video POST /v1/videos/jobs
+    options.onProgress?.(`Đang khởi tạo tác vụ kết xuất trên ${meta.shortName}...`);
+
+    const jobPayload: Record<string, any> = {
+        prompt: cleanPrompt,
+        aspect_ratio: validAspectRatio,
+        duration: validDuration
+    };
+
+    if (firstFrameUrl) {
+        jobPayload.first_frame_image = firstFrameUrl;
+    }
+
+    const requestBody = {
+        model: vivixModel,
+        jobs: [jobPayload]
+    };
+
+    const submitUrl = resolveProxyUrl(`${VIVIX_API_BASE}/videos/jobs`);
+    let submitResp: Response;
+    try {
+        submitResp = await fetch(submitUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+    } catch {
+        submitResp = await fetch(`${VIVIX_API_BASE}/videos/jobs`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+    }
+
+    const submitJson = await submitResp.json().catch(() => ({}));
+    if (!submitResp.ok || submitJson?.code !== 0) {
+        const errDetail = submitJson?.message || `HTTP ${submitResp.status}`;
+        throw new Error(`[${meta.shortName}] Gửi tác vụ tạo video thất bại: ${errDetail}`);
+    }
+
+    const jobId = submitJson?.data?.results?.[0]?.job_id || submitJson?.data?.job_id;
+    if (!jobId) {
+        throw new Error(`[${meta.shortName}] Không nhận được mã tác vụ (Job ID) từ Vivix API.`);
+    }
+
+    // Bước 3: Poll GET /v1/videos/jobs/{jobId} mỗi 4 giây cho tới khi hoàn tất
+    const maxAttempts = 75; // 75 * 4s = 300s (5 phút)
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await sleep(4000);
+        const elapsedSec = attempt * 4;
+        options.onProgress?.(`Đang kết xuất video qua máy chủ ${meta.shortName} (${elapsedSec}s)...`);
+
+        const pollUrl = resolveProxyUrl(`${VIVIX_API_BASE}/videos/jobs/${encodeURIComponent(jobId)}`);
+        let pollResp: Response;
+        try {
+            pollResp = await fetch(pollUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Accept': 'application/json'
+                }
+            });
+        } catch {
+            pollResp = await fetch(`${VIVIX_API_BASE}/videos/jobs/${encodeURIComponent(jobId)}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Accept': 'application/json'
+                }
+            });
+        }
+
+        if (!pollResp.ok) {
+            if (pollResp.status >= 500 && attempt < maxAttempts) {
+                continue;
+            }
+            const errJson = await pollResp.json().catch(() => ({}));
+            throw new Error(`[${meta.shortName}] Lỗi kiểm tra tiến trình: ${errJson?.message || `HTTP ${pollResp.status}`}`);
+        }
+
+        const pollJson = await pollResp.json().catch(() => ({}));
+        const jobData = pollJson?.data;
+        const status = jobData?.status;
+
+        if (status === 'succeeded' && typeof jobData?.video_url === 'string' && jobData.video_url.length > 0) {
+            return jobData.video_url;
+        }
+
+        if (status === 'failed') {
+            const failReason = jobData?.error?.message || pollJson?.message || 'Video generation failed';
+            throw new Error(`[${meta.shortName}] ${failReason}`);
+        }
+    }
+
+    throw new Error(`Quá thời gian chờ kết xuất video (300s) từ ${meta.shortName}.`);
+};
+
+/**
+ * Điều phối gọi API theo đúng nhà cung cấp của model (Vivix Chính chủ, idea.ai hoặc OpenRouter)
  */
 const executeModelVideoCall = async (
     modelId: string,
@@ -546,10 +727,18 @@ const executeModelVideoCall = async (
         throw new Error(`Nguồn ${meta.providerLabel} (${meta.shortName}) hiện đang được tắt trên trang Quản trị (Admin Panel).`);
     }
 
+    if (meta.provider === 'vivix_ai') {
+        const vivixKey = (config.vivixAiApiKey || '').trim();
+        if (!vivixKey) {
+            throw new Error('Chưa cấu hình API Key Vivix Chính chủ (platform.vivix.ai) trên trang Quản trị. Vui lòng nhập API Key để sử dụng Vivix W1 real.');
+        }
+        return executeVivixVideoCall(meta.id, vivixKey, config, options, aspectRatio, duration);
+    }
+
     if (meta.provider === 'idea_ai') {
         const ideaKey = (config.ideaAiApiKey || '').trim();
         if (!ideaKey) {
-            throw new Error('Chưa cấu hình API Key idea.ai (cfak_...) trên trang Quản trị (Admin Panel). Vui lòng nhập API Key idea.ai để sử dụng Vivix W1.');
+            throw new Error('Chưa cấu hình API Key idea.ai (cfak_...) trên trang Quản trị (Admin Panel). Vui lòng nhập API Key idea.ai để sử dụng Vivix W1 T.');
         }
         return executeIdeaAiVideoCall(meta.id, ideaKey, options, aspectRatio, duration);
     }
@@ -562,7 +751,7 @@ const executeModelVideoCall = async (
 };
 
 /**
- * Tạo video chất lượng cao qua idea.ai (Vivix W1) hoặc OpenRouter (Grok 1.5 Lite / Wan 3.0)
+ * Tạo video chất lượng cao qua Vivix Chính chủ (Vivix W1 real), idea.ai (Vivix W1 T) hoặc OpenRouter (Grok video / Wan 3.0)
  * Hỗ trợ bật/tắt độc lập từng nguồn từ Admin Panel
  */
 export const generateOpenRouterVideo = async (
@@ -576,7 +765,7 @@ export const generateOpenRouterVideo = async (
 
     const enabledModels = OPENROUTER_VIDEO_MODELS.filter(m => isVideoModelProviderEnabled(m.id, config));
     if (enabledModels.length === 0) {
-        throw new Error('Tất cả nguồn tạo video (idea.ai & OpenRouter) hiện đang tạm tắt trên trang Quản trị.');
+        throw new Error('Tất cả nguồn tạo video (Vivix Chính chủ, idea.ai & OpenRouter) hiện đang tạm tắt trên trang Quản trị.');
     }
 
     let requestedModel = (!options.modelOverride || options.modelOverride === 'auto' || options.modelOverride.includes('gemini-omni'))
@@ -597,7 +786,11 @@ export const generateOpenRouterVideo = async (
         m => m.id !== primaryMeta.id &&
              m.supportedAspectRatios.includes(aspectRatio) &&
              m.supportedDurations.includes(duration) &&
-             (m.provider === 'idea_ai' ? Boolean(config.ideaAiApiKey?.trim()) : Boolean(config.openRouterApiKey?.trim()))
+             (m.provider === 'vivix_ai'
+                 ? Boolean(config.vivixAiApiKey?.trim())
+                 : m.provider === 'idea_ai'
+                 ? Boolean(config.ideaAiApiKey?.trim())
+                 : Boolean(config.openRouterApiKey?.trim()))
     );
 
     const count = Math.max(1, Math.min(3, options.outputCount || 1));

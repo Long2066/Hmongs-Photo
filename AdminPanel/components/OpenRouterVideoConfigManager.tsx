@@ -19,6 +19,7 @@ import {
     saveVideoConfig,
     testOpenRouterApiKey,
     testIdeaAiApiKey,
+    testVivixApiKey,
     OpenRouterVideoConfig,
     DEFAULT_VIDEO_CONFIG
 } from '../services/videoConfigService';
@@ -30,10 +31,17 @@ interface OpenRouterVideoConfigManagerProps {
 
 const SUPPORTED_VIDEO_MODELS = [
     {
+        id: 'vivix.ai/vivix-w1',
+        name: 'Vivix Chính chủ: Vivix W1 real (720p HD • Chạy thẳng Vivix API)',
+        badge: 'Vivix Chính chủ - 1 credit/s',
+        desc: 'Chạy thẳng qua máy chủ api.vivix.ai, cực kỳ ổn định, hỗ trợ cả I2V & T2V, đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s)',
+        costEstimate: '~1 credit/giây (~75đ–180đ/s)'
+    },
+    {
         id: 'idea.ai/vivix_w1',
-        name: 'idea.ai: Vivix W1 (720p HD • 260 Coins)',
-        badge: 'idea.ai - Rẻ & Nét 720p',
-        desc: 'Hỗ trợ cả Image-to-Video & Text-to-Video, đủ tỷ lệ 9:16 / 16:9 / 1:1, thời lượng 5s–15s',
+        name: 'idea.ai: Vivix W1 T (720p HD • 260 Coins)',
+        badge: 'idea.ai - Vivix W1 T',
+        desc: 'Chạy qua máy chủ idea.ai, hỗ trợ cả Image-to-Video & Text-to-Video, đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s)',
         costEstimate: '260 Coins/video'
     },
     {
@@ -56,6 +64,16 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
     const [config, setConfig] = useState<OpenRouterVideoConfig>(DEFAULT_VIDEO_CONFIG);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    // Vivix Chính chủ test states
+    const [testingVivix, setTestingVivix] = useState(false);
+    const [showVivixKey, setShowVivixKey] = useState(false);
+    const [vivixTestResult, setVivixTestResult] = useState<{
+        valid: boolean;
+        label?: string;
+        error?: string;
+        checkedAt?: number;
+    } | null>(null);
 
     // OpenRouter test states
     const [testingOr, setTestingOr] = useState(false);
@@ -88,11 +106,14 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
             .then(res => {
                 if (mounted) {
                     setConfig(res);
-                    if (res.openRouterApiKey) {
-                        handleTestOpenRouterKey(res.openRouterApiKey);
+                    if (res.vivixAiApiKey) {
+                        handleTestVivixKey(res.vivixAiApiKey);
                     }
                     if (res.ideaAiApiKey) {
                         handleTestIdeaAiKey(res.ideaAiApiKey);
+                    }
+                    if (res.openRouterApiKey) {
+                        handleTestOpenRouterKey(res.openRouterApiKey);
                     }
                 }
             })
@@ -107,6 +128,37 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
             mounted = false;
         };
     }, []);
+
+    const handleTestVivixKey = async (keyToTest?: string) => {
+        const key = (keyToTest !== undefined ? keyToTest : config.vivixAiApiKey).trim();
+        if (!key) {
+            setVivixTestResult({
+                valid: false,
+                error: 'Vui lòng nhập API Key Vivix Chính chủ trước khi kiểm tra',
+                checkedAt: Date.now()
+            });
+            return;
+        }
+
+        setTestingVivix(true);
+        try {
+            const res = await testVivixApiKey(key);
+            setVivixTestResult({
+                valid: res.valid,
+                label: res.label,
+                error: res.error,
+                checkedAt: Date.now()
+            });
+        } catch (err: any) {
+            setVivixTestResult({
+                valid: false,
+                error: err?.message || 'Lỗi kiểm tra kết nối Vivix Chính chủ',
+                checkedAt: Date.now()
+            });
+        } finally {
+            setTestingVivix(false);
+        }
+    };
 
     const handleTestOpenRouterKey = async (keyToTest?: string) => {
         const key = (keyToTest !== undefined ? keyToTest : config.openRouterApiKey).trim();
@@ -248,7 +300,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <h2 id="openrouter-video-config-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
-                                Cấu hình Video AI (idea.ai & OpenRouter)
+                                Cấu hình Video AI (Vivix Chính chủ, idea.ai & OpenRouter)
                             </h2>
                             <span style={{
                                 display: 'inline-flex',
@@ -268,7 +320,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                             </span>
                         </div>
                         <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.84rem' }}>
-                            Bật/tắt độc lập từng nguồn (idea.ai hoặc OpenRouter). Nguồn nào tắt thì model của nguồn đó bên Tool chính sẽ tự động chuyển xám (khóa).
+                            Bật/tắt độc lập từng nguồn (Vivix Chính chủ, idea.ai hoặc OpenRouter). Nguồn nào tắt thì model của nguồn đó bên Tool chính sẽ tự động chuyển xám (khóa).
                         </p>
                     </div>
                 </div>
@@ -348,7 +400,201 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
             )}
 
             <form onSubmit={handleSave} style={{ display: 'grid', gap: '20px' }}>
-                {/* 1. IDEA.AI API KEY & PROVIDER TOGGLE */}
+                {/* 1. VIVIX CHÍNH CHỦ API KEY & PROVIDER TOGGLE */}
+                <div style={{
+                    background: config.vivixAiEnabled !== false ? '#eff6ff' : '#f8fafc',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
+                    border: `1.5px solid ${config.vivixAiEnabled !== false ? '#93c5fd' : '#e2e8f0'}`,
+                    transition: 'all 0.2s ease'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label htmlFor="vivix-ai-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Key size={16} style={{ color: '#2563eb' }} />
+                                <span>Nguồn 1: Vivix Chính chủ API Key (platform.vivix.ai)</span>
+                            </label>
+                            <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: config.vivixAiEnabled !== false ? '#dbeafe' : '#e2e8f0',
+                                color: config.vivixAiEnabled !== false ? '#1d4ed8' : '#64748b'
+                            }}>
+                                Model: Vivix W1 real (Chạy thẳng máy chủ Vivix • 5s–15s)
+                            </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button
+                                type="button"
+                                onClick={() => handleTestVivixKey()}
+                                disabled={testingVivix || !config.vivixAiApiKey}
+                                className="btn btn-secondary"
+                                style={{
+                                    padding: '6px 14px',
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    minHeight: '34px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <RefreshCw size={14} className={testingVivix ? 'loading-spinner' : ''} />
+                                Kiểm tra khóa
+                            </button>
+
+                            {/* Toggle Vivix */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: config.vivixAiEnabled !== false ? '#1d4ed8' : '#64748b' }}>
+                                    {config.vivixAiEnabled !== false ? 'Đang BẬT' : 'Đang TẮT (Khóa xám)'}
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={config.vivixAiEnabled !== false}
+                                    onClick={() => setConfig(prev => ({ ...prev, vivixAiEnabled: !(prev.vivixAiEnabled !== false) }))}
+                                    style={{
+                                        width: '46px',
+                                        height: '24px',
+                                        borderRadius: '9999px',
+                                        background: config.vivixAiEnabled !== false ? '#2563eb' : '#cbd5e1',
+                                        border: 'none',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s ease',
+                                        padding: '2px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center'
+                                    }}
+                                >
+                                    <span style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: '#ffffff',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        transform: config.vivixAiEnabled !== false ? 'translateX(22px)' : 'translateX(0px)',
+                                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                                    }} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '12px',
+                        padding: '0 14px',
+                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+                        opacity: config.vivixAiEnabled !== false ? 1 : 0.65
+                    }}>
+                        <input
+                            id="vivix-ai-api-key"
+                            type={showVivixKey ? 'text' : 'password'}
+                            value={config.vivixAiApiKey || ''}
+                            onChange={e => setConfig(prev => ({ ...prev, vivixAiApiKey: e.target.value }))}
+                            placeholder="Nhập Vivix API Key từ platform.vivix.ai/api-keys"
+                            style={{
+                                width: '100%',
+                                padding: '12px 0',
+                                border: 'none',
+                                outline: 'none',
+                                fontFamily: showVivixKey ? 'monospace' : undefined,
+                                fontSize: '0.88rem',
+                                color: '#0f172a',
+                                background: 'transparent'
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowVivixKey(!showVivixKey)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#64748b',
+                                cursor: 'pointer',
+                                padding: '6px',
+                                display: 'flex',
+                                alignItems: 'center'
+                            }}
+                            title={showVivixKey ? 'Ẩn khóa' : 'Hiện khóa'}
+                        >
+                            {showVivixKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                    </div>
+
+                    {/* Tùy chọn phiên bản model Vivix W1 */}
+                    <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#475569', fontWeight: 600 }}>
+                            Phiên bản kết xuất Vivix:
+                        </span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                            {[
+                                { id: 'vivix-w1' as const, label: 'vivix-w1 (Chuẩn · 1 credit/s)', rate: 'Tiết kiệm nhất' },
+                                { id: 'vivix-w1-fast' as const, label: 'vivix-w1-fast (Nhanh · 3 credits/s)', rate: 'Nhanh hơn' },
+                                { id: 'vivix-w1-ultrafast' as const, label: 'vivix-w1-ultrafast (Siêu tốc · 4 credits/s)', rate: 'Nhanh nhất' }
+                            ].map(opt => (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setConfig(prev => ({ ...prev, vivixModelVariant: opt.id }))}
+                                    style={{
+                                        padding: '4px 10px',
+                                        borderRadius: '8px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        border: `1px solid ${(config.vivixModelVariant || 'vivix-w1') === opt.id ? '#2563eb' : '#cbd5e1'}`,
+                                        background: (config.vivixModelVariant || 'vivix-w1') === opt.id ? '#2563eb' : '#ffffff',
+                                        color: (config.vivixModelVariant || 'vivix-w1') === opt.id ? '#ffffff' : '#475569',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                    title={opt.rate}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {vivixTestResult && (
+                        <div style={{
+                            marginTop: '12px',
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            background: vivixTestResult.valid ? '#ecfdf5' : '#fef2f2',
+                            border: `1px solid ${vivixTestResult.valid ? '#a7f3d0' : '#fecaca'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '8px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {vivixTestResult.valid ? (
+                                    <CheckCircle2 size={16} style={{ color: '#059669' }} />
+                                ) : (
+                                    <XCircle size={16} style={{ color: '#dc2626' }} />
+                                )}
+                                <span style={{
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600,
+                                    color: vivixTestResult.valid ? '#047857' : '#991b1b'
+                                }}>
+                                    {vivixTestResult.valid ? (vivixTestResult.label || 'Khóa Vivix Chính chủ hợp lệ!') : (vivixTestResult.error || 'Khóa Vivix không hợp lệ')}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* 2. IDEA.AI API KEY & PROVIDER TOGGLE */}
                 <div style={{
                     background: config.ideaAiEnabled !== false ? '#f5f3ff' : '#f8fafc',
                     borderRadius: '16px',
@@ -360,7 +606,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                             <label htmlFor="idea-ai-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Key size={16} style={{ color: '#7c3aed' }} />
-                                <span>Nguồn 1: idea.ai API Key (cfak_...)</span>
+                                <span>Nguồn 2: idea.ai API Key (cfak_...)</span>
                             </label>
                             <span style={{
                                 fontSize: '0.72rem',
@@ -370,7 +616,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                 background: config.ideaAiEnabled !== false ? '#ede9fe' : '#e2e8f0',
                                 color: config.ideaAiEnabled !== false ? '#6d28d9' : '#64748b'
                             }}>
-                                Model: Vivix W1 (720p • 9:16 / 16:9 / 1:1 • 5s–15s)
+                                Model: Vivix W1 T (720p • 9:16 / 16:9 / 1:1 • 5s–15s)
                             </span>
                         </div>
 
@@ -508,7 +754,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     )}
                 </div>
 
-                {/* 2. OPENROUTER API KEY & PROVIDER TOGGLE */}
+                {/* 3. OPENROUTER API KEY & PROVIDER TOGGLE */}
                 <div style={{
                     background: config.openRouterEnabled !== false ? '#fffbeb' : '#f8fafc',
                     borderRadius: '16px',
@@ -520,7 +766,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                             <label htmlFor="openrouter-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Key size={16} style={{ color: '#f59e0b' }} />
-                                <span>Nguồn 2: OpenRouter API Key (sk-or-v1-...)</span>
+                                <span>Nguồn 3: OpenRouter API Key (sk-or-v1-...)</span>
                             </label>
                             <span style={{
                                 fontSize: '0.72rem',
@@ -530,7 +776,7 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                 background: config.openRouterEnabled !== false ? '#fef3c7' : '#e2e8f0',
                                 color: config.openRouterEnabled !== false ? '#b45309' : '#64748b'
                             }}>
-                                Model: Grok 1.5 Lite & Alibaba Wan 3.0 (3s–15s)
+                                Model: Grok video & Wan 3.0 (3s–15s)
                             </span>
                         </div>
 

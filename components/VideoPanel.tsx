@@ -212,7 +212,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     {OPENROUTER_VIDEO_MODELS.map((model) => {
                         const isProviderEnabled = isVideoModelProviderEnabled(model.id, videoConfig);
                         const isSelected = selectedModel === model.id && isProviderEnabled;

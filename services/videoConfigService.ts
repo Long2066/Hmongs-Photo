@@ -1,7 +1,7 @@
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../src/firebaseConfig';
 
-export type VideoProviderType = 'openrouter' | 'idea_ai';
+export type VideoProviderType = 'openrouter' | 'idea_ai' | 'vivix_ai';
 
 export interface VideoModelMetadata {
     id: string;
@@ -22,19 +22,36 @@ export interface VideoModelMetadata {
 }
 
 /**
- * Danh sách các Mô hình Video AI trên Idea.ai & OpenRouter
- * Hỗ trợ đầy đủ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật (first_frame)
+ * Danh sách các Mô hình Video AI trên Vivix Chính chủ, Idea.ai & OpenRouter
+ * Hỗ trợ đầy đủ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật
  */
 export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
+    {
+        id: 'vivix.ai/vivix-w1',
+        provider: 'vivix_ai',
+        providerLabel: 'Vivix Chính chủ',
+        name: 'Vivix W1 real',
+        shortName: 'Vivix W1 real',
+        badge: 'Chính chủ',
+        badgeColor: 'indigo',
+        description: 'Chạy thẳng qua máy chủ chính chủ Vivix (api.vivix.ai), hỗ trợ I2V & T2V, đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
+        supportedAspectRatios: ['16:9', '9:16', '1:1'],
+        supportedDurations: [5, 10, 15],
+        defaultResolution: '720p',
+        supportsAudio: false,
+        costPerSecondVnd: 100,
+        baseInputFeeVnd: 0,
+        priceLabel: '~500đ (5s) • ~1.000đ (10s)'
+    },
     {
         id: 'idea.ai/vivix_w1',
         provider: 'idea_ai',
         providerLabel: 'idea.ai',
-        name: 'Vivix W1',
-        shortName: 'Vivix W1',
+        name: 'Vivix W1 T',
+        shortName: 'Vivix W1 T',
         badge: '260 Coins',
         badgeColor: 'violet',
-        description: 'Hỗ trợ cả Ảnh sang Video (I2V) & Văn bản (T2V), đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
+        description: 'Chạy qua idea.ai, hỗ trợ cả Ảnh sang Video (I2V) & Văn bản (T2V), đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
         supportedAspectRatios: ['16:9', '9:16', '1:1'],
         supportedDurations: [5, 10, 15],
         defaultResolution: '720p',
@@ -87,7 +104,7 @@ export const getVideoModelMeta = (modelId?: string): VideoModelMetadata => {
 };
 
 /**
- * Kiểm tra xem nhà cung cấp (OpenRouter hoặc idea.ai) của một model có đang được bật trên Admin hay không
+ * Kiểm tra xem nhà cung cấp (Vivix, OpenRouter hoặc idea.ai) của một model có đang được bật trên Admin hay không
  */
 export const isVideoModelProviderEnabled = (
     modelId: string,
@@ -95,6 +112,9 @@ export const isVideoModelProviderEnabled = (
 ): boolean => {
     if (config.enabled === false) return false;
     const meta = getVideoModelMeta(modelId);
+    if (meta.provider === 'vivix_ai') {
+        return config.vivixAiEnabled !== false;
+    }
     if (meta.provider === 'idea_ai') {
         return config.ideaAiEnabled !== false;
     }
@@ -115,12 +135,15 @@ export const calculateVideoPriceVnd = (modelId: string | undefined, durationSeco
 
 export interface OpenRouterVideoConfig {
     enabled: boolean;
+    vivixAiEnabled: boolean;      // Bật/tắt model Vivix W1 real (chính chủ)
+    vivixAiApiKey: string;        // API Key từ platform.vivix.ai
+    vivixModelVariant?: 'vivix-w1' | 'vivix-w1-fast' | 'vivix-w1-ultrafast';
     openRouterEnabled: boolean;   // Bật/tắt các model thuộc OpenRouter
     openRouterApiKey: string;     // sk-or-v1-...
-    ideaAiEnabled: boolean;       // Bật/tắt các model thuộc idea.ai
+    ideaAiEnabled: boolean;       // Bật/tắt các model thuộc idea.ai (Vivix W1 T)
     ideaAiApiKey: string;         // cfak_...
-    primaryModel: string;         // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
-    fallbackModel: string;        // 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
+    primaryModel: string;         // 'vivix.ai/vivix-w1' | 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
+    fallbackModel: string;        // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
     pricePerVideoVnd: number;     // Giá mặc định tham chiếu
     costPerVideoVnd: number;
     profitMarkupPercent: number;  // Tỷ lệ lợi nhuận (+10%)
@@ -132,12 +155,15 @@ export interface OpenRouterVideoConfig {
 
 export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     enabled: true,
+    vivixAiEnabled: true,
+    vivixAiApiKey: '',
+    vivixModelVariant: 'vivix-w1',
     openRouterEnabled: true,
     openRouterApiKey: '',
     ideaAiEnabled: true,
     ideaAiApiKey: '',
-    primaryModel: 'idea.ai/vivix_w1',
-    fallbackModel: 'x-ai/grok-imagine-video-1.5-lite',
+    primaryModel: 'vivix.ai/vivix-w1',
+    fallbackModel: 'idea.ai/vivix_w1',
     pricePerVideoVnd: 2000,
     costPerVideoVnd: 1785,
     profitMarkupPercent: 10,
@@ -152,6 +178,9 @@ const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVid
     const merged: OpenRouterVideoConfig = {
         ...DEFAULT_VIDEO_CONFIG,
         ...raw,
+        vivixAiEnabled: raw.vivixAiEnabled !== undefined ? Boolean(raw.vivixAiEnabled) : true,
+        vivixAiApiKey: raw.vivixAiApiKey || '',
+        vivixModelVariant: (raw.vivixModelVariant === 'vivix-w1-fast' || raw.vivixModelVariant === 'vivix-w1-ultrafast') ? raw.vivixModelVariant : 'vivix-w1',
         openRouterEnabled: raw.openRouterEnabled !== undefined ? Boolean(raw.openRouterEnabled) : true,
         ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
         openRouterApiKey: raw.openRouterApiKey || '',

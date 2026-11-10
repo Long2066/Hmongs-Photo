@@ -3,12 +3,15 @@ import { db } from '../firebaseConfig';
 
 export interface OpenRouterVideoConfig {
     enabled: boolean;
+    vivixAiEnabled: boolean;      // Bật/tắt model Vivix W1 real (Chính chủ)
+    vivixAiApiKey: string;        // API Key từ platform.vivix.ai
+    vivixModelVariant?: 'vivix-w1' | 'vivix-w1-fast' | 'vivix-w1-ultrafast';
     openRouterEnabled: boolean;   // Bật/tắt cụm model OpenRouter
     openRouterApiKey: string;     // sk-or-v1-...
-    ideaAiEnabled: boolean;       // Bật/tắt cụm model idea.ai
+    ideaAiEnabled: boolean;       // Bật/tắt cụm model idea.ai (Vivix W1 T)
     ideaAiApiKey: string;         // cfak_...
-    primaryModel: string;         // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
-    fallbackModel: string;        // 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
+    primaryModel: string;         // 'vivix.ai/vivix-w1' | 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
+    fallbackModel: string;        // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
     pricePerVideoVnd: number;     // Giá bán trên ImageTool (+10% lợi nhuận, vd: 2000đ)
     costPerVideoVnd: number;      // Giá gốc
     profitMarkupPercent: number;  // Tỷ lệ lợi nhuận (+10%)
@@ -20,12 +23,15 @@ export interface OpenRouterVideoConfig {
 
 export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     enabled: true,
+    vivixAiEnabled: true,
+    vivixAiApiKey: '',
+    vivixModelVariant: 'vivix-w1',
     openRouterEnabled: true,
     openRouterApiKey: '',
     ideaAiEnabled: true,
     ideaAiApiKey: '',
-    primaryModel: 'idea.ai/vivix_w1',
-    fallbackModel: 'x-ai/grok-imagine-video-1.5-lite',
+    primaryModel: 'vivix.ai/vivix-w1',
+    fallbackModel: 'idea.ai/vivix_w1',
     pricePerVideoVnd: 2000,
     costPerVideoVnd: 1785,
     profitMarkupPercent: 10,
@@ -34,6 +40,7 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
 };
 
 const VALID_MODEL_IDS = [
+    'vivix.ai/vivix-w1',
     'idea.ai/vivix_w1',
     'x-ai/grok-imagine-video-1.5-lite',
     'alibaba/wan-3.0'
@@ -43,6 +50,9 @@ const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVid
     const merged: OpenRouterVideoConfig = {
         ...DEFAULT_VIDEO_CONFIG,
         ...raw,
+        vivixAiEnabled: raw.vivixAiEnabled !== undefined ? Boolean(raw.vivixAiEnabled) : true,
+        vivixAiApiKey: raw.vivixAiApiKey || '',
+        vivixModelVariant: (raw.vivixModelVariant === 'vivix-w1-fast' || raw.vivixModelVariant === 'vivix-w1-ultrafast') ? raw.vivixModelVariant : 'vivix-w1',
         openRouterEnabled: raw.openRouterEnabled !== undefined ? Boolean(raw.openRouterEnabled) : true,
         ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
         openRouterApiKey: raw.openRouterApiKey || '',
@@ -319,5 +329,77 @@ export const testIdeaAiApiKey = async (
             return { valid: false, error: 'Hết thời gian chờ kết nối idea.ai (Timeout 12s)' };
         }
         return { valid: false, error: err.message || 'Lỗi mạng khi kiểm tra API Key idea.ai' };
+    }
+};
+
+/**
+ * Kiểm tra kết nối và tính hợp lệ của Vivix Chính chủ API Key (platform.vivix.ai)
+ * Gọi endpoint GET https://api.vivix.ai/v1/models hoàn toàn miễn phí
+ */
+export const testVivixApiKey = async (
+    apiKey: string
+): Promise<{
+    valid: boolean;
+    label?: string;
+    models?: string[];
+    error?: string;
+}> => {
+    const key = apiKey.trim();
+    if (!key) {
+        return { valid: false, error: 'Chưa nhập API Key Vivix Chính chủ' };
+    }
+
+    const targetUrl = 'https://api.vivix.ai/v1/models';
+    const proxyUrl = 'https://vip-imagetools.vercel.app/api/cors-proxy?url=' + encodeURIComponent(targetUrl);
+
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+
+        let resp: Response;
+        try {
+            resp = await fetch(proxyUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Accept': 'application/json'
+                },
+                signal: controller.signal
+            });
+        } catch {
+            resp = await fetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Accept': 'application/json'
+                },
+                signal: controller.signal
+            });
+        }
+        clearTimeout(timeout);
+
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok || data?.code !== 0) {
+            return {
+                valid: false,
+                error: data?.message || `Khóa Vivix không hợp lệ (HTTP ${resp.status})`
+            };
+        }
+
+        const modelsList = Array.isArray(data?.data?.models)
+            ? data.data.models.map((m: any) => m.name || m.id || String(m))
+            : [];
+
+        return {
+            valid: true,
+            label: `Khóa Vivix Chính chủ hợp lệ (${modelsList.filter((m: string) => m.includes('w1')).join(', ') || 'Vivix W1'})!`,
+            models: modelsList
+        };
+    } catch (err: any) {
+        if (err.name === 'AbortError') {
+            return { valid: false, error: 'Hết thời gian chờ kết nối Vivix (Timeout 12s)' };
+        }
+        return { valid: false, error: err.message || 'Lỗi mạng khi kiểm tra API Key Vivix' };
     }
 };
