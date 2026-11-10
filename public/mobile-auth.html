@@ -161,9 +161,14 @@
       setPersistence
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
+    // Ensure execution on toolphoto-2025.firebaseapp.com (matches Google Cloud Console OAuth redirect_uri)
+    if (window.location.hostname.endsWith('.web.app')) {
+      window.location.replace('https://toolphoto-2025.firebaseapp.com/mobile-auth.html' + window.location.search + window.location.hash);
+    }
+
     const firebaseConfig = {
       apiKey: "AIzaSyAUFQb3vsZPVv6i5smRTeXJkVYZuJGoQZE",
-      authDomain: "toolphoto-2025.web.app",
+      authDomain: "toolphoto-2025.firebaseapp.com",
       projectId: "toolphoto-2025",
       storageBucket: "toolphoto-2025.firebasestorage.app",
       messagingSenderId: "820992304466",

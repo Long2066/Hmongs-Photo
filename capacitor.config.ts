@@ -6,8 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   android: {
     allowMixedContent: true,
-    backgroundColor: '#f4f3fb',
-    captureInput: true
+    backgroundColor: '#f4f3fb'
   },
   server: {
     androidScheme: 'https',

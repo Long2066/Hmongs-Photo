@@ -213,13 +213,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
             return;
         }
 
-        // 2. ANDROID NATIVE: Use Chrome Custom Tab with same-origin OAuth bridge on toolphoto-2025.web.app
+        // 2. ANDROID NATIVE: Use Chrome Custom Tab with same-origin OAuth bridge on toolphoto-2025.firebaseapp.com
         if (isMobilePlatform()) {
             setInfoMessage('Đang mở trình duyệt bảo mật để đăng nhập Google...');
             try {
                 const { Browser } = await import('@capacitor/browser');
                 await Browser.open({
-                    url: `https://toolphoto-2025.web.app/mobile-auth.html?auto=1&t=${Date.now()}`
+                    url: `https://toolphoto-2025.firebaseapp.com/mobile-auth.html?auto=1&t=${Date.now()}`
                 });
             } catch (err: any) {
                 console.error('[AuthModal] Failed to open mobile auth browser:', err);
@@ -515,7 +515,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                             <h3 className="font-bold text-slate-800">Khôi phục mật khẩu</h3>
                                             <p className="text-xs text-slate-500">Nhập email để nhận liên kết đặt lại mật khẩu.</p>
                                         </div>
-                                        <input type="email" aria-label="Email đăng ký" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email đăng ký" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                        <input type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-label="Email đăng ký" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email đăng ký" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
                                     </>
                                 ) : (
                                     <>
@@ -527,11 +527,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                         )}
                                         <div>
                                             <label htmlFor="auth-email" className="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-600">Email</label>
-                                            <input id="auth-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@gmail.com" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                            <input id="auth-email" type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@gmail.com" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
                                         </div>
                                         <div>
                                             <label htmlFor="auth-password" className="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-600">Mật khẩu</label>
-                                            <div className="auth-password-field"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={view === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                            <div className="auth-password-field"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete={view === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
                                                 <button type="button" className="auth-password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} aria-pressed={showPassword}>{showPassword ? 'Ẩn' : 'Hiện'}</button></div>
                                         </div>
                                     </>
