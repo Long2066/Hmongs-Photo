@@ -404,18 +404,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                     </button>
                 )}
 
-                {/* Header - Compact on mobile */}
-                <div className="px-5 pb-2 pt-4 text-center sm:px-7 sm:pt-5">
+                {/* Header - Compact & razor-sharp */}
+                <div className="px-5 pb-2 pt-5 text-center sm:px-6">
                     <img 
                         src="/icon.png" 
                         alt="ImageTool Logo" 
-                        className="mx-auto mb-1 h-10 w-10 rounded-xl object-contain"
+                        className="mx-auto mb-1.5 h-11 w-11 rounded-xl object-contain shadow-xs"
+                        style={{ imageRendering: '-webkit-optimize-contrast' }}
                     />
-                    <h2 id="auth-title" className="text-2xl font-bold leading-tight tracking-tight text-slate-900">ImageTool</h2>
-                    <p className="mt-1 text-xs font-medium text-slate-600">Professional AI Studio <span className="mx-1 text-slate-400">·</span> v{appVersion || APP_VERSION}</p>
+                    <h2 id="auth-title" className="text-2xl font-extrabold leading-tight tracking-tight text-slate-900">ImageTool</h2>
+                    <p className="mt-1 text-xs font-semibold text-slate-600">Professional AI Studio <span className="mx-1 text-slate-400">·</span> v{appVersion || APP_VERSION}</p>
                 </div>
 
-                <div className="px-5 pb-5 sm:px-7 sm:pb-6">
+                <div className="px-5 pb-5 sm:px-6 sm:pb-6">
                     {/* VERIFICATION PENDING VIEW - Prominent display */}
                     {view === 'verification_pending' ? (
                         <div className="text-center animate-fade-in">
@@ -462,9 +463,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                         <>
                             {/* View Switcher */}
                             {view !== 'forgot' && (
-                                <div className="auth-view-switch mb-4 flex rounded-xl bg-slate-100 p-1">
-                                    <button type="button" aria-pressed={view === 'login'} onClick={() => setView('login')} className={`min-h-[44px] flex-1 rounded-lg text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 active:scale-[0.98] ${view === 'login' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>Đăng nhập</button>
-                                    <button type="button" aria-pressed={view === 'signup'} onClick={() => setView('signup')} className={`min-h-[44px] flex-1 rounded-lg text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 active:scale-[0.98] ${view === 'signup' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>Đăng ký</button>
+                                <div className="auth-view-switch mb-3.5 flex rounded-xl p-1">
+                                    <button type="button" aria-pressed={view === 'login'} onClick={() => setView('login')} className="min-h-[40px] flex-1 rounded-lg text-sm font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">Đăng nhập</button>
+                                    <button type="button" aria-pressed={view === 'signup'} onClick={() => setView('signup')} className="min-h-[40px] flex-1 rounded-lg text-sm font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">Đăng ký</button>
                                 </div>
                             )}
 
@@ -475,7 +476,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                         type="button"
                                         onClick={handleGoogleSignIn}
                                         disabled={isGoogleLoading || isSubmitting}
-                                        className="flex min-h-[46px] w-full items-center justify-center gap-3 rounded-xl bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-900/10 transition-all hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                                        className="flex min-h-[46px] w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 shadow-xs transition-all hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60"
                                     >
                                         {isGoogleLoading ? (
                                              <div className="flex items-center gap-2 text-indigo-600 font-medium">
@@ -499,9 +500,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                     </button>
 
                                     {/* Divider */}
-                                    <div className="relative my-3 flex items-center justify-center">
-                                        <div className="border-t border-slate-200/80 w-full"></div>
-                                        <span className="relative bg-white/95 px-3 text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                    <div className="relative my-3.5 flex items-center justify-center">
+                                        <div className="border-t border-slate-200 w-full"></div>
+                                        <span className="relative whitespace-nowrap bg-white px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                                             Hoặc với Email
                                         </span>
                                     </div>
@@ -512,26 +513,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                 {view === 'forgot' ? (
                                     <>
                                         <div className="text-center mb-2">
-                                            <h3 className="font-bold text-slate-800">Khôi phục mật khẩu</h3>
-                                            <p className="text-xs text-slate-500">Nhập email để nhận liên kết đặt lại mật khẩu.</p>
+                                            <h3 className="font-bold text-slate-900">Khôi phục mật khẩu</h3>
+                                            <p className="text-xs font-medium text-slate-600">Nhập email để nhận liên kết đặt lại mật khẩu.</p>
                                         </div>
-                                        <input type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-label="Email đăng ký" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email đăng ký" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                        <input type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-label="Email đăng ký" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email đăng ký" className="mt-1 w-full min-h-[44px] rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400" required />
                                     </>
                                 ) : (
                                     <>
                                         {view === 'signup' && (
                                             <div>
-                                                <label htmlFor="auth-name" className="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-600">Tên hiển thị</label>
-                                                <input id="auth-name" autoComplete="name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Tên của bạn" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                                <label htmlFor="auth-name" className="ml-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-700">Tên hiển thị</label>
+                                                <input id="auth-name" autoComplete="name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Tên của bạn" className="mt-1 w-full min-h-[44px] rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400" required />
                                             </div>
                                         )}
                                         <div>
-                                            <label htmlFor="auth-email" className="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-600">Email</label>
-                                            <input id="auth-email" type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@gmail.com" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                            <label htmlFor="auth-email" className="ml-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-700">Email</label>
+                                            <input id="auth-email" type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@gmail.com" className="mt-1 w-full min-h-[44px] rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400" required />
                                         </div>
                                         <div>
-                                            <label htmlFor="auth-password" className="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-600">Mật khẩu</label>
-                                            <div className="auth-password-field"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete={view === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full min-h-[44px] rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-900/10 outline-none transition-colors hover:bg-white focus:bg-white focus:ring-2 focus:ring-indigo-600" required />
+                                            <label htmlFor="auth-password" className="ml-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-700">Mật khẩu</label>
+                                            <div className="auth-password-field mt-1"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete={view === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full min-h-[44px] rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400" required />
                                                 <button type="button" className="auth-password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} aria-pressed={showPassword}>{showPassword ? 'Ẩn' : 'Hiện'}</button></div>
                                         </div>
                                     </>
@@ -605,18 +606,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
                                 )}
                                 {infoMessage && <div role="status" className="text-green-600 text-sm font-medium bg-green-50 p-3 rounded-lg text-center animate-pulse">{infoMessage}</div>}
 
-                                <button type="submit" disabled={isSubmitting || isGoogleLoading} aria-busy={isSubmitting} className="auth-submit mt-1 min-h-[46px] w-full rounded-xl bg-indigo-700 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-indigo-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.98] disabled:cursor-wait disabled:opacity-65">
+                                <button type="submit" disabled={isSubmitting || isGoogleLoading} aria-busy={isSubmitting} className="auth-submit mt-1 min-h-[46px] w-full rounded-xl px-6 text-sm font-bold text-white transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.985] disabled:cursor-wait disabled:opacity-65">
                                     {isSubmitting ? <span className="auth-submit-loading"><span className="auth-spinner" aria-hidden="true" />Đang xử lý...</span> : view === 'login' ? <><span className="auth-submit-plane" aria-hidden="true">➤</span> Truy cập ngay</> : view === 'signup' ? 'Tạo tài khoản' : 'Đổi mật khẩu'}
                                 </button>
                             </form>
 
                             {view === 'login' && (
-                                <button onClick={() => setView('forgot')} className="mt-2 min-h-[44px] w-full rounded-lg text-center text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700 active:scale-[0.98]">
+                                <button onClick={() => setView('forgot')} className="mt-2 min-h-[38px] w-full rounded-lg text-center text-xs font-semibold text-indigo-600 transition-colors hover:text-indigo-800 hover:bg-indigo-50/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700 active:scale-[0.985]">
                                     Quên mật khẩu?
                                 </button>
                             )}
                             {view === 'forgot' && (
-                                <button onClick={() => setView('login')} className="mt-2 min-h-[44px] w-full rounded-lg text-center text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700 active:scale-[0.98]">
+                                <button onClick={() => setView('login')} className="mt-2 min-h-[38px] w-full rounded-lg text-center text-xs font-semibold text-indigo-600 transition-colors hover:text-indigo-800 hover:bg-indigo-50/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700 active:scale-[0.985]">
                                     Quay lại đăng nhập
                                 </button>
                             )}
