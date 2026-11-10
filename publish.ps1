@@ -38,9 +38,25 @@ if ($confirm -eq "Y" -or $confirm -eq "y") {
     
     # Check if build was successful
     if ($LASTEXITCODE -eq 0) {
+        # Build and upload Android APK
+        Write-Host ""
+        Write-Host "[BUILD] Dang build Android APK..." -ForegroundColor Cyan
+        npx cap sync android
+        Push-Location android
+        .\gradlew.bat assembleRelease
+        Pop-Location
+        if (Test-Path "android\app\build\outputs\apk\release\app-release.apk") {
+            Copy-Item "android\app\build\outputs\apk\release\app-release.apk" "release\ImageTool-Android.apk" -Force
+            if (Get-Command gh -ErrorAction SilentlyContinue) {
+                Write-Host "[UPLOAD] Dang upload ImageTool-Android.apk len GitHub Release..." -ForegroundColor Cyan
+                gh release upload "v$currentVersion" "release\ImageTool-Android.apk" --clobber
+            }
+        }
+
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "  HOAN THANH! Version $currentVersion da duoc publish" -ForegroundColor Green
+        Write-Host "  Windows Installer (.exe) & Android APK (.apk)" -ForegroundColor Yellow
         Write-Host "  Link: https://github.com/Long2066/Hmongs-Photo/releases" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Green
     }
