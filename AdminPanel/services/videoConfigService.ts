@@ -388,12 +388,25 @@ export const testVivixApiKey = async (
         }
 
         const modelsList = Array.isArray(data?.data?.models)
-            ? data.data.models.map((m: any) => m.name || m.id || String(m))
+            ? data.data.models.map((m: any) => {
+                const name = m.name || m.id || String(m);
+                return m.tag ? `${name}:${m.tag}` : name;
+            })
             : [];
+
+        const hasW1 = modelsList.some((m: string) => m.toLowerCase().includes('w1'));
+
+        if (!hasW1) {
+            return {
+                valid: false,
+                label: 'Khóa Vivix hợp lệ nhưng tài khoản chưa mở quyền API Vivix W1',
+                error: `Khóa Vivix hợp lệ, nhưng tài khoản này hiện chỉ mở quyền: [${modelsList.join(', ') || 'vivix-a1'}]. Dòng Vivix W1 đang ở chế độ Preview (Limited Availability), cần mua gói W-Pack tại platform.vivix.ai/pricing#W để mở khóa quyền gọi API Vivix W1. Tạm thời bạn hãy bật Nguồn 2 (Vivix W1 T) để dùng!`
+            };
+        }
 
         return {
             valid: true,
-            label: `Khóa Vivix Chính chủ hợp lệ (${modelsList.filter((m: string) => m.includes('w1')).join(', ') || 'Vivix W1'})!`,
+            label: `Khóa Vivix Chính chủ hợp lệ và ĐÃ MỞ KHÓA API (${modelsList.filter((m: string) => m.includes('w1')).join(', ')})!`,
             models: modelsList
         };
     } catch (err: any) {

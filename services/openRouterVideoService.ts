@@ -557,7 +557,7 @@ const executeVivixVideoCall = async (
     const key = vivixApiKey.trim();
 
     // Model name on Vivix API: "vivix-w1" | "vivix-w1-fast" | "vivix-w1-ultrafast"
-    const vivixModel = config.vivixModelVariant || 'vivix-w1';
+    let vivixModel: string = config.vivixModelVariant || 'vivix-w1';
 
     const validAspectRatio = meta.supportedAspectRatios.includes(aspectRatio)
         ? aspectRatio
@@ -565,6 +565,51 @@ const executeVivixVideoCall = async (
 
     // Vivix W1 requires duration between 5 and 15
     const validDuration = Math.max(5, Math.min(15, duration || 5));
+
+    // Bước 0: Kiểm tra danh sách model được phép của API Key (GET /v1/models)
+    try {
+        const modelsUrl = resolveProxyUrl(`${VIVIX_API_BASE}/models`);
+        let modelsResp: Response;
+        try {
+            modelsResp = await fetch(modelsUrl, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+            });
+        } catch {
+            modelsResp = await fetch(`${VIVIX_API_BASE}/models`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+            });
+        }
+
+        if (modelsResp.ok) {
+            const modelsJson = await modelsResp.json().catch(() => ({}));
+            const allowedList: Array<{ name: string; tag?: string }> = Array.isArray(modelsJson?.data?.models)
+                ? modelsJson.data.models
+                : [];
+
+            if (allowedList.length > 0) {
+                const fullNames = allowedList.map(m => (m.tag ? `${m.name}:${m.tag}` : m.name));
+                const w1Matches = allowedList.filter(m => String(m.name || '').toLowerCase().includes('w1'));
+                if (w1Matches.length === 0) {
+                    throw new Error(
+                        `[${meta.shortName}] Tài khoản Vivix của bạn hiện chỉ mở quyền gọi [${fullNames.join(', ')}], chưa mở quyền API dòng Vivix W1 (Preview giới hạn). Vui lòng mua gói W-Pack tại platform.vivix.ai/pricing#W để kích hoạt API W1, hoặc chọn model [Vivix W1 T].`
+                    );
+                }
+
+                // Tìm khớp chính xác variant được chọn hoặc tag đi kèm (vd: vivix-w1:latest)
+                const exactBare = w1Matches.find(m => m.name === vivixModel && !m.tag);
+                if (!exactBare) {
+                    const matchedVariant = w1Matches.find(m => m.name === vivixModel) || w1Matches[0];
+                    vivixModel = matchedVariant.tag ? `${matchedVariant.name}:${matchedVariant.tag}` : matchedVariant.name;
+                }
+            }
+        }
+    } catch (checkErr: any) {
+        if (checkErr?.message?.includes('chưa mở quyền API')) {
+            throw checkErr;
+        }
+    }
 
     let firstFrameUrl: string | undefined = undefined;
 
@@ -650,8 +695,13 @@ const executeVivixVideoCall = async (
 
     const submitJson = await submitResp.json().catch(() => ({}));
     if (!submitResp.ok || submitJson?.code !== 0) {
-        const errDetail = submitJson?.message || `HTTP ${submitResp.status}`;
-        throw new Error(`[${meta.shortName}] Gửi tác vụ tạo video thất bại: ${errDetail}`);
+        const rawErr = submitJson?.message || `HTTP ${submitResp.status}`;
+        if (String(rawErr).toLowerCase().includes('model tag not available')) {
+            throw new Error(
+                `[${meta.shortName}] Tài khoản Vivix chưa được cấp quyền API cho dòng Vivix W1 (Preview giới hạn). Vui lòng mua gói W-Pack trên platform.vivix.ai/pricing#W để mở khóa, hoặc chuyển sang chọn [Vivix W1 T].`
+            );
+        }
+        throw new Error(`[${meta.shortName}] Gửi tác vụ tạo video thất bại: ${rawErr}`);
     }
 
     const jobId = submitJson?.data?.results?.[0]?.job_id || submitJson?.data?.job_id;
