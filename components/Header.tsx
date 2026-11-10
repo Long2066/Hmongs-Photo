@@ -15,7 +15,7 @@ interface HeaderProps {
     onModeChange: (mode: 'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video') => void;
 }
 
-const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible' | 'onQuotaStationClick'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible, onQuotaStationClick }) => {
+const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryClick' | 'isHistoryVisible'>> = ({ user, onLogout, onHistoryClick, isHistoryVisible }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -54,16 +54,6 @@ const ProfileMenu: React.FC<Pick<HeaderProps, 'user' | 'onLogout' | 'onHistoryCl
                         <p className="text-xs text-slate-500 truncate">{user.username}</p>
                     </div>
                     <div className="p-2">
-                        <button
-                            onClick={() => {
-                                onQuotaStationClick?.();
-                                setIsOpen(false);
-                            }}
-                            className="w-full min-h-[44px] text-left flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 active:scale-[0.98] rounded-xl transition-all cursor-pointer"
-                        >
-                            <span className="text-base">⚙️</span>
-                            <span>Cấu hình & gói dịch vụ</span>
-                        </button>
                         {!isHistoryVisible && (
                             <button
                                 onClick={() => {
@@ -277,7 +267,6 @@ export const Header: React.FC<HeaderProps> = ({
                                     onLogout={onLogout}
                                     onHistoryClick={onHistoryClick}
                                     isHistoryVisible={isHistoryVisible}
-                                    onQuotaStationClick={onQuotaStationClick}
                                 />
                             ) : (
                                 <button
