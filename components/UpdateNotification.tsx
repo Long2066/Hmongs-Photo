@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     checkForUpdate,
+    checkAndApplySilentOta,
     openDownloadPage,
     downloadAndInstallApk,
+    ApkInstaller,
     isMobilePlatform,
     isElectronPlatform,
     UpdateInfo
@@ -27,10 +29,12 @@ export const UpdateNotification: React.FC = () => {
     const [dismissed, setDismissed] = useState(false);
 
     // Mobile-specific state
+    const [isOtaUpdate, setIsOtaUpdate] = useState(false);
     const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
     const [releaseNotes, setReleaseNotes] = useState<string>('');
     const [mobileDownloading, setMobileDownloading] = useState(false);
     const [mobileProgress, setMobileProgress] = useState(0);
+    const [otaToastVersion, setOtaToastVersion] = useState<string | null>(null);
 
     // Electron-specific state
     const [updateDownloaded, setUpdateDownloaded] = useState(false);
@@ -42,22 +46,38 @@ export const UpdateNotification: React.FC = () => {
     const isElectron = isElectronPlatform();
     const isMobile = isMobilePlatform();
 
-    const triggerMobileCheck = useCallback(() => {
+    const triggerMobileAutoUpdate = useCallback(async (isManual = false) => {
         if (!isMobile) return;
-        checkForUpdate().then((info: UpdateInfo) => {
-            setCurrentVersion(info.currentVersion);
-            if (info.hasUpdate) {
-                setUpdateAvailable(true);
-                setNewVersion(info.latestVersion);
-                setDownloadUrl(info.downloadUrl);
-                setReleaseNotes(info.releaseNotes);
+
+        // 1. Try silent Over-The-Air update first (NO manual APK install needed!)
+        try {
+            const ota = await checkAndApplySilentOta(true);
+            if (ota.updated) {
+                setOtaToastVersion(ota.version || null);
+                setTimeout(() => setOtaToastVersion(null), 4500);
+                return;
             }
-        });
+        } catch {}
+
+        // 2. Fallback check: if native binary APK update is required or manual check requested
+        const info: UpdateInfo = await checkForUpdate();
+        setCurrentVersion(info.currentVersion);
+        if (info.hasUpdate) {
+            setUpdateAvailable(true);
+            setIsOtaUpdate(info.isOta);
+            setNewVersion(info.latestVersion);
+            setDownloadUrl(info.downloadUrl);
+            setReleaseNotes(info.releaseNotes);
+            setDismissed(false);
+        } else if (isManual) {
+            setNoUpdateToast(true);
+            setTimeout(() => setNoUpdateToast(false), 3500);
+        }
     }, [isMobile]);
 
-    // Check for updates on mount and whenever network becomes available
+    // Check for updates on mount and whenever network connects
     useEffect(() => {
-        // For Electron - use built-in auto-updater
+        // For Electron - built-in auto-updater (autoDownload = true)
         if (isElectron && (window as any).electronAPI) {
             const api = (window as any).electronAPI;
             api.getAppVersion().then(setCurrentVersion);
@@ -65,6 +85,7 @@ export const UpdateNotification: React.FC = () => {
             api.onUpdateAvailable((info: ElectronUpdateInfo) => {
                 setUpdateAvailable(true);
                 setNewVersion(info.version);
+                setIsDownloading(true);
             });
 
             api.onUpdateNotAvailable?.(() => {
@@ -73,6 +94,7 @@ export const UpdateNotification: React.FC = () => {
             });
 
             api.onUpdateProgress((progress: ElectronUpdateProgress) => {
+                setIsDownloading(true);
                 setDownloadProgress(Math.round(progress.percent));
             });
 
@@ -87,40 +109,36 @@ export const UpdateNotification: React.FC = () => {
             });
         }
 
-        // For Mobile - check GitHub Releases
+        // For Mobile Android - silent OTA when internet is available
         if (isMobile) {
-            triggerMobileCheck();
+            triggerMobileAutoUpdate(false);
 
-            // Auto check when network reconnects ("auto cập nhật khi có mạng")
             const handleOnline = () => {
-                console.log('[AppUpdate] Network connected, auto-checking for updates...');
-                triggerMobileCheck();
+                console.log('[AppUpdate] Network online -> auto updating silently...');
+                triggerMobileAutoUpdate(false);
             };
             const handleManualCheck = () => {
-                checkForUpdate().then((info: UpdateInfo) => {
-                    setCurrentVersion(info.currentVersion);
-                    if (info.hasUpdate) {
-                        setUpdateAvailable(true);
-                        setNewVersion(info.latestVersion);
-                        setDownloadUrl(info.downloadUrl);
-                        setReleaseNotes(info.releaseNotes);
-                    } else {
-                        setNoUpdateToast(true);
-                        setTimeout(() => setNoUpdateToast(false), 3500);
-                    }
-                });
+                triggerMobileAutoUpdate(true);
+            };
+            const handleOtaApplied = (e: any) => {
+                if (e?.detail?.version) {
+                    setOtaToastVersion(e.detail.version);
+                    setTimeout(() => setOtaToastVersion(null), 4500);
+                }
             };
 
             window.addEventListener('online', handleOnline);
             window.addEventListener('check-app-update', handleManualCheck);
+            window.addEventListener('ota-update-applied', handleOtaApplied);
             return () => {
                 window.removeEventListener('online', handleOnline);
                 window.removeEventListener('check-app-update', handleManualCheck);
+                window.removeEventListener('ota-update-applied', handleOtaApplied);
             };
         }
-    }, [isElectron, isMobile, triggerMobileCheck]);
+    }, [isElectron, isMobile, triggerMobileAutoUpdate]);
 
-    // Electron: Download update
+    // Electron actions
     const handleElectronDownload = async () => {
         if (!(window as any).electronAPI) return;
         setIsDownloading(true);
@@ -128,14 +146,32 @@ export const UpdateNotification: React.FC = () => {
         await (window as any).electronAPI.downloadUpdate();
     };
 
-    // Electron: Install update
     const handleElectronInstall = () => {
         if (!(window as any).electronAPI) return;
         (window as any).electronAPI.installUpdate();
     };
 
-    // Mobile: Download & Install APK seamlessly in-app
+    // Mobile fallback update handler
     const handleMobileUpdate = async () => {
+        if (isOtaUpdate && downloadUrl) {
+            setMobileDownloading(true);
+            setMobileProgress(40);
+            try {
+                await ApkInstaller.applyOtaUpdate({
+                    bundleUrl: downloadUrl,
+                    version: newVersion,
+                    reloadNow: true
+                });
+                setMobileProgress(100);
+                return;
+            } catch (err: any) {
+                setError(err?.message || 'Cập nhật OTA thất bại.');
+            } finally {
+                setMobileDownloading(false);
+            }
+            return;
+        }
+
         if (!downloadUrl) {
             openDownloadPage();
             return;
@@ -161,16 +197,24 @@ export const UpdateNotification: React.FC = () => {
         }
     };
 
-    // Dismiss notification (mobile only)
     const handleDismiss = () => {
         setDismissed(true);
     };
 
-    // Don't render if no update or dismissed
+    // Show silent OTA success toast
+    if (otaToastVersion) {
+        return (
+            <div className="fixed bottom-6 right-4 left-4 sm:left-auto sm:right-6 z-[9999] bg-emerald-950/95 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-emerald-500/40 animate-fade-in text-xs sm:text-sm backdrop-blur-md">
+                <span className="text-emerald-400 text-lg">⚡</span>
+                <span>Đã tự động nâng cấp lên phiên bản mới nhất (<strong>v{otaToastVersion}</strong>)</span>
+            </div>
+        );
+    }
+
     if (!updateAvailable && !updateDownloaded) {
         if (noUpdateToast) {
             return (
-                <div className="fixed bottom-6 right-6 z-[9999] bg-slate-900/95 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-slate-700 animate-fade-in text-sm backdrop-blur-md">
+                <div className="fixed bottom-6 right-4 left-4 sm:left-auto sm:right-6 z-[9999] bg-slate-900/95 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-slate-700 animate-fade-in text-xs sm:text-sm backdrop-blur-md">
                     <span className="text-emerald-400 text-lg">✓</span>
                     <span>Bạn đang ở phiên bản mới nhất (<strong>v{currentVersion}</strong>)</span>
                 </div>
@@ -178,11 +222,12 @@ export const UpdateNotification: React.FC = () => {
         }
         return null;
     }
+
     if (dismissed && !isElectron) return null;
 
-    // RENDER UPDATE MODAL
+    // RENDER UPDATE MODAL (Only when user interaction is required, e.g., Electron restart or binary APK update)
     return (
-        <div className={`fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4`}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
             <div className={`bg-white rounded-3xl shadow-2xl border border-slate-200/90 ${isElectron ? 'p-8 max-w-lg' : 'p-6 max-w-sm'} w-full animate-fade-in`}>
 
                 {/* Header */}
@@ -197,18 +242,17 @@ export const UpdateNotification: React.FC = () => {
                         Đã có phiên bản mới
                     </div>
                     <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                        {updateDownloaded ? '🎉 Sẵn sàng cài đặt!' : 'Cập nhật ImageTool'}
+                        {updateDownloaded ? '🎉 Sẵn sàng cập nhật!' : 'Cập nhật ImageTool'}
                     </h2>
                     <p className="text-xs text-slate-500 mt-1 font-mono">
-                        <span className="font-semibold text-slate-600">v{currentVersion || '2.25.39'}</span>
+                        <span className="font-semibold text-slate-600">v{currentVersion || '2.25.42'}</span>
                         <span className="mx-2 text-indigo-400 font-bold">→</span>
                         <span className="font-extrabold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">v{newVersion}</span>
                     </p>
                 </div>
 
-                {/* Progress / Status Area */}
+                {/* Progress Area */}
                 {isElectron ? (
-                    // Electron: Full update UI
                     <div className="bg-gradient-to-br from-indigo-50/70 to-purple-50/70 rounded-2xl p-5 mb-5 border border-indigo-100">
                         {updateDownloaded ? (
                             <div className="text-center">
@@ -217,14 +261,12 @@ export const UpdateNotification: React.FC = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                     </svg>
                                 </div>
-                                <p className="text-slate-800 font-bold text-sm">
-                                    Bản cập nhật đã tải xong!
-                                </p>
-                                <p className="text-slate-500 text-xs mt-0.5">Nhấn để cài đặt và khởi động lại.</p>
+                                <p className="text-slate-800 font-bold text-sm">Đã tải tự động hoàn tất!</p>
+                                <p className="text-slate-500 text-xs mt-0.5">Nhấn để khởi động lại và áp dụng phiên bản mới.</p>
                             </div>
                         ) : isDownloading ? (
                             <div className="text-center">
-                                <p className="text-slate-700 font-semibold text-xs mb-2">Đang tải bản cập nhật...</p>
+                                <p className="text-slate-700 font-semibold text-xs mb-2">Đang tự động tải bản cập nhật...</p>
                                 <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
                                     <div
                                         className="bg-gradient-to-r from-indigo-500 to-purple-600 h-2.5 rounded-full transition-all duration-300"
@@ -236,7 +278,7 @@ export const UpdateNotification: React.FC = () => {
                         ) : (
                             <div className="text-center">
                                 <p className="text-slate-700 font-medium text-xs">
-                                    Phiên bản mới bổ sung nhiều tính năng và tối ưu tốc độ.
+                                    Phiên bản mới đã sẵn sàng với nhiều cải tiến hiệu năng.
                                 </p>
                             </div>
                         )}
@@ -247,13 +289,12 @@ export const UpdateNotification: React.FC = () => {
                         )}
                     </div>
                 ) : (
-                    // Mobile: In-app progress & notification
                     <div className="bg-gradient-to-br from-indigo-50/80 to-purple-50/80 rounded-2xl p-4 mb-4 border border-indigo-100/80">
                         {mobileDownloading ? (
                             <div className="text-center py-1">
                                 <p className="text-slate-700 font-bold text-xs mb-2 flex items-center justify-center gap-1.5">
                                     <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping"></span>
-                                    Đang tải gói cài đặt APK...
+                                    Đang tải bản cập nhật...
                                 </p>
                                 <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
                                     <div
@@ -262,14 +303,14 @@ export const UpdateNotification: React.FC = () => {
                                     ></div>
                                 </div>
                                 <div className="flex justify-between items-center text-[11px] text-slate-500 font-semibold mt-1.5">
-                                    <span>Tự động kích hoạt khi xong</span>
+                                    <span>Tự động áp dụng khi xong</span>
                                     <span className="text-indigo-600 font-bold">{mobileProgress}%</span>
                                 </div>
                             </div>
                         ) : (
                             <div>
                                 <p className="text-slate-700 font-semibold text-xs leading-relaxed">
-                                    ✨ Phiên bản mới đã sẵn sàng cài đặt. Cập nhật ngay để trải nghiệm các tính năng mượt mà nhất!
+                                    ✨ Phiên bản nâng cấp lõi hệ thống mới đã sẵn sàng cài đặt.
                                 </p>
                                 {releaseNotes && (
                                     <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 italic">
@@ -294,11 +335,11 @@ export const UpdateNotification: React.FC = () => {
                                 onClick={handleElectronInstall}
                                 className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold rounded-xl shadow-md transition-all text-sm cursor-pointer active:scale-95"
                             >
-                                Cài đặt và khởi động lại
+                                Cài đặt và khởi động lại ngay
                             </button>
                         ) : isDownloading ? (
                             <button disabled className="w-full py-3 bg-slate-200 text-slate-500 font-bold rounded-xl cursor-not-allowed text-sm">
-                                Đang tải xuống...
+                                Đang tự động tải ({downloadProgress}%)...
                             </button>
                         ) : (
                             <button
@@ -309,11 +350,10 @@ export const UpdateNotification: React.FC = () => {
                             </button>
                         )
                     ) : (
-                        // Mobile: 1-touch in-app update
                         mobileDownloading ? (
                             <button disabled className="w-full py-3 bg-indigo-100 text-indigo-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">
                                 <span className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></span>
-                                Đang tải và chuẩn bị cài đặt...
+                                Đang tải và cài đặt...
                             </button>
                         ) : (
                             <>

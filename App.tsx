@@ -1130,7 +1130,7 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="h-screen h-[100dvh] min-h-[100dvh] text-slate-900 font-sans antialiased flex flex-col selection:bg-violet-100 relative overflow-hidden bg-[#f4f3fb]">
+        <div className="min-h-screen min-h-[100dvh] lg:h-screen lg:h-[100dvh] w-full text-slate-900 font-sans antialiased flex flex-col selection:bg-violet-100 relative overflow-x-hidden lg:overflow-hidden bg-[#f4f3fb]">
 
             <Marquee />
 
@@ -1157,7 +1157,7 @@ const App: React.FC = () => {
             ) : (
             <>
             {/* Mobile: Vertical stacked layout. Desktop: Side by side */}
-            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10 min-h-0">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-visible lg:overflow-hidden relative z-10 min-h-0 w-full">
 
                 {/* Desktop Bento Sidebar */}
                 <aside className="hidden lg:flex lg:static lg:w-[356px] xl:w-[372px] lg:h-full lg:flex-shrink-0 w-full bg-[#f7f6fd] border-r border-indigo-100/80 flex-col overflow-hidden p-3 gap-3">
@@ -1272,7 +1272,7 @@ const App: React.FC = () => {
                 </aside>
 
                 {/* MAIN CONTENT AREA - Scenic Studio Canvas */}
-                <main className="flex-1 overflow-y-auto overscroll-contain bg-[#f4f3fb] flex flex-col w-full relative custom-scrollbar pb-40 lg:pb-8 min-h-0">
+                <main className="flex-1 lg:overflow-y-auto overscroll-contain bg-[#f4f3fb] flex flex-col w-full relative custom-scrollbar pb-28 lg:pb-8 min-h-0">
                     {isHistoryVisible && currentUser ? (
                         <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
                             <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />

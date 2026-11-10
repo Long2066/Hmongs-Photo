@@ -84,8 +84,8 @@ let localServer = null;
 let localServerPort = null;
 let quotaOAuthServer = null;
 
-// Auto-updater configuration
-autoUpdater.autoDownload = false;
+// Auto-updater configuration - silent auto-download in background
+autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 /**

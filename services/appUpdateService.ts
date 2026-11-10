@@ -1,20 +1,27 @@
 /**
  * App Update Service
- * Checks for updates from GitHub Releases for Desktop (Electron) and Mobile (Android APK)
- * Supports in-app 1-touch APK download & installation with progress tracking
+ * Checks for updates for Desktop (Electron) and Mobile (Android APK)
+ * Supports:
+ * 1. Live Silent Over-The-Air (OTA) Web Bundle Update (zero manual installs, applies automatically when online)
+ * 2. In-App Direct APK Package Installer as a fallback when native binary changes
  */
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { version as packageVersion } from '../package.json';
 
-// GitHub repository info
+// CDN endpoints on Firebase Hosting (global cache, instant response, no GitHub rate limits)
+export const OTA_VERSION_URL = 'https://toolphoto-2025.web.app/ota/version.json';
+
+// GitHub repository info for full binary releases
 const GITHUB_OWNER = 'Long2066';
 const GITHUB_REPO = 'Hmongs-Photo';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
-// Native APK Installer & Auth Callback Plugin registered in MainActivity.java
+// Native APK Installer & Silent OTA Plugin registered in MainActivity.java
 export interface ApkInstallerPlugin {
+    getNativeVersion(): Promise<{ versionName: string; versionCode: number }>;
+    applyOtaUpdate(options: { bundleUrl: string; version: string; reloadNow?: boolean }): Promise<{ success: boolean; version: string; path: string }>;
     getPendingAuthUrl(): Promise<{ url: string | null }>;
     canRequestPackageInstalls(): Promise<{ value: boolean }>;
     openInstallPermissionSettings(): Promise<void>;
@@ -23,11 +30,19 @@ export interface ApkInstallerPlugin {
 
 export const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller');
 
-// Keep the displayed version in sync with the packaged app
+// Current bundled web version
 export const APP_VERSION = packageVersion;
+
+export interface OtaManifest {
+    version: string;
+    minNativeVersion?: string;
+    bundleUrl: string;
+    notes?: string;
+}
 
 export interface UpdateInfo {
     hasUpdate: boolean;
+    isOta: boolean;
     currentVersion: string;
     latestVersion: string;
     releaseNotes: string;
@@ -56,7 +71,7 @@ export function isElectronPlatform(): boolean {
  */
 export function isNewerVersion(current: string, latest: string): boolean {
     const parseVersion = (v: string): number[] => {
-        return v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+        return (v || '0').replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
     };
 
     const [c1, c2, c3] = parseVersion(current);
@@ -84,24 +99,117 @@ function findApkUrl(assets: any[]): string | null {
 }
 
 /**
- * Check for updates from GitHub Releases
+ * Check and perform Silent OTA Update on Mobile (No Manual Install Needed!)
+ * Downloads bundle.zip in the background and applies live or on next restart.
+ */
+export async function checkAndApplySilentOta(reloadNow = false): Promise<{ updated: boolean; version?: string }> {
+    if (!isMobilePlatform()) return { updated: false };
+
+    try {
+        const res = await fetch(`${OTA_VERSION_URL}?t=${Date.now()}`, {
+            headers: { 'Cache-Control': 'no-cache' },
+            signal: AbortSignal.timeout(6000)
+        });
+
+        if (!res.ok) return { updated: false };
+
+        const manifest: OtaManifest = await res.json();
+        if (!manifest || !manifest.version || !manifest.bundleUrl) return { updated: false };
+
+        if (!isNewerVersion(APP_VERSION, manifest.version)) {
+            console.log(`[OTA] App is already on latest web version: v${APP_VERSION}`);
+            return { updated: false };
+        }
+
+        // Check native binary requirement
+        try {
+            const nativeInfo = await ApkInstaller.getNativeVersion();
+            if (manifest.minNativeVersion && isNewerVersion(nativeInfo.versionName, manifest.minNativeVersion)) {
+                console.log(`[OTA] Requires newer native APK v${manifest.minNativeVersion}, skipping OTA`);
+                return { updated: false };
+            }
+        } catch {}
+
+        console.log(`[OTA] New web bundle available: v${manifest.version}. Downloading silently...`);
+
+        // Apply OTA update silently via native plugin
+        const otaResult = await ApkInstaller.applyOtaUpdate({
+            bundleUrl: manifest.bundleUrl,
+            version: manifest.version,
+            reloadNow
+        });
+
+        if (otaResult && otaResult.success) {
+            console.log(`[OTA] Successfully applied v${manifest.version} in background!`);
+            window.dispatchEvent(new CustomEvent('ota-update-applied', { detail: { version: manifest.version } }));
+            return { updated: true, version: manifest.version };
+        }
+    } catch (err) {
+        console.warn('[OTA] Silent update check skipped:', err);
+    }
+
+    return { updated: false };
+}
+
+/**
+ * Check for updates across OTA and GitHub Releases
  */
 export async function checkForUpdate(): Promise<UpdateInfo> {
     const isAndroid = isMobilePlatform();
     const currentVersion = APP_VERSION;
 
+    // 1. On Mobile: Check OTA manifest first for instant silent updates
+    if (isAndroid) {
+        try {
+            const otaRes = await fetch(`${OTA_VERSION_URL}?t=${Date.now()}`, {
+                headers: { 'Cache-Control': 'no-cache' },
+                signal: AbortSignal.timeout(6000)
+            });
+
+            if (otaRes.ok) {
+                const manifest: OtaManifest = await otaRes.json();
+                if (manifest && manifest.version && isNewerVersion(currentVersion, manifest.version)) {
+                    // Check if native APK is sufficient for this OTA bundle
+                    let needsNewApk = false;
+                    try {
+                        const nativeInfo = await ApkInstaller.getNativeVersion();
+                        if (manifest.minNativeVersion && isNewerVersion(nativeInfo.versionName, manifest.minNativeVersion)) {
+                            needsNewApk = true;
+                        }
+                    } catch {}
+
+                    if (!needsNewApk) {
+                        return {
+                            hasUpdate: true,
+                            isOta: true,
+                            currentVersion,
+                            latestVersion: manifest.version,
+                            releaseNotes: manifest.notes || 'Tự động cập nhật không cần cài đặt lại app',
+                            downloadUrl: manifest.bundleUrl,
+                            publishedAt: new Date().toISOString(),
+                            isAndroid: true
+                        };
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[AppUpdate] OTA check skipped, trying GitHub release:', e);
+        }
+    }
+
+    // 2. Check GitHub Releases for full binary update
     try {
         const response = await fetch(GITHUB_API_URL, {
             headers: {
                 'Accept': 'application/vnd.github.v3+json',
             },
-            signal: AbortSignal.timeout(12000)
+            signal: AbortSignal.timeout(10000)
         });
 
         if (!response.ok) {
-            console.warn('[AppUpdate] GitHub API error:', response.status);
             return {
                 hasUpdate: false,
+                isOta: false,
                 currentVersion,
                 latestVersion: currentVersion,
                 releaseNotes: '',
@@ -116,10 +224,9 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
         const hasUpdate = isNewerVersion(currentVersion, latestVersion);
         const downloadUrl = isAndroid ? findApkUrl(data.assets) : null;
 
-        console.log(`[AppUpdate] Current: ${currentVersion}, Latest: ${latestVersion}, HasUpdate: ${hasUpdate}`);
-
         return {
             hasUpdate,
+            isOta: false,
             currentVersion,
             latestVersion,
             releaseNotes: data.body || '',
@@ -128,9 +235,10 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
             isAndroid
         };
     } catch (error) {
-        console.error('[AppUpdate] Failed to check for updates:', error);
+        console.error('[AppUpdate] Failed to check GitHub releases:', error);
         return {
             hasUpdate: false,
+            isOta: false,
             currentVersion,
             latestVersion: currentVersion,
             releaseNotes: '',
@@ -147,7 +255,7 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 function uint8ArrayToBase64(bytes: Uint8Array): string {
     let binary = '';
     const len = bytes.byteLength;
-    const chunkSize = 0x8000; // 32KB chunking
+    const chunkSize = 0x8000;
     for (let i = 0; i < len; i += chunkSize) {
         binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)) as any);
     }
@@ -156,7 +264,7 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 
 /**
  * In-app APK Downloader & Installer for Android
- * Downloads APK with progress reporting and directly launches Android Package Installer
+ * Used when full native APK installation is required
  */
 export async function downloadAndInstallApk(
     apkUrl: string,
@@ -168,21 +276,15 @@ export async function downloadAndInstallApk(
     }
 
     try {
-        console.log('[AppUpdate] Starting APK download from:', apkUrl);
         onProgress?.(5);
 
-        // Check if permission to install unknown apps is granted (Android 8.0+)
         try {
             const perm = await ApkInstaller.canRequestPackageInstalls();
             if (perm && !perm.value) {
-                console.warn('[AppUpdate] Install permission not granted yet, requesting settings');
                 await ApkInstaller.openInstallPermissionSettings();
             }
-        } catch (permErr) {
-            console.warn('[AppUpdate] Could not check package install permission:', permErr);
-        }
+        } catch {}
 
-        // Fetch APK with progress tracking
         const res = await fetch(apkUrl);
         if (!res.ok) throw new Error(`Tải APK thất bại (HTTP ${res.status})`);
 
@@ -190,7 +292,6 @@ export async function downloadAndInstallApk(
         const reader = res.body?.getReader();
 
         if (!reader) {
-            // Fallback: arrayBuffer directly
             const buffer = await res.arrayBuffer();
             const bytes = new Uint8Array(buffer);
             onProgress?.(80);
@@ -231,7 +332,6 @@ export async function downloadAndInstallApk(
             }
         }
 
-        // Merge chunks
         const allBytes = new Uint8Array(receivedLength);
         let position = 0;
         for (const chunk of chunks) {
@@ -241,7 +341,6 @@ export async function downloadAndInstallApk(
 
         onProgress?.(95);
 
-        // Convert and write to Cache directory
         const base64Data = uint8ArrayToBase64(allBytes);
         const fileName = 'ImageTool_latest.apk';
 
@@ -258,18 +357,14 @@ export async function downloadAndInstallApk(
         });
 
         onProgress?.(100);
-        console.log('[AppUpdate] APK saved to:', uriResult.uri, 'Launching installer...');
-
-        // Trigger native system package installer
         await ApkInstaller.install({ filePath: uriResult.uri });
         return { success: true };
     } catch (err: any) {
-        console.error('[AppUpdate] Direct install failed, falling back to browser download:', err);
-        // Fallback: Open in device browser
+        console.error('[AppUpdate] Direct install fallback to browser:', err);
         await openDownloadPage(apkUrl);
         return {
             success: false,
-            message: err?.message || 'Không thể tự động cài đặt. Đang mở trình duyệt để tải file APK.'
+            message: err?.message || 'Đang mở trình duyệt để tải file APK.'
         };
     }
 }

@@ -47,11 +47,21 @@ if ($confirm -eq "Y" -or $confirm -eq "y") {
         Pop-Location
         if (Test-Path "android\app\build\outputs\apk\release\app-release.apk") {
             Copy-Item "android\app\build\outputs\apk\release\app-release.apk" "release\ImageTool-Android.apk" -Force
+            Copy-Item "android\app\build\outputs\apk\release\app-release.apk" "release\ImageTool-v$currentVersion.apk" -Force
             if (Get-Command gh -ErrorAction SilentlyContinue) {
                 Write-Host "[UPLOAD] Dang upload ImageTool-Android.apk len GitHub Release..." -ForegroundColor Cyan
                 gh release upload "v$currentVersion" "release\ImageTool-Android.apk" --clobber
             }
         }
+
+        # Build and deploy silent OTA live update
+        Write-Host ""
+        Write-Host "[OTA] Dang dong goi va deploy cap nhat tu dong OTA len Firebase CDN..." -ForegroundColor Cyan
+        python scripts/build-ota.py
+        Push-Location AdminPanel
+        npm run build
+        npx firebase-tools deploy --only hosting
+        Pop-Location
 
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
