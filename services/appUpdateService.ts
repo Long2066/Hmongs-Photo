@@ -13,8 +13,9 @@ const GITHUB_OWNER = 'Long2066';
 const GITHUB_REPO = 'Hmongs-Photo';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
-// Native APK Installer Plugin registered in MainActivity.java
+// Native APK Installer & Auth Callback Plugin registered in MainActivity.java
 export interface ApkInstallerPlugin {
+    getPendingAuthUrl(): Promise<{ url: string | null }>;
     canRequestPackageInstalls(): Promise<{ value: boolean }>;
     openInstallPermissionSettings(): Promise<void>;
     install(options: { filePath: string }): Promise<{ success: boolean }>;

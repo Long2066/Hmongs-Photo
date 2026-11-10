@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as firebaseAuth from '../services/firebaseService';
 import { isDisposableEmail, checkDeviceAccountLimit, recordDeviceAccount } from '../services/antiFraudService';
 import { User } from '../types';
 import TermsModal from './TermsModal';
-import { APP_VERSION } from '../services/appUpdateService';
+import { APP_VERSION, isMobilePlatform, ApkInstaller } from '../services/appUpdateService';
 
 interface AuthModalProps {
     onClose?: () => void;
@@ -40,71 +40,145 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
         }
     }, [view, countdown]);
 
-    // Listen for external Google OAuth completion from real Chrome browser
+    // Shared Google Auth processing logic (for both Desktop Chrome bridge & Android deep link)
+    const processGoogleAuthPayload = useCallback(async (data: any) => {
+        console.log('[AuthModal] Processing Google Auth payload:', data?.email);
+        setIsGoogleLoading(true);
+        setError('');
+        setInfoMessage('Đang hoàn tất đăng nhập...');
+
+        try {
+            let fbUser: any = null;
+            if (data.idToken || data.accessToken) {
+                try {
+                    const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+                    const { auth } = await import('../src/firebaseConfig');
+                    const cred = GoogleAuthProvider.credential(data.idToken || null, data.accessToken || null);
+                    const userCred = await signInWithCredential(auth, cred);
+                    fbUser = userCred.user;
+                } catch (credErr) {
+                    console.warn('[AuthModal] signInWithCredential fallback:', credErr);
+                }
+            }
+
+            const email = fbUser?.email || data.email || '';
+            const uid = fbUser?.uid || data.uid || ('google_' + Date.now());
+            const displayName = fbUser?.displayName || data.displayName || email.split('@')[0] || 'User';
+            const photoURL = fbUser?.photoURL || data.photoURL || `https://ui-avatars.com/api/?name=${displayName}&background=random`;
+
+            // Check device account limit
+            const deviceCheck = await checkDeviceAccountLimit(email, uid);
+            if (!deviceCheck.allowed) {
+                await firebaseAuth.logoutUser();
+                setError(deviceCheck.message || '⚠️ Thiết bị này đã đạt giới hạn tối đa 2 tài khoản đăng nhập.');
+                setIsGoogleLoading(false);
+                return;
+            }
+            await recordDeviceAccount(email, uid);
+
+            try {
+                await firebaseAuth.recordNewRegistration(uid, displayName, email);
+                await firebaseAuth.recordUserAccess(uid, displayName, email);
+            } catch (e) {}
+
+            const user: User = {
+                id: uid,
+                username: email,
+                name: displayName,
+                avatar: photoURL
+            };
+
+            onAuthSuccess(user);
+        } catch (err: any) {
+            console.error('[AuthModal] Google Auth processing error:', err);
+            setError('Đăng nhập Google thất bại: ' + (err.message || 'Lỗi không xác định'));
+        } finally {
+            setIsGoogleLoading(false);
+            setInfoMessage('');
+        }
+    }, [onAuthSuccess]);
+
+    // Listen for external Google OAuth completion from real Chrome browser (Electron Desktop)
     useEffect(() => {
         const electronAPI = (window as any).electronAPI;
         if (electronAPI?.onExternalGoogleAuth) {
             const cleanup = electronAPI.onExternalGoogleAuth(async (data: any) => {
-                console.log('[AuthModal] Received external Google Auth payload:', data?.email);
-                setIsGoogleLoading(true);
-                setError('');
-                setInfoMessage('Đang hoàn tất đăng nhập...');
-
-                try {
-                    let fbUser: any = null;
-                    if (data.idToken) {
-                        try {
-                            const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
-                            const { auth } = await import('../src/firebaseConfig');
-                            const cred = GoogleAuthProvider.credential(data.idToken, data.accessToken);
-                            const userCred = await signInWithCredential(auth, cred);
-                            fbUser = userCred.user;
-                        } catch (credErr) {
-                            console.warn('[AuthModal] signInWithCredential fallback:', credErr);
-                        }
-                    }
-
-                    const email = fbUser?.email || data.email || '';
-                    const uid = fbUser?.uid || data.uid || ('google_' + Date.now());
-                    const displayName = fbUser?.displayName || data.displayName || email.split('@')[0] || 'User';
-                    const photoURL = fbUser?.photoURL || data.photoURL || `https://ui-avatars.com/api/?name=${displayName}&background=random`;
-
-                    // Check device account limit
-                    const deviceCheck = await checkDeviceAccountLimit(email, uid);
-                    if (!deviceCheck.allowed) {
-                        await firebaseAuth.logoutUser();
-                        setError(deviceCheck.message || '⚠️ Thiết bị này đã đạt giới hạn tối đa 2 tài khoản đăng nhập.');
-                        setIsGoogleLoading(false);
-                        return;
-                    }
-                    await recordDeviceAccount(email, uid);
-
-                    try {
-                        await firebaseAuth.recordNewRegistration(uid, displayName, email);
-                        await firebaseAuth.recordUserAccess(uid, displayName, email);
-                    } catch (e) {}
-
-                    const user: User = {
-                        id: uid,
-                        username: email,
-                        name: displayName,
-                        avatar: photoURL
-                    };
-
-                    onAuthSuccess(user);
-                } catch (err: any) {
-                    console.error('[AuthModal] External Google Auth error:', err);
-                    setError('Đăng nhập Google thất bại: ' + (err.message || 'Lỗi không xác định'));
-                } finally {
-                    setIsGoogleLoading(false);
-                }
+                await processGoogleAuthPayload(data);
             });
 
             return () => {
                 if (typeof cleanup === 'function') cleanup();
             };
         }
-    }, [onAuthSuccess]);
+    }, [processGoogleAuthPayload]);
+
+    // Listen for Android Deep Link OAuth completion (com.toolphoto.app://auth-callback)
+    useEffect(() => {
+        if (!isMobilePlatform()) return;
+
+        const handleAuthUrl = async (fullUrl: string) => {
+            if (!fullUrl || !fullUrl.includes('auth-callback')) return;
+            console.log('[AuthModal] Received Android deep link auth callback:', fullUrl);
+
+            // Close Chrome Custom Tab
+            try {
+                const { Browser } = await import('@capacitor/browser');
+                await Browser.close().catch(() => {});
+            } catch {}
+
+            // Extract fragment or query params
+            const hashIndex = fullUrl.indexOf('#');
+            const queryIndex = fullUrl.indexOf('?');
+            const paramString = hashIndex !== -1 ? fullUrl.substring(hashIndex + 1) : queryIndex !== -1 ? fullUrl.substring(queryIndex + 1) : '';
+            const params = new URLSearchParams(paramString);
+
+            const payload = {
+                idToken: params.get('idToken') || '',
+                accessToken: params.get('accessToken') || '',
+                uid: params.get('uid') || '',
+                email: params.get('email') || '',
+                displayName: params.get('displayName') || '',
+                photoURL: params.get('photoURL') || ''
+            };
+
+            if (payload.idToken || payload.accessToken) {
+                await processGoogleAuthPayload(payload);
+            }
+        };
+
+        // 1. Check for pending deep link from native activity start
+        try {
+            ApkInstaller.getPendingAuthUrl().then(res => {
+                if (res && res.url) {
+                    handleAuthUrl(res.url);
+                }
+            }).catch(() => {});
+        } catch {}
+
+        // 2. Listen for runtime deep link callback dispatched from MainActivity
+        const handleCustomEvent = (e: any) => {
+            if (e?.detail) {
+                handleAuthUrl(e.detail);
+            }
+        };
+        window.addEventListener('androidGoogleAuthCallback', handleCustomEvent);
+
+        // 3. Listen for browser closed without logging in
+        let browserListener: any = null;
+        import('@capacitor/browser').then(({ Browser }) => {
+            browserListener = Browser.addListener('browserFinished', () => {
+                setIsGoogleLoading(false);
+                setInfoMessage('');
+            });
+        }).catch(() => {});
+
+        return () => {
+            window.removeEventListener('androidGoogleAuthCallback', handleCustomEvent);
+            if (browserListener && typeof browserListener.remove === 'function') {
+                browserListener.remove();
+            }
+        };
+    }, [processGoogleAuthPayload]);
 
     // Password Strength Logic
     const getPasswordStrength = (pwd: string) => {
@@ -125,6 +199,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
         setUnauthorizedDomain(null);
         setIsGoogleLoading(true);
 
+        // 1. ELECTRON DESKTOP: Use local loopback server + external Chrome
         const electronAPI = (window as any).electronAPI;
         if (electronAPI?.startExternalGoogleAuth) {
             setInfoMessage('Đang mở trình duyệt Google Chrome để đăng nhập an toàn...');
@@ -138,6 +213,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess, is
             return;
         }
 
+        // 2. ANDROID NATIVE: Use Chrome Custom Tab with same-origin OAuth bridge on toolphoto-2025.web.app
+        if (isMobilePlatform()) {
+            setInfoMessage('Đang mở trình duyệt bảo mật để đăng nhập Google...');
+            try {
+                const { Browser } = await import('@capacitor/browser');
+                await Browser.open({
+                    url: `https://toolphoto-2025.web.app/mobile-auth.html?auto=1&t=${Date.now()}`
+                });
+            } catch (err: any) {
+                console.error('[AuthModal] Failed to open mobile auth browser:', err);
+                setIsGoogleLoading(false);
+                setError('Không thể mở trình duyệt: ' + (err.message || ''));
+            }
+            return;
+        }
+
+        // 3. WEB BROWSER: Standard Firebase popup
         try {
             const fbUser = await firebaseAuth.loginWithGoogle();
             const email = fbUser.email || '';

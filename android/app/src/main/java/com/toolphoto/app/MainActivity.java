@@ -12,10 +12,19 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import org.json.JSONObject;
 import java.io.File;
 
 @CapacitorPlugin(name = "ApkInstaller")
 class ApkInstallerPlugin extends Plugin {
+
+    @PluginMethod
+    public void getPendingAuthUrl(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("url", MainActivity.pendingAuthUrl);
+        MainActivity.pendingAuthUrl = null;
+        call.resolve(ret);
+    }
 
     @PluginMethod
     public void canRequestPackageInstalls(PluginCall call) {
@@ -48,7 +57,6 @@ class ApkInstallerPlugin extends Plugin {
         }
 
         try {
-            // Remove file:// prefix if present
             if (filePath.startsWith("file://")) {
                 filePath = filePath.substring(7);
             }
@@ -86,9 +94,36 @@ class ApkInstallerPlugin extends Plugin {
 }
 
 public class MainActivity extends BridgeActivity {
+    public static String pendingAuthUrl = null;
+
+    private void handleAuthDeepLink(Intent intent) {
+        if (intent == null) return;
+        Uri data = intent.getData();
+        if (data != null) {
+            String urlStr = data.toString();
+            if (urlStr.startsWith("com.toolphoto.app://auth-callback")) {
+                pendingAuthUrl = urlStr;
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    final String quotedUrl = JSONObject.quote(urlStr);
+                    runOnUiThread(() -> {
+                        getBridge().eval("window.dispatchEvent(new CustomEvent('androidGoogleAuthCallback', { detail: " + quotedUrl + " }));", null);
+                    });
+                }
+            }
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ApkInstallerPlugin.class);
         super.onCreate(savedInstanceState);
+        handleAuthDeepLink(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleAuthDeepLink(intent);
     }
 }
