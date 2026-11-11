@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { User } from '../types';
 import * as firebaseService from '../services/firebaseService';
-import { SUBSCRIPTION_PLANS, SubscriptionPlan, FREE_DAILY_IMAGE_LIMIT, FREE_ACCOUNT_VIDEO_SECONDS, getCachedUserPlan, getCachedRemainingVideoSeconds, getDailyFreeRemaining } from '../services/firebaseService';
+import { SUBSCRIPTION_PLANS, SubscriptionPlan, FREE_DAILY_IMAGE_LIMIT, FREE_ACCOUNT_VIDEO_SECONDS, getCachedUserPlan, getCachedRemainingVideoSeconds, getDailyFreeRemaining, getCachedBonusImages, getCachedBonusExpiresAt } from '../services/firebaseService';
 import { PayOSCheckoutModal } from './PayOSCheckoutModal';
 import { GoogleQuotaStationModal } from './GoogleQuotaStationModal';
 import { refreshSubscription } from '../services/subscriptionService';
@@ -12,7 +12,8 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
     const [balance, setBalance] = useState(0);
     const [remainingImages, setRemainingImages] = useState(0);
     const [remainingVideoSeconds, setRemainingVideoSeconds] = useState(() => getCachedRemainingVideoSeconds(user.id));
-    const [bonusImages, setBonusImages] = useState(0);
+    const [bonusImages, setBonusImages] = useState(() => getCachedBonusImages(user.id));
+    const [bonusExpiresAt, setBonusExpiresAt] = useState<number>(() => getCachedBonusExpiresAt(user.id) || 0);
     const [activePlan, setActivePlan] = useState<SubscriptionPlan>(() => getCachedUserPlan(user.id));
     const [freeRemaining, setFreeRemaining] = useState(() => getDailyFreeRemaining(user.id));
     const [planExpiresAt, setPlanExpiresAt] = useState(0);
@@ -25,13 +26,17 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
 
     useEffect(() => firebaseService.subscribeToUserCredits(user.id, (newBalance, state) => {
         setBalance(newBalance);
-        setBonusImages(Math.max(0, Math.floor(newBalance / firebaseService.IMAGE_COST_VND)));
+        const legacyBonus = Math.max(0, Math.floor(newBalance / firebaseService.IMAGE_COST_VND));
         if (state) {
             setActivePlan(state.plan);
             setRemainingImages(state.remainingImages ?? 0);
             setRemainingVideoSeconds(state.remainingVideoSeconds ?? 0);
             setFreeRemaining(Math.max(0, FREE_DAILY_IMAGE_LIMIT - state.dailyFreeUsed));
             setPlanExpiresAt(state.planExpiresAt ?? 0);
+            setBonusImages((state.bonusImages ?? 0) + legacyBonus);
+            setBonusExpiresAt(state.bonusExpiresAt ?? 0);
+        } else {
+            setBonusImages(legacyBonus);
         }
     }), [user.id]);
 
@@ -82,6 +87,14 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Video còn lại</p>
                             <p className="text-right font-mono tabular-nums font-semibold text-amber-600">{remainingVideoSeconds} giây</p>
                         </div>
+                        {bonusImages > 0 && (
+                            <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Ảnh thưởng (Google)</p>
+                                <p className="text-right font-mono tabular-nums font-semibold text-amber-600">
+                                    +{bonusImages} ảnh {bonusExpiresAt > 0 ? `(đến ${new Date(bonusExpiresAt).toLocaleDateString('vi-VN')})` : ''}
+                                </p>
+                            </div>
+                        )}
                         {activePlan !== 'free' && planExpiresAt > 0 && (
                             <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Hạn dùng (30 ngày)</p>

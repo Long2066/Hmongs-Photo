@@ -5,6 +5,7 @@ import {
     submitAntigravityCallback,
     verifyAndRewardContributedAccount,
     getUserContributedAccounts,
+    getGoogleQuotaGuideVideoUrl,
     ContributedAccountItem
 } from '../services/quotaStationService';
 import type { User } from '../types';
@@ -33,6 +34,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [contributedList, setContributedList] = useState<ContributedAccountItem[]>([]);
+    const [guideVideoUrl, setGuideVideoUrl] = useState<string>('');
 
     // Keep ref to avoid stale closures in event listeners
     const expectedStateRef = useRef(expectedState);
@@ -101,6 +103,7 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         if (!user?.id) return;
         const list = await getUserContributedAccounts(user.id);
         setContributedList(list);
+        getGoogleQuotaGuideVideoUrl().then(setGuideVideoUrl);
     };
 
     if (!isOpen) return null;
@@ -153,10 +156,11 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
             // 1. Submit to VPS
             await submitAntigravityCallback(trimmed, expectedStateRef.current);
 
-            // 2. Anti-fraud check & Reward 10 free images
+            // 2. Submit approval request to Firestore for Admin Review
             const rewardResult = await verifyAndRewardContributedAccount(
                 userRef.current.id,
                 userRef.current.name,
+                userRef.current.username || '',
                 knownAccountsBeforeRef.current
             );
 
@@ -180,7 +184,9 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
         }
     };
 
-    const totalFreeImagesEarned = contributedList.reduce((acc, curr) => acc + (curr.rewardImages || 10), 0);
+    const totalFreeImagesEarned = contributedList
+        .filter((curr) => curr.status === 'approved')
+        .reduce((acc, curr) => acc + (curr.rewardImages || 10), 0);
 
     return (
         <div className={embedded ? "w-full" : "fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in"}>
@@ -293,6 +299,23 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                 {isLoading ? 'Đang kết nối...' : 'Bấm vào đây để đăng nhập'}
                             </span>
                         </button>
+
+                        {/* Nút Xem video HD hướng dẫn cách làm (nổi bật trên Mobile) */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const targetUrl = guideVideoUrl || 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+                                if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternal) {
+                                    (window as any).electronAPI.openExternal(targetUrl);
+                                } else {
+                                    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                                }
+                            }}
+                            className="w-full py-2.5 px-4 bg-gradient-to-r from-red-600 via-rose-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 active:scale-98 min-h-[44px] cursor-pointer"
+                        >
+                            <span className="text-sm">🎥</span>
+                            <span>Xem video HD hướng dẫn cách nạp tài khoản</span>
+                        </button>
                     </div>
 
                     {/* Authorizing Status & External Chrome Helper */}
@@ -361,10 +384,10 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                     )}
 
                     {step === 'submitting' && (
-                        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-3">
-                            <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                        <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-3">
+                            <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
                             <div className="font-semibold">
-                                ⚡ Đã bắt được tài khoản! Đang lưu vào hệ thống và cộng +10 ảnh cho bạn...
+                                ⚡ Đang gửi yêu cầu duyệt! Bạn sẽ nhận được 10 lượt tạo ảnh miễn phí sau khi kiểm duyệt...
                             </div>
                         </div>
                     )}
@@ -373,8 +396,8 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                     <div className="pt-2">
                         <div className="flex items-center justify-between text-xs text-slate-600 font-semibold mb-2">
                             <span>Lịch sử đóng góp của bạn</span>
-                            <span className="text-indigo-600">
-                                {contributedList.length} tài khoản • Tích lũy +{totalFreeImagesEarned} ảnh
+                            <span className="text-indigo-600 font-mono">
+                                {contributedList.length} tài khoản • Đã duyệt: +{totalFreeImagesEarned} ảnh
                             </span>
                         </div>
 
@@ -383,19 +406,40 @@ export const GoogleQuotaStationModal: React.FC<GoogleQuotaStationModalProps> = (
                                 Bạn chưa nạp tài khoản Google nào. Hãy nạp ngay để nhận thưởng!
                             </div>
                         ) : (
-                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                 {contributedList.map((item) => (
                                     <div
                                         key={item.id}
-                                        className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-between text-xs"
+                                        className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/60 flex flex-col gap-1 text-xs"
                                     >
-                                        <div className="flex items-center gap-2 truncate pr-2">
-                                            <span className="text-emerald-500 font-bold">✓</span>
-                                            <span className="font-medium text-slate-800 truncate">{item.email}</span>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 truncate pr-2">
+                                                <span className={item.status === 'approved' ? "text-emerald-500 font-bold" : item.status === 'rejected' ? "text-red-500 font-bold" : "text-amber-500 font-bold"}>
+                                                    {item.status === 'approved' ? '✓' : item.status === 'rejected' ? '✕' : '⏳'}
+                                                </span>
+                                                <span className="font-medium text-slate-800 truncate">{item.email}</span>
+                                            </div>
+
+                                            {item.status === 'approved' ? (
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                                                    ✅ Đã duyệt (+10 ảnh)
+                                                </span>
+                                            ) : item.status === 'rejected' ? (
+                                                <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200 shrink-0">
+                                                    ❌ Từ chối
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 shrink-0">
+                                                    ⏳ Chờ duyệt (+10 ảnh)
+                                                </span>
+                                            )}
                                         </div>
-                                        <div className="text-[11px] font-bold text-amber-600 shrink-0 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                                            +{item.rewardImages || 10} ảnh
-                                        </div>
+
+                                        {item.status === 'rejected' && item.reviewNote && (
+                                            <div className="text-[11px] text-red-600 bg-red-50/60 p-1.5 rounded-lg border border-red-100 italic">
+                                                Lý do: {item.reviewNote}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

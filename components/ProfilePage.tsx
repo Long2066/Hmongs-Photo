@@ -42,7 +42,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
         const unsubscribe = firebaseService.subscribeToUserCredits(user.id, (newBalance, subState) => {
             setRemainingImages(subState?.remainingImages ?? 0);
             setRemainingVideoSeconds(subState?.remainingVideoSeconds ?? 0);
-            setBonusImages(Math.max(0, Math.floor(newBalance / firebaseService.IMAGE_COST_VND)));
+            setBonusImages((subState?.bonusImages ?? 0) + Math.max(0, Math.floor(newBalance / firebaseService.IMAGE_COST_VND)));
             if (subState) {
                 setActivePlan(subState.plan);
                 setFreeRemaining(Math.max(0, FREE_DAILY_IMAGE_LIMIT - subState.dailyFreeUsed));
@@ -149,8 +149,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
                                 </span>
                                 <span className="text-xs text-white/90 font-mono tabular-nums bg-white/20 px-2 py-0.5 rounded-full font-semibold">
                                     {activePlan === 'free'
-                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh • ${remainingVideoSeconds}s video`
-                                        : `Còn ${remainingImages} ảnh • ${remainingVideoSeconds}s video`}
+                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh${bonusImages > 0 ? ` (+${bonusImages} ảnh thưởng)` : ''} • ${remainingVideoSeconds}s video`
+                                        : `Còn ${remainingImages} ảnh${bonusImages > 0 ? ` (+${bonusImages} ảnh thưởng)` : ''} • ${remainingVideoSeconds}s video`}
                                 </span>
                             </div>
                         </div>

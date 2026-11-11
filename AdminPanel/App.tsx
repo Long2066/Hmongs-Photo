@@ -8,8 +8,9 @@ import FeedbackInbox from './components/FeedbackInbox';
 import NotificationSender from './components/NotificationSender';
 import ClothingManager from './components/ClothingManager';
 import AiConfigManager from './components/AiConfigManager';
+import { QuotaApprovalManager } from './components/QuotaApprovalManager';
 
-type Page = 'dashboard' | 'users' | 'feedback' | 'notifications' | 'clothing' | 'ai-config';
+type Page = 'dashboard' | 'quota-approvals' | 'users' | 'feedback' | 'notifications' | 'clothing' | 'ai-config';
 
 const App: React.FC = () => {
     const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -53,6 +54,8 @@ const App: React.FC = () => {
         switch (currentPage) {
             case 'dashboard':
                 return <Dashboard />;
+            case 'quota-approvals':
+                return <QuotaApprovalManager admin={admin} />;
             case 'users':
                 return <UserList />;
             case 'feedback':

@@ -65,6 +65,17 @@ service cloud.firestore {
       allow update: if isAdmin() || (isAuthenticated() && isOwner(userId)
         && request.resource.data.userId == userId
         && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dailyFreeDate', 'dailyFreeUsed', 'lastUpdated', 'userId'])
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bonusImages', 'lastUpdated', 'userId'])
+            && request.resource.data.bonusImages is number
+            && request.resource.data.bonusImages >= 0
+            && (('bonusImages' in resource.data && request.resource.data.bonusImages <= resource.data.bonusImages)
+                || (!('bonusImages' in resource.data) && request.resource.data.bonusImages == 0)))
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remainingImages', 'plan', 'lastUpdated', 'userId'])
+            && request.resource.data.remainingImages is number
+            && request.resource.data.remainingImages >= 0
+            && request.resource.data.remainingImages <= resource.data.remainingImages
+            && (request.resource.data.plan == resource.data.plan
+                || (request.resource.data.plan == 'free' && request.resource.data.remainingImages == 0)))
           || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credits', 'plan', 'lastUpdated', 'userId'])
             && request.resource.data.credits is number
             && request.resource.data.credits >= 0
@@ -115,6 +126,13 @@ service cloud.firestore {
     match /contributedGoogleAccounts/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
+    }
+
+    // === QUOTA APPROVAL REQUESTS (Phê duyệt ưu đãi liên kết Google) ===
+    match /quotaApprovalRequests/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin();
     }
   }
 }

@@ -1239,3 +1239,164 @@ export const saveFlowToolUrl = async (url: string, adminEmail: string): Promise<
         updatedBy: adminEmail
     }, { merge: true });
 };
+
+// =========================================================================
+// QUOTA APPROVAL REQUESTS (Phê duyệt ưu đãi liên kết Google)
+// =========================================================================
+
+export const QUOTA_APPROVAL_COLLECTION = 'quotaApprovalRequests';
+
+export interface QuotaApprovalRequest {
+    id: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    googleEmail: string;
+    requestedRewardImages: number;
+    status: 'pending' | 'approved' | 'rejected';
+    createdAt: number;
+    reviewedAt?: number;
+    reviewedBy?: string;
+    reviewNote?: string;
+}
+
+export const subscribeToQuotaApprovalRequests = (
+    callback: (requests: QuotaApprovalRequest[]) => void
+): (() => void) => {
+    const q = query(
+        collection(db, QUOTA_APPROVAL_COLLECTION),
+        orderBy('createdAt', 'desc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+        const list: QuotaApprovalRequest[] = [];
+        snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            list.push({
+                id: docSnap.id,
+                userId: data.userId || '',
+                userName: data.userName || '',
+                userEmail: data.userEmail || '',
+                googleEmail: (data.googleEmail || '').toLowerCase().trim(),
+                requestedRewardImages: data.requestedRewardImages || 10,
+                status: data.status || 'pending',
+                createdAt: data.createdAt || 0,
+                reviewedAt: data.reviewedAt,
+                reviewedBy: data.reviewedBy,
+                reviewNote: data.reviewNote
+            });
+        });
+        callback(list);
+    }, (error) => {
+        console.warn('[AdminQuota] Listener error:', error);
+    });
+};
+
+/**
+ * Admin duyệt cấp +10 ảnh (hết hạn sau 30 ngày kể từ khi được cộng)
+ */
+export const approveQuotaRequest = async (
+    request: QuotaApprovalRequest,
+    adminEmail: string
+): Promise<void> => {
+    const now = Date.now();
+    const expiry30Days = now + 30 * 24 * 60 * 60 * 1000;
+    const addedImages = request.requestedRewardImages || 10;
+
+    // 1. Cập nhật trạng thái yêu cầu duyệt
+    await setDoc(doc(db, QUOTA_APPROVAL_COLLECTION, request.id), {
+        status: 'approved',
+        reviewedAt: now,
+        reviewedBy: adminEmail || 'Admin'
+    }, { merge: true });
+
+    // 2. Cộng lượt ảnh thưởng 30 ngày vào userCredits/{userId}
+    const userCreditsRef = doc(db, USER_CREDITS_COLLECTION, request.userId);
+    const snap = await getDoc(userCreditsRef);
+    const existing = snap.exists() ? snap.data() : {};
+
+    // Nếu còn hạn thì cộng dồn + gia hạn 30 ngày mới, nếu hết hạn thì bắt đầu 30 ngày mới
+    const currentBonus = (existing.bonusExpiresAt && existing.bonusExpiresAt > now)
+        ? (existing.bonusImages || 0)
+        : 0;
+
+    await setDoc(userCreditsRef, {
+        userId: request.userId,
+        bonusImages: currentBonus + addedImages,
+        bonusExpiresAt: expiry30Days,
+        bonusLastGrantedAt: now,
+        lastUpdated: now
+    }, { merge: true });
+
+    // 3. Tự động gửi thông báo chúc mừng trực tiếp đến User
+    await sendNotification(
+        request.userId,
+        '🎉 Ưu đãi Google: Đã phê duyệt +10 ảnh!',
+        `Chúc mừng bạn! Yêu cầu nhận ưu đãi từ tài khoản Google (${request.googleEmail}) đã được Admin phê duyệt. Bạn được cộng ngay +${addedImages} lượt tạo ảnh miễn phí (hạn sử dụng 30 ngày đến ${new Date(expiry30Days).toLocaleDateString('vi-VN')}).`,
+        adminEmail || 'Admin'
+    );
+};
+
+/**
+ * Admin từ chối kèm lý do phản hồi cho user
+ */
+export const rejectQuotaRequest = async (
+    request: QuotaApprovalRequest,
+    reason: string,
+    adminEmail: string
+): Promise<void> => {
+    const now = Date.now();
+    const cleanReason = (reason || 'Tài khoản không đủ điều kiện nhận ưu đãi').trim();
+
+    // 1. Cập nhật trạng thái từ chối
+    await setDoc(doc(db, QUOTA_APPROVAL_COLLECTION, request.id), {
+        status: 'rejected',
+        reviewNote: cleanReason,
+        reviewedAt: now,
+        reviewedBy: adminEmail || 'Admin'
+    }, { merge: true });
+
+    // 2. Gửi thông báo nêu rõ lý do cho User
+    await sendNotification(
+        request.userId,
+        '⚠️ Thông báo về ưu đãi liên kết Google',
+        `Yêu cầu nhận ưu đãi cho tài khoản Google (${request.googleEmail}) không được phê duyệt. Lý do từ Admin: "${cleanReason}".`,
+        adminEmail || 'Admin'
+    );
+};
+
+/**
+ * Xóa 1 bản ghi yêu cầu
+ */
+export const deleteQuotaRequest = async (requestId: string): Promise<void> => {
+    await deleteDoc(doc(db, QUOTA_APPROVAL_COLLECTION, requestId));
+};
+
+/**
+ * Xóa hàng loạt nhiều bản ghi yêu cầu
+ */
+export const deleteBatchQuotaRequests = async (requestIds: string[]): Promise<void> => {
+    const promises = requestIds.map((id) => deleteDoc(doc(db, QUOTA_APPROVAL_COLLECTION, id)));
+    await Promise.all(promises);
+};
+
+/**
+ * Quản lý Link Video HD Hướng dẫn nạp Quota Google trên Mobile
+ */
+export const getGoogleQuotaGuideVideoUrl = async (): Promise<string> => {
+    try {
+        const snap = await getDoc(doc(db, 'appConfig', 'google_quota_guide'));
+        if (snap.exists() && typeof snap.data().videoUrl === 'string') {
+            return snap.data().videoUrl;
+        }
+    } catch {}
+    return 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'; // Default placeholder URL
+};
+
+export const saveGoogleQuotaGuideVideoUrl = async (videoUrl: string, adminEmail: string): Promise<void> => {
+    await setDoc(doc(db, 'appConfig', 'google_quota_guide'), {
+        videoUrl: videoUrl.trim(),
+        updatedAt: Date.now(),
+        updatedBy: adminEmail
+    }, { merge: true });
+};

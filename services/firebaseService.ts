@@ -924,6 +924,8 @@ export interface UserSubscriptionState {
     planExpiresAt: number | null;
     planAllowanceImages: number;
     planAllowanceVideoSeconds: number;
+    bonusImages?: number;
+    bonusExpiresAt?: number | null;
 }
 
 export const getTodayDateString = (): string => {
@@ -990,6 +992,59 @@ export const getCachedDailyFreeUsed = (userId?: string): number => {
 export const getDailyFreeRemaining = (userId?: string): number => {
     const used = getCachedDailyFreeUsed(userId);
     return Math.max(0, FREE_DAILY_IMAGE_LIMIT - used);
+};
+
+export const getCachedBonusImages = (userId?: string): number => {
+    try {
+        const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
+        if (!uid) return 0;
+        const expiry = Number(localStorage.getItem('user_bonus_expires_' + uid)) || 0;
+        if (expiry && expiry <= Date.now()) return 0;
+        return parseInt(localStorage.getItem('user_bonus_images_' + uid) || '0', 10) || 0;
+    } catch {
+        return 0;
+    }
+};
+
+export const getCachedBonusExpiresAt = (userId?: string): number | null => {
+    try {
+        const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
+        if (!uid) return null;
+        const val = Number(localStorage.getItem('user_bonus_expires_' + uid));
+        return Number.isSafeInteger(val) && val > 0 ? val : null;
+    } catch {
+        return null;
+    }
+};
+
+export const consumeBonusImagesDirect = async (userId: string, count: number): Promise<number> => {
+    if (!userId || count <= 0) return 0;
+    try {
+        const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) return 0;
+        const data = docSnap.data();
+        const now = Date.now();
+        if (data.bonusExpiresAt && data.bonusExpiresAt <= now) {
+            await setDoc(docRef, { bonusImages: 0, bonusExpiresAt: null, lastUpdated: now }, { merge: true }).catch(() => {});
+            return 0;
+        }
+        const current = Number.isSafeInteger(data.bonusImages) ? data.bonusImages : 0;
+        const deducted = Math.min(count, current);
+        const remaining = Math.max(0, current - deducted);
+        await setDoc(docRef, {
+            userId,
+            bonusImages: remaining,
+            lastUpdated: now
+        }, { merge: true });
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('user_bonus_images_' + userId, remaining.toString());
+        }
+        return remaining;
+    } catch (e) {
+        console.warn('[Bonus] Could not deduct bonus images:', e);
+        return 0;
+    }
 };
 
 export interface BillData {
@@ -1415,17 +1470,37 @@ export const subscribeToUserCredits = (
             const dailyFreeUsed = data.dailyFreeDate === today ? (data.dailyFreeUsed || 0) : 0;
             const effectiveRemainingImages = plan === 'free' ? 0 : remainingImages;
 
+            // Kiểm tra hạn 30 ngày của lượt ảnh thưởng liên kết Google (bonusImages)
+            const bonusExpiresAt = Number.isSafeInteger(data.bonusExpiresAt) ? data.bonusExpiresAt : null;
+            const isBonusExpired = Boolean(bonusExpiresAt && bonusExpiresAt <= now);
+            let bonusImages = Number.isSafeInteger(data.bonusImages) ? data.bonusImages : 0;
+            if (isBonusExpired && bonusImages > 0) {
+                bonusImages = 0;
+                setDoc(docRef, { bonusImages: 0, bonusExpiresAt: null, lastUpdated: now }, { merge: true }).catch(() => {});
+            }
+
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('user_balance_raw_' + userId, credits.toString());
                 localStorage.setItem('user_plan_' + userId, plan);
                 localStorage.setItem('user_remaining_images_' + userId, effectiveRemainingImages.toString());
                 localStorage.setItem('user_remaining_video_seconds_' + userId, remainingVideoSeconds.toString());
                 localStorage.setItem('user_plan_expires_' + userId, String(planExpiresAt || 0));
+                localStorage.setItem('user_bonus_images_' + userId, bonusImages.toString());
+                localStorage.setItem('user_bonus_expires_' + userId, String(bonusExpiresAt || 0));
                 localStorage.setItem('user_credits_' + userId, Math.floor(credits / 100).toString());
                 localStorage.setItem('user_free_date_' + userId, today);
                 localStorage.setItem('user_free_used_' + userId, dailyFreeUsed.toString());
                 window.dispatchEvent(new CustomEvent('user-balance-changed', {
-                    detail: { balance: credits, plan, dailyFreeUsed, remainingImages: effectiveRemainingImages, remainingVideoSeconds, planExpiresAt }
+                    detail: {
+                        balance: credits,
+                        plan,
+                        dailyFreeUsed,
+                        remainingImages: effectiveRemainingImages,
+                        remainingVideoSeconds,
+                        planExpiresAt,
+                        bonusImages,
+                        bonusExpiresAt
+                    }
                 }));
             }
 
@@ -1439,7 +1514,9 @@ export const subscribeToUserCredits = (
                 planStartedAt: data.planStartedAt || null,
                 planExpiresAt,
                 planAllowanceImages: data.planAllowanceImages || 0,
-                planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (plan !== 'free' ? PLAN_VIDEO_ALLOWANCE[plan] : FREE_ACCOUNT_VIDEO_SECONDS)
+                planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (plan !== 'free' ? PLAN_VIDEO_ALLOWANCE[plan] : FREE_ACCOUNT_VIDEO_SECONDS),
+                bonusImages,
+                bonusExpiresAt
             });
         } else {
             // Tài khoản mới chưa có doc userCredits -> cấp ngay 8s video miễn phí một lần

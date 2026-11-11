@@ -5,11 +5,13 @@
  * Uses getBackgroundSyncDb to guarantee 100% Firestore permissions across all clients.
  */
 
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { getBackgroundSyncDb, updateUserCredits } from './firebaseService';
+import { doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { db } from '../src/firebaseConfig';
+import { getBackgroundSyncDb } from './firebaseService';
 import { getNineRouterUrl, getNineRouterApiKey } from './nineRouterService';
 
 const USER_ACCESS_COLLECTION = 'userAccess';
+export const QUOTA_APPROVAL_COLLECTION = 'quotaApprovalRequests';
 
 export interface OAuthStartResult {
     url: string;
@@ -32,6 +34,8 @@ export interface ContributedAccountItem {
     timestamp: number;
     rewardImages: number;
     rewardVND: number;
+    status?: 'pending' | 'approved' | 'rejected';
+    reviewNote?: string;
 }
 
 /**
@@ -214,16 +218,17 @@ export const submitAntigravityCallback = async (
 };
 
 /**
- * Step 3: Anti-fraud verification in Firestore (via guaranteed userAccess collection)
- * and Reward +20 Images (10,000 VND)
+ * Step 3: Record Quota Approval Request to Firestore for Admin Review
+ * User is notified: "Đăng nhập thành công, bạn sẽ nhận được 10 lượt tạo ảnh miễn phí sau khi kiểm duyệt."
  */
 export const verifyAndRewardContributedAccount = async (
     userId: string,
     userName: string,
+    userEmail: string,
     knownAccountsBefore: string[]
 ): Promise<ContributionResult> => {
     const REWARD_IMAGES = 10;
-    const REWARD_VND = 5000; // 10 * 500 VND/image
+    const now = Date.now();
 
     // 1. Give VPS up to 3 seconds to register the new auth file
     let currentAccounts = await fetchVpsAntigravityAccounts();
@@ -237,108 +242,65 @@ export const verifyAndRewardContributedAccount = async (
     }
 
     // Fallback: If delta detection was ambiguous, pick the most recent account
-    let targetEmail = newEmails[0] || currentAccounts[currentAccounts.length - 1];
-
-    if (!targetEmail || !targetEmail.includes('@')) {
-        // Still award user because Google OAuth succeeded on VPS!
-        try {
-            await updateUserCredits(userId, REWARD_VND, 'add');
-        } catch (credErr) {
-            console.warn('[QuotaStation] Credits award warning:', credErr);
-            return { success: false, email: 'Tài khoản Google', message: 'Đã xác thực Google nhưng không cấp được lượt thưởng. Vui lòng liên hệ hỗ trợ.' };
-        }
-        return {
-            success: true,
-            email: 'Tài khoản Google',
-            rewardImages: REWARD_IMAGES,
-            rewardVND: REWARD_VND,
-            message: `Xác thực Google thành công! Bạn nhận được ngay +${REWARD_IMAGES} lượt tạo ảnh miễn phí.`
-        };
-    }
-
+    let targetEmail = newEmails[0] || currentAccounts[currentAccounts.length - 1] || 'google_auth_account';
     targetEmail = targetEmail.toLowerCase().trim();
-    const emailDocId = targetEmail.replace(/[.@]/g, '_');
 
     try {
-        // Use backgroundSyncDb to guarantee 100% permissions on userAccess collection
-        const targetDb = await getBackgroundSyncDb();
-        const accountDocRef = doc(targetDb, USER_ACCESS_COLLECTION, `quota_acc_${emailDocId}`);
-        const accountDocSnap = await getDoc(accountDocRef);
-
-        if (accountDocSnap.exists()) {
-            const existingData = accountDocSnap.data();
-            const dateStr = existingData.timestamp ? new Date(existingData.timestamp).toLocaleDateString('vi-VN') : '';
-            return {
-                success: false,
-                email: targetEmail,
-                message: `Tài khoản Google này (${targetEmail}) đã được đóng góp vào hệ thống trước đó${dateStr ? ` vào ngày ${dateStr}` : ''}. Mỗi tài khoản chỉ được nhận thưởng 1 lần duy nhất!`
-            };
-        }
-
-        // Brand-new account! Record to Firestore for persistent anti-fraud
-        await setDoc(accountDocRef, {
-            type: 'quota_contribution',
-            email: targetEmail,
-            contributedByUserId: userId,
-            contributedByUserName: userName || 'Khách hàng',
-            timestamp: Date.now(),
-            rewardImages: REWARD_IMAGES,
-            rewardVND: REWARD_VND
-        });
-
-        // Also record user-specific record
-        const userDocRef = doc(targetDb, USER_ACCESS_COLLECTION, `quota_user_${userId}_${emailDocId}`);
-        await setDoc(userDocRef, {
-            type: 'quota_user_contribution',
-            email: targetEmail,
-            contributedByUserId: userId,
-            contributedByUserName: userName || 'Khách hàng',
-            timestamp: Date.now(),
-            rewardImages: REWARD_IMAGES,
-            rewardVND: REWARD_VND
+        // Gửi yêu cầu duyệt lên collection quotaApprovalRequests
+        await addDoc(collection(db, QUOTA_APPROVAL_COLLECTION), {
+            userId,
+            userName: userName || 'Khách hàng',
+            userEmail: (userEmail || '').toLowerCase().trim(),
+            googleEmail: targetEmail,
+            requestedRewardImages: REWARD_IMAGES,
+            status: 'pending',
+            createdAt: now
         });
     } catch (firestoreErr) {
-        console.warn('[QuotaStation] Firestore anti-fraud record warning:', firestoreErr);
-        // Continue even if Firestore check had an issue so user gets rewarded
-    }
-
-    // Award balance to user
-    try {
-        await updateUserCredits(userId, REWARD_VND, 'add');
-    } catch (credErr) {
-        console.warn('[QuotaStation] Failed to award credits:', credErr);
-        return { success: false, email: targetEmail, message: 'Đã xác thực Google nhưng không cấp được lượt thưởng. Vui lòng liên hệ hỗ trợ.' };
+        console.warn('[QuotaStation] Firestore quotaApprovalRequests write error, fallback to backgroundSync:', firestoreErr);
+        try {
+            const targetDb = await getBackgroundSyncDb();
+            await addDoc(collection(targetDb, QUOTA_APPROVAL_COLLECTION), {
+                userId,
+                userName: userName || 'Khách hàng',
+                userEmail: (userEmail || '').toLowerCase().trim(),
+                googleEmail: targetEmail,
+                requestedRewardImages: REWARD_IMAGES,
+                status: 'pending',
+                createdAt: now
+            });
+        } catch (bgErr) {
+            console.error('[QuotaStation] Fatal could not submit approval request:', bgErr);
+        }
     }
 
     // Cache locally so UI always has immediate access
     try {
         const localKey = `quota_contributed_${userId}`;
         const prev = JSON.parse(localStorage.getItem(localKey) || '[]');
-        if (!prev.some((item: any) => item.email === targetEmail)) {
-            prev.unshift({
-                id: `quota_user_${userId}_${emailDocId}`,
-                email: targetEmail,
-                contributedByUserId: userId,
-                contributedByUserName: userName,
-                timestamp: Date.now(),
-                rewardImages: REWARD_IMAGES,
-                rewardVND: REWARD_VND
-            });
-            localStorage.setItem(localKey, JSON.stringify(prev));
-        }
+        prev.unshift({
+            id: `req_${userId}_${now}`,
+            email: targetEmail,
+            contributedByUserId: userId,
+            contributedByUserName: userName,
+            timestamp: now,
+            rewardImages: REWARD_IMAGES,
+            rewardVND: 5000,
+            status: 'pending'
+        });
+        localStorage.setItem(localKey, JSON.stringify(prev));
     } catch {}
 
     return {
         success: true,
         email: targetEmail,
         rewardImages: REWARD_IMAGES,
-        rewardVND: REWARD_VND,
-        message: `Tuyệt vời! Đã nạp thành công tài khoản ${targetEmail}. Bạn nhận được ngay +${REWARD_IMAGES} lượt tạo ảnh miễn phí!`
+        message: 'Đăng nhập thành công, bạn sẽ nhận được 10 lượt tạo ảnh miễn phí sau khi kiểm duyệt.'
     };
 };
 
 /**
- * Get user's contributed accounts list
+ * Get user's contributed accounts list with status (pending / approved / rejected)
  */
 export const getUserContributedAccounts = async (userId: string): Promise<ContributedAccountItem[]> => {
     const localKey = `quota_contributed_${userId}`;
@@ -348,26 +310,25 @@ export const getUserContributedAccounts = async (userId: string): Promise<Contri
     } catch {}
 
     try {
-        const targetDb = await getBackgroundSyncDb();
         const q = query(
-            collection(targetDb, USER_ACCESS_COLLECTION),
-            where('contributedByUserId', '==', userId)
+            collection(db, QUOTA_APPROVAL_COLLECTION),
+            where('userId', '==', userId)
         );
         const querySnapshot = await getDocs(q);
         const results: ContributedAccountItem[] = [];
         querySnapshot.forEach(docSnap => {
             const data = docSnap.data();
-            if (data.type === 'quota_user_contribution') {
-                results.push({
-                    id: docSnap.id,
-                    email: data.email || '',
-                    contributedByUserId: data.contributedByUserId,
-                    contributedByUserName: data.contributedByUserName,
-                    timestamp: data.timestamp || 0,
-                    rewardImages: data.rewardImages || 10,
-                    rewardVND: data.rewardVND || 5000
-                });
-            }
+            results.push({
+                id: docSnap.id,
+                email: data.googleEmail || '',
+                contributedByUserId: data.userId,
+                contributedByUserName: data.userName,
+                timestamp: data.createdAt || 0,
+                rewardImages: data.requestedRewardImages || 10,
+                rewardVND: 5000,
+                status: data.status || 'pending',
+                reviewNote: data.reviewNote
+            });
         });
 
         if (results.length > 0) {
@@ -377,8 +338,21 @@ export const getUserContributedAccounts = async (userId: string): Promise<Contri
             return results.sort((a, b) => b.timestamp - a.timestamp);
         }
     } catch (e) {
-        console.warn('[QuotaStation] Failed to load user contributions from cloud:', e);
+        console.warn('[QuotaStation] Failed to load user requests from cloud:', e);
     }
 
     return cachedList.sort((a, b) => b.timestamp - a.timestamp);
+};
+
+/**
+ * Lấy link video HD hướng dẫn Mobile từ appConfig
+ */
+export const getGoogleQuotaGuideVideoUrl = async (): Promise<string> => {
+    try {
+        const snap = await getDoc(doc(db, 'appConfig', 'google_quota_guide'));
+        if (snap.exists() && typeof snap.data().videoUrl === 'string' && snap.data().videoUrl.trim()) {
+            return snap.data().videoUrl.trim();
+        }
+    } catch {}
+    return 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 };

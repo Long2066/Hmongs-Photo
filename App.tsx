@@ -441,8 +441,9 @@ const App: React.FC = () => {
                 setError('Model này không thuộc gói hiện tại. Plus mở GPT Image 2.5, Flare, Sunburst và GPT Image 2; Pro mở toàn bộ model.');
                 return false;
             }
-            if (requestedImages > entitlement.remainingImages) {
-                setError(`Gói ${entitlement.plan === 'pro' ? 'Pro' : 'Plus'} chỉ còn ${entitlement.remainingImages} ảnh. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
+            const bonusImgs = firebaseService.getCachedBonusImages(currentUser.id);
+            if (requestedImages > entitlement.remainingImages + bonusImgs) {
+                setError(`Gói ${entitlement.plan === 'pro' ? 'Pro' : 'Plus'} chỉ còn ${entitlement.remainingImages} ảnh${bonusImgs ? ` (+${bonusImgs} ảnh thưởng)` : ''}. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
                 return false;
             }
             return true;
@@ -453,7 +454,9 @@ const App: React.FC = () => {
             return false;
         }
         const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
-        const bonusImages = Math.floor(userBalance / firebaseService.IMAGE_COST_VND);
+        const approvedBonusImages = firebaseService.getCachedBonusImages(currentUser.id);
+        const legacyBonusImages = Math.floor(userBalance / firebaseService.IMAGE_COST_VND);
+        const bonusImages = approvedBonusImages + legacyBonusImages;
         if (requestedImages > remainingFree + bonusImages) {
             setError(`Bạn còn ${remainingFree} ảnh miễn phí hôm nay${bonusImages ? ` và ${bonusImages} ảnh thưởng` : ''}. Vui lòng giảm số ảnh hoặc chọn gói tại Cấu hình & gói dịch vụ.`);
             return false;
@@ -461,17 +464,40 @@ const App: React.FC = () => {
         return true;
     }, [currentUser, currentSubscriptionPlan, userBalance]);
 
-    // Paid packages consume image quotas; Free uses daily images first, then existing earned bonus images.
+    // Paid packages consume bonusImages or package quota; Free uses daily images first, then bonusImages.
     const deductBalanceForVIP = async (imagesCount: number = 1, _generationType: string = 'image_generation') => {
         if (!currentUser || imagesCount <= 0 || storage.isAdmin()) return;
+        let remainingToDeduct = imagesCount;
+
         if (currentSubscriptionPlan !== 'free') {
-            await consumeSubscriptionImages(imagesCount);
+            const availBonus = firebaseService.getCachedBonusImages(currentUser.id);
+            if (availBonus > 0) {
+                const fromBonus = Math.min(remainingToDeduct, availBonus);
+                await firebaseService.consumeBonusImagesDirect(currentUser.id, fromBonus);
+                remainingToDeduct -= fromBonus;
+            }
+            if (remainingToDeduct > 0) {
+                await consumeSubscriptionImages(remainingToDeduct);
+            }
             return;
         }
-        const dailyUsed = Math.min(imagesCount, firebaseService.getDailyFreeRemaining(currentUser.id));
-        if (dailyUsed) await firebaseService.incrementDailyFreeUsage(currentUser.id, dailyUsed);
-        const bonusUsed = imagesCount - dailyUsed;
-        if (bonusUsed) setUserBalance(await updateUserCredits(currentUser.id, bonusUsed * firebaseService.IMAGE_COST_VND, 'subtract'));
+
+        const dailyUsed = Math.min(remainingToDeduct, firebaseService.getDailyFreeRemaining(currentUser.id));
+        if (dailyUsed) {
+            await firebaseService.incrementDailyFreeUsage(currentUser.id, dailyUsed);
+            remainingToDeduct -= dailyUsed;
+        }
+        if (remainingToDeduct > 0) {
+            const availBonus = firebaseService.getCachedBonusImages(currentUser.id);
+            const fromBonus = Math.min(remainingToDeduct, availBonus);
+            if (fromBonus > 0) {
+                await firebaseService.consumeBonusImagesDirect(currentUser.id, fromBonus);
+                remainingToDeduct -= fromBonus;
+            }
+        }
+        if (remainingToDeduct > 0) {
+            setUserBalance(await updateUserCredits(currentUser.id, remainingToDeduct * firebaseService.IMAGE_COST_VND, 'subtract'));
+        }
     };
 
     // Update single output image after custom cropping

@@ -77,5 +77,7 @@ function entitlement(data) {
     planStartedAt: data.planStartedAt || null,
     planAllowanceImages: data.planAllowanceImages || 0,
     planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || 0,
+    bonusImages: Number.isSafeInteger(data.bonusImages) ? data.bonusImages : 0,
+    bonusExpiresAt: data.bonusExpiresAt || null,
   };
 }
