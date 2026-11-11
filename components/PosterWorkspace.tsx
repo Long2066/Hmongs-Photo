@@ -63,7 +63,10 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
     };
 
     const [workspaceCategory, setWorkspaceCategory] = useState<'ky_yeu' | 'phim_anh'>('ky_yeu');
-    const filteredTemplates = POSTER_TEMPLATES.filter(t => t.category === workspaceCategory);
+    const [workspaceRatio, setWorkspaceRatio] = useState<'9:16' | '16:9'>('9:16');
+    const filteredTemplates = POSTER_TEMPLATES.filter(
+        (t) => t.category === workspaceCategory && t.aspectRatio === workspaceRatio
+    );
 
     // =========================================================================
     // Empty State: Interactive Guide & Template Showcase
@@ -138,26 +141,49 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
                     </div>
                 </div>
 
-                {/* Category Switcher for Quick Badges */}
-                <div className="mt-6 flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-                    <button
-                        type="button"
-                        onClick={() => setWorkspaceCategory('ky_yeu')}
-                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                            workspaceCategory === 'ky_yeu' ? 'bg-white text-violet-700 shadow-2xs' : 'text-slate-600'
-                        }`}
-                    >
-                        🎓 Kỷ Yếu ({POSTER_TEMPLATES.filter(t => t.category === 'ky_yeu').length} mẫu)
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setWorkspaceCategory('phim_anh')}
-                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                            workspaceCategory === 'phim_anh' ? 'bg-white text-rose-600 shadow-2xs' : 'text-slate-600'
-                        }`}
-                    >
-                        🎬 Phim Ảnh ({POSTER_TEMPLATES.filter(t => t.category === 'phim_anh').length} mẫu)
-                    </button>
+                {/* Category & Ratio Switchers for Quick Badges */}
+                <div className="mt-6 flex flex-col sm:flex-row items-center gap-2">
+                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+                        <button
+                            type="button"
+                            onClick={() => setWorkspaceCategory('ky_yeu')}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                workspaceCategory === 'ky_yeu' ? 'bg-white text-violet-700 shadow-2xs' : 'text-slate-600'
+                            }`}
+                        >
+                            🎓 Kỷ Yếu (30)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setWorkspaceCategory('phim_anh')}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                workspaceCategory === 'phim_anh' ? 'bg-white text-rose-600 shadow-2xs' : 'text-slate-600'
+                            }`}
+                        >
+                            🎬 Phim Ảnh (30)
+                        </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+                        <button
+                            type="button"
+                            onClick={() => setWorkspaceRatio('9:16')}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                workspaceRatio === '9:16' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                            }`}
+                        >
+                            📱 Khổ Dọc 9:16 (15)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setWorkspaceRatio('16:9')}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                workspaceRatio === '16:9' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                            }`}
+                        >
+                            🖥️ Khổ Ngang 16:9 (15)
+                        </button>
+                    </div>
                 </div>
 
                 {/* Quick Preset Badges */}

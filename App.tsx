@@ -1128,15 +1128,15 @@ const App: React.FC = () => {
             ? rawSources
             : rawSources.map((_, i) => rawSources[(i + shuffleSeed) % rawSources.length]);
 
-        const categoryTemplates = POSTER_TEMPLATES.filter(t => !options.category || t.category === options.category);
+        const filtered = POSTER_TEMPLATES.filter(
+            (t) => (!options.category || t.category === options.category) && (!options.aspectRatio || t.aspectRatio === options.aspectRatio)
+        );
         const targetTemplateIds: PosterTemplateId[] =
             batchMode === 'single'
                 ? [options.templateId]
                 : batchMode === 'top4'
-                ? (options.category === 'phim_anh'
-                    ? ['movie_wetv_romance', 'movie_kdrama_split', 'movie_vieon_fireworks', 'movie_pastel_dream']
-                    : ['tnt_wood_classic', 'bff_thanh_xuan', 'kyyeu_tuoi_hoc_tro_aloha', 'bento_catalog_8'])
-                : categoryTemplates.map((t) => t.id);
+                ? filtered.slice(0, 4).map((t) => t.id)
+                : filtered.map((t) => t.id);
 
         try {
             const results: (string | null)[] = [];
