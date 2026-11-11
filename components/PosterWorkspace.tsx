@@ -62,6 +62,9 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
         }
     };
 
+    const [workspaceCategory, setWorkspaceCategory] = useState<'ky_yeu' | 'phim_anh'>('ky_yeu');
+    const filteredTemplates = POSTER_TEMPLATES.filter(t => t.category === workspaceCategory);
+
     // =========================================================================
     // Empty State: Interactive Guide & Template Showcase
     // =========================================================================
@@ -96,10 +99,10 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
                 </div>
 
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                    Ghép Poster & Catalog Kỷ Yếu Studio
+                    Ghép Poster & Catalog Studio (Kỷ Yếu & Phim Ảnh)
                 </h2>
                 <p className="mt-2 text-xs sm:text-sm leading-relaxed text-slate-600 max-w-xl mx-auto">
-                    Biến 1–10 ảnh chụp thành các tấm poster kỷ yếu, bìa tạp chí, khung tranh gỗ 3D và blend thanh xuân chỉ trong <strong className="text-slate-900 font-semibold">0.3 giây</strong>. Hoàn toàn miễn phí, không tốn quota.
+                    Biến 1–10 ảnh chụp thành các tấm poster kỷ yếu, poster phim lãng mạn, K-Drama và bìa tạp chí chỉ trong <strong className="text-slate-900 font-semibold">0.3 giây</strong>. Tự động căn khung khuôn mặt bằng AI, không cắt mất đầu.
                 </p>
 
                 {/* 3 Simple Steps */}
@@ -118,9 +121,9 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
                         <span className="w-6 h-6 rounded-lg bg-violet-50 text-violet-700 font-bold text-xs flex items-center justify-center font-mono mb-2">
                             2
                         </span>
-                        <h4 className="text-xs font-bold text-slate-900">Chọn 1 trong 10 mẫu</h4>
+                        <h4 className="text-xs font-bold text-slate-900">Chọn chủ đề & mẫu</h4>
                         <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                            TNT Khung Gỗ 3D, BFF Thanh Xuân, Bento Grid, Bìa Vogue, Dải Phim 35mm...
+                            Phân rõ 2 chủ đề: Kỷ yếu học đường (15 mẫu) hoặc Poster phim ảnh điện ảnh (7 mẫu).
                         </p>
                     </div>
 
@@ -135,10 +138,31 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
                     </div>
                 </div>
 
-                {/* 10 Quick Preset Badges */}
-                <div className="mt-6 flex flex-wrap items-center justify-center gap-1.5 max-w-2xl">
-                    <span className="text-[11px] font-semibold text-slate-500 mr-1">Các kiểu có sẵn:</span>
-                    {POSTER_TEMPLATES.map((tpl) => (
+                {/* Category Switcher for Quick Badges */}
+                <div className="mt-6 flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+                    <button
+                        type="button"
+                        onClick={() => setWorkspaceCategory('ky_yeu')}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                            workspaceCategory === 'ky_yeu' ? 'bg-white text-violet-700 shadow-2xs' : 'text-slate-600'
+                        }`}
+                    >
+                        🎓 Kỷ Yếu ({POSTER_TEMPLATES.filter(t => t.category === 'ky_yeu').length} mẫu)
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setWorkspaceCategory('phim_anh')}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                            workspaceCategory === 'phim_anh' ? 'bg-white text-rose-600 shadow-2xs' : 'text-slate-600'
+                        }`}
+                    >
+                        🎬 Phim Ảnh ({POSTER_TEMPLATES.filter(t => t.category === 'phim_anh').length} mẫu)
+                    </button>
+                </div>
+
+                {/* Quick Preset Badges */}
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 max-w-2xl">
+                    {filteredTemplates.map((tpl) => (
                         <button
                             key={tpl.id}
                             type="button"

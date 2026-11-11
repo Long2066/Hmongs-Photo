@@ -117,8 +117,9 @@ async function detectFacesNative(img: HTMLImageElement): Promise<FaceBox[]> {
 }
 
 /**
- * Saliency / Skin-tone cluster detector for full-body portraits
- * When deep ML detector misses small faces or hats, this finds the upper body head center
+ * Saliency / Skin-tone cluster detector for portraits
+ * High-precision scan restricted to UPPER 35% of the image to find the head center.
+ * Crucial: NEVER scans lower than 35% to strictly avoid detecting bare legs, knees, skirts or hands!
  */
 function detectFaceSaliencyFallback(img: HTMLImageElement): FaceBox[] {
     try {
@@ -133,16 +134,19 @@ function detectFaceSaliencyFallback(img: HTMLImageElement): FaceBox[] {
         ctx.drawImage(img, 0, 0, sampleW, sampleH);
         const imgData = ctx.getImageData(0, 0, sampleW, sampleH).data;
 
-        // Scan the top 60% of the image for skin pixels (YCbCr standard color space)
+        // Strictly scan ONLY the top 35% of the portrait where heads & faces are located
         let skinCount = 0;
-        let sumX = 0;
-        let sumY = 0;
+        let weightedSumX = 0;
+        let weightedSumY = 0;
+        let totalWeight = 0;
         let minY = sampleH;
         let maxY = 0;
-        const scanH = Math.round(sampleH * 0.6);
+        const scanH = Math.max(15, Math.round(sampleH * 0.35));
 
-        for (let y = 5; y < scanH; y += 2) {
-            for (let x = 5; x < sampleW - 5; x += 2) {
+        for (let y = 3; y < scanH; y += 2) {
+            // Give higher weight to pixels closer to the top of the head
+            const weight = 1.0 - (y / (sampleH * 0.4));
+            for (let x = 4; x < sampleW - 4; x += 2) {
                 const idx = (y * sampleW + x) * 4;
                 const r = imgData[idx];
                 const g = imgData[idx + 1];
@@ -154,28 +158,29 @@ function detectFaceSaliencyFallback(img: HTMLImageElement): FaceBox[] {
 
                 if (cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173 && r > g && g > b) {
                     skinCount++;
-                    sumX += x;
-                    sumY += y;
+                    weightedSumX += x * weight;
+                    weightedSumY += y * weight;
+                    totalWeight += weight;
                     if (y < minY) minY = y;
                     if (y > maxY) maxY = y;
                 }
             }
         }
 
-        if (skinCount > 25) {
-            const avgX = sumX / skinCount;
-            const avgY = sumY / skinCount;
+        if (skinCount > 18 && totalWeight > 0) {
+            const avgX = weightedSumX / totalWeight;
+            const avgY = weightedSumY / totalWeight;
             const scaleX = img.width / sampleW;
             const scaleY = img.height / sampleH;
-            const faceH = Math.max(img.height * 0.12, (maxY - minY) * scaleY);
+            const faceH = Math.max(img.height * 0.14, (maxY - minY + 6) * scaleY);
             const faceW = faceH * 0.85;
 
             return [{
                 x: Math.max(0, avgX * scaleX - faceW / 2),
-                y: Math.max(0, avgY * scaleY - faceH / 2),
+                y: Math.max(0, avgY * scaleY - faceH * 0.4),
                 width: faceW,
                 height: faceH,
-                score: 0.7
+                score: 0.75
             }];
         }
     } catch {
@@ -235,19 +240,31 @@ export async function detectFacesInImage(img: HTMLImageElement): Promise<FaceBox
             // Pass 1: Full image
             detectedFaces = runOnRegion(detector, 0, 0, img.width, img.height);
 
-            // Pass 2A: If full-body portrait has small distant faces missed in full pass,
-            // inspect the upper 55% half where heads are ~2x larger
-            if (detectedFaces.length === 0 && img.height > img.width * 1.1) {
-                detectedFaces = runOnRegion(detector, 0, 0, img.width, Math.round(img.height * 0.55));
+            // Pass 2A: If portrait/square has small or upper distant faces missed in full pass
+            // (e.g. one person sitting low found, standing person high missed), inspect upper 55% zoomed-in
+            const hasHighFace = detectedFaces.some(f => f.y < img.height * 0.25);
+            if ((detectedFaces.length === 0 || !hasHighFace) && img.height >= img.width * 0.85) {
+                const upperFaces = runOnRegion(detector, 0, 0, img.width, Math.round(img.height * 0.55));
+                for (const uf of upperFaces) {
+                    const isDup = detectedFaces.some(df =>
+                        Math.abs(df.x - uf.x) < df.width * 0.6 && Math.abs(df.y - uf.y) < df.height * 0.6
+                    );
+                    if (!isDup) detectedFaces.push(uf);
+                }
             }
 
             // Pass 2B: If wide landscape group shot has small distant faces,
             // inspect left & right halves separately so each person is 2x larger
-            if (detectedFaces.length === 0 && img.width > img.height * 1.15) {
+            if (detectedFaces.length <= 1 && img.width > img.height * 1.15) {
                 const halfW = Math.round(img.width * 0.55);
                 const leftFaces = runOnRegion(detector, 0, 0, halfW, img.height);
                 const rightFaces = runOnRegion(detector, img.width - halfW, 0, halfW, img.height);
-                detectedFaces = [...leftFaces, ...rightFaces];
+                for (const hf of [...leftFaces, ...rightFaces]) {
+                    const isDup = detectedFaces.some(df =>
+                        Math.abs(df.x - hf.x) < df.width * 0.6 && Math.abs(df.y - hf.y) < df.height * 0.6
+                    );
+                    if (!isDup) detectedFaces.push(hf);
+                }
             }
         }
     } catch (e) {
@@ -259,8 +276,8 @@ export async function detectFacesInImage(img: HTMLImageElement): Promise<FaceBox
         detectedFaces = await detectFacesNative(img);
     }
 
-    // 3. Try Saliency / Skin-Cluster Fallback for full-body portraits
-    if (detectedFaces.length === 0 && img.height > img.width * 1.1) {
+    // 3. Try Saliency / Skin-Cluster Fallback in upper 35% of image if still nothing
+    if (detectedFaces.length === 0 && img.height >= img.width * 0.85) {
         detectedFaces = detectFaceSaliencyFallback(img);
     }
 
@@ -286,8 +303,8 @@ export function calculateSmartCrop(
     let sx = 0;
     let sy = 0;
 
-    // Headroom multiplier: 0.15 (Trên) -> 1.3x, 0.3 (Chuẩn) -> 1.05x, 0.5 (Giữa) -> 0.6x
-    const headroomFactor = cropBiasY <= 0.2 ? 1.3 : cropBiasY <= 0.35 ? 1.05 : 0.6;
+    // Headroom multiplier: 0.15 (Mũ/Đầu) -> 1.45x, 0.3 (Chuẩn) -> 1.18x, 0.5 (Ngực) -> 0.7x
+    const headroomFactor = cropBiasY <= 0.2 ? 1.45 : cropBiasY <= 0.35 ? 1.18 : 0.7;
 
     // CASE 1: Target slot is WIDER than image (Vertical photo -> Landscape / Square slot)
     // Needs VERTICAL cropping (crop top/bottom).
@@ -302,20 +319,27 @@ export function calculateSmartCrop(
             const maxFaceY = Math.max(...faces.map(f => f.y + f.height));
             const avgFaceH = faces.reduce((sum, f) => sum + f.height, 0) / faces.length;
 
-            // Headroom needed for hair, traditional hats (mũ thổ cẩm), graduation caps
-            const headroom = Math.max(avgFaceH * headroomFactor, 25);
+            // Headroom needed for hair, graduation caps, traditional headdress
+            const headroom = Math.max(avgFaceH * headroomFactor, 30);
 
             // Anchor top of crop window at (minFaceY - headroom)
             const idealTop = Math.max(0, minFaceY - headroom);
 
-            // Ensure the faces don't get cut at the bottom if sHeight is small
-            const requiredBottom = maxFaceY + avgFaceH * 0.35;
+            // GOLDEN PHOTOGRAPHY RULE: NEVER SEVER THE TOP PERSON'S HEAD/EYES!
+            // When multiple faces span a vertical range larger than sHeight (e.g. 1 standing, 1 sitting),
+            // NEVER take the mathematical average (minFaceY + maxFaceY) / 2 because that slices the
+            // top person across the forehead/eyes!
+            // Instead, firmly anchor sy <= idealTop so the highest head is 100% intact.
+            const requiredBottom = maxFaceY + avgFaceH * 0.3;
             if (idealTop + sHeight < requiredBottom) {
-                // If crop height is too short to show both top and bottom with generous headroom,
-                // adjust so faces are centered inside the slot
-                sy = Math.max(0, Math.min(excessY, (minFaceY + maxFaceY) / 2 - sHeight * 0.42));
-            } else {
+                // Both faces cannot fit simultaneously inside this thin landscape slot:
+                // Anchor firmly to the top person's head!
                 sy = Math.max(0, Math.min(excessY, idealTop));
+            } else {
+                // Both fit! Distribute remaining space gracefully with headroom preserved
+                const facesSpan = requiredBottom - idealTop;
+                const extraSlack = sHeight - facesSpan;
+                sy = Math.max(0, Math.min(excessY, idealTop - extraSlack * 0.3));
             }
 
             return {
@@ -327,10 +351,10 @@ export function calculateSmartCrop(
                 faceCount: faces.length
             };
         } else {
-            // Heuristic Fallback for portraits (Head is ALWAYS in the top 10-15%)
+            // Heuristic Fallback for portraits (Head is ALWAYS in the top 5-15%)
             // Never cut at center (0.5) or 0.3 which cuts off at chin!
             const isTallPortrait = img.height > img.width * 1.15;
-            const topAnchor = isTallPortrait ? (cropBiasY <= 0.2 ? 0.02 : 0.05) : 0.22;
+            const topAnchor = isTallPortrait ? (cropBiasY <= 0.2 ? 0.02 : 0.05) : (cropBiasY <= 0.2 ? 0.05 : 0.12);
             sy = Math.max(0, Math.min(excessY, excessY * topAnchor));
 
             return {

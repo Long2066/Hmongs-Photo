@@ -1082,9 +1082,33 @@ const App: React.FC = () => {
     }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser]);
 
     // 9. Poster Studio Generation (Client-Side High-DPI Canvas Engine - 0 API cost)
+    const handleSwapPosterInputs = useCallback((i: number, j: number) => {
+        setModeStates(prev => {
+            const list = [...(prev['poster']?.inputs || [])];
+            if (i < 0 || j < 0 || i >= list.length || j >= list.length) return prev;
+            const temp = list[i];
+            list[i] = list[j];
+            list[j] = temp;
+            return {
+                ...prev,
+                poster: { ...prev.poster, inputs: list }
+            };
+        });
+    }, []);
+
+    const handleRemovePosterInput = useCallback((idx: number) => {
+        setModeStates(prev => {
+            const list = (prev['poster']?.inputs || []).filter((_, i) => i !== idx);
+            return {
+                ...prev,
+                poster: { ...prev.poster, inputs: list }
+            };
+        });
+    }, []);
+
     const handleGeneratePoster = useCallback(async (
         options: PosterOptions,
-        batchMode: 'single' | 'top4' | 'all10',
+        batchMode: 'single' | 'top4' | 'all',
         shuffleSeed: number = 0
     ) => {
         const inputs = modeStates['poster']?.inputs || [];
@@ -1104,12 +1128,15 @@ const App: React.FC = () => {
             ? rawSources
             : rawSources.map((_, i) => rawSources[(i + shuffleSeed) % rawSources.length]);
 
+        const categoryTemplates = POSTER_TEMPLATES.filter(t => !options.category || t.category === options.category);
         const targetTemplateIds: PosterTemplateId[] =
             batchMode === 'single'
                 ? [options.templateId]
                 : batchMode === 'top4'
-                ? ['tnt_wood_classic', 'bff_thanh_xuan', 'bento_catalog_8', 'magazine_vogue']
-                : POSTER_TEMPLATES.map((t) => t.id);
+                ? (options.category === 'phim_anh'
+                    ? ['movie_wetv_romance', 'movie_kdrama_split', 'movie_vieon_fireworks', 'movie_pastel_dream']
+                    : ['tnt_wood_classic', 'bff_thanh_xuan', 'kyyeu_tuoi_hoc_tro_aloha', 'bento_catalog_8'])
+                : categoryTemplates.map((t) => t.id);
 
         try {
             const results: (string | null)[] = [];
@@ -1123,7 +1150,7 @@ const App: React.FC = () => {
                 const renderedUrl = await renderStudioPoster(arrangedSources, {
                     ...options,
                     templateId: tplId,
-                    resolution: batchMode === 'all10' ? 'HD' : options.resolution
+                    resolution: batchMode === 'all' ? 'HD' : options.resolution
                 });
                 results.push(renderedUrl);
                 labels.push(meta?.name || tplId);
@@ -1239,6 +1266,9 @@ const App: React.FC = () => {
                     isLoading={isLoading}
                     hasInputImage={mState.inputs.length > 0}
                     inputCount={mState.inputs.length}
+                    inputImages={mState.inputs.map(img => img.base64)}
+                    onSwapInputs={handleSwapPosterInputs}
+                    onRemoveInput={handleRemovePosterInput}
                     selectedTemplateId={posterTemplateId}
                     onTemplateSelect={setPosterTemplateId}
                 />
