@@ -2118,6 +2118,113 @@ ${ULTRA_SHARP_QUALITY}`;
     return null;
 };
 
+// --- AI POSTER GENERATION (Multi-reference studio graphic design) ---
+export const generateAiPoster = async (
+    apiKey: string,
+    referenceImages: ImagePart[],
+    prompt: string,
+    aspectRatio: string = '9:16'
+): Promise<string | null> => {
+    const useNineRouterMode = nineRouterService.isNineRouterEnabled();
+    const useAntigravityMode = antigravityService.isAntigravityEnabled();
+    const systemApiKey = getVIPApiKey();
+    const useVipMode = systemApiKey !== null;
+    const geminiApiKey = getStoredApiKey('gemini') || apiKey;
+
+    const enhancedPrompt = `${prompt}
+
+${CLEAN_OUTPUT_REQUIREMENTS}
+
+${ULTRA_SHARP_QUALITY}`;
+
+    // PRIORITY -1: NineRouter mode
+    if (useNineRouterMode) {
+        const status = await nineRouterService.checkConnection();
+        if (status.connected) {
+            console.log('[AI Poster] Using NineRouter mode');
+            try {
+                const result = await nineRouterService.generateImageViaNineRouter({
+                    prompt: enhancedPrompt,
+                    referenceImages: referenceImages,
+                    aspectRatio: aspectRatio,
+                    taskType: 'poster'
+                });
+                if (result) return result;
+                throw new Error('NINEROUTER_POSTER_FAILED');
+            } catch (err) {
+                console.error('[AI Poster] NineRouter failed:', err);
+                throw new Error('NINEROUTER_POSTER_FAILED');
+            }
+        }
+    }
+
+    // PRIORITY 0: Antigravity mode
+    if (useAntigravityMode) {
+        const status = await antigravityService.checkConnection();
+        if (status.connected) {
+            console.log('[AI Poster] Using Antigravity mode');
+            const result = await antigravityService.generateImageSimple(
+                enhancedPrompt,
+                referenceImages
+            );
+            if (result) return result;
+            throw new Error('ANTIGRAVITY_POSTER_FAILED');
+        }
+    }
+
+    // VIP Mode: System Key
+    if (useVipMode && systemApiKey) {
+        try {
+            const result = await generateImageWithSystemKey(systemApiKey, enhancedPrompt, referenceImages, aspectRatio);
+            if (result) return result;
+            throw new Error('VIP_POSTER_FAILED');
+        } catch (err) {
+            console.error('[VIP] Poster failed:', err);
+            throw new Error('VIP_POSTER_FAILED');
+        }
+    }
+
+    // FREE Mode ONLY
+    if (geminiApiKey && !useVipMode && !useAntigravityMode && !useNineRouterMode) {
+        const ai = await getEffectiveGeminiClient(geminiApiKey) || getGeminiClient(geminiApiKey);
+        const parts = referenceImages.map(img => ({
+            inlineData: {
+                data: img.data,
+                mimeType: img.mimeType
+            }
+        }));
+
+        return await callWithRetry(async () => {
+            const response = await ai.models.generateContent({
+                model: getActiveImageModel(),
+                contents: {
+                    parts: [
+                        ...parts,
+                        { text: enhancedPrompt }
+                    ]
+                },
+                config: {
+                    responseModalities: [Modality.IMAGE, Modality.TEXT],
+                    imageConfig: {
+                        aspectRatio: aspectRatio as any
+                    }
+                }
+            });
+
+            if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData) {
+                        return part.inlineData.data;
+                    }
+                }
+            }
+            return null;
+        }, 3, 5000);
+    }
+
+    throw new Error('Vui lòng kiểm tra cấu hình AI Gateway hoặc API Key.');
+};
+
 // --- BATCH EDIT IMAGES (Multiple outputs) ---
 export const editImages = async (
     apiKey: string,

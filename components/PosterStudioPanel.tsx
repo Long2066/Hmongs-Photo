@@ -1,18 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import { ModelSelector } from './ModelSelector';
 import {
-    POSTER_TEMPLATES,
-    THEME_COLOR_PRESETS,
-    YEARBOOK_QUOTE_PRESETS,
     PosterOptions,
     PosterTemplateId,
-    PosterCategory,
-    PosterAspectRatio,
-    PosterTemplateMeta
+    PosterAspectRatio
 } from '../services/posterRenderService';
 
 interface PosterStudioPanelProps {
-    onGeneratePoster: (options: PosterOptions, batchMode: 'single' | 'top4' | 'all', shuffleSeed: number) => void;
+    onAiGeneratePoster: (prompt: string, aspectRatio: string, branding: any) => void;
+    onGeneratePoster?: (options: PosterOptions, batchMode: 'single' | 'top4' | 'all', shuffleSeed: number) => void;
     isLoading: boolean;
+    isDisabled: boolean;
     hasInputImage: boolean;
     inputCount: number;
     inputImages?: string[];
@@ -22,854 +20,401 @@ interface PosterStudioPanelProps {
     onTemplateSelect?: (id: PosterTemplateId) => void;
 }
 
-const STORAGE_KEY_BRANDING = 'imagetool_poster_branding_v3';
-const STORAGE_KEY_CATEGORY = 'imagetool_poster_active_category_v3';
-const STORAGE_KEY_RATIO = 'imagetool_poster_active_ratio_v3';
+const STORAGE_KEY_POSTER_PROMPT = 'imagetool_ai_poster_prompt_v1';
+const STORAGE_KEY_POSTER_BRANDING = 'imagetool_ai_poster_branding_v1';
+const STORAGE_KEY_POSTER_RATIO = 'imagetool_ai_poster_ratio_v1';
 
-interface SavedBranding {
-    conceptName: string;
-    studioName: string;
-    slogan: string;
-    hotline: string;
-    yearTag: string;
-    accentColor: string;
-    quoteText: string;
-    movieTitle: string;
-    movieSubtitle: string;
-    actors: string;
-    platform: 'wetv' | 'vieon' | 'netflix' | 'cinema' | 'none';
-    broadcastTime: string;
-    releaseDate: string;
-}
-
-const DEFAULT_BRANDING: SavedBranding = {
-    conceptName: 'Tuổi Học Trò',
-    studioName: 'TNT MEDIA',
-    slogan: 'TOP 10 KỶ YẾU CÓ TÂM',
-    hotline: '094 191 59 68',
-    yearTag: 'kỷ yếu 2025-2026',
-    accentColor: '#e11d48',
-    quoteText: 'Điều đẹp đẽ không phải tuổi thanh xuân, mà là trong tuổi thanh xuân đó có họ.',
-    movieTitle: 'TÌNH YÊU ANH DÀNH CHO EM',
-    movieSubtitle: 'One Of A Kind Romance',
-    actors: 'TUẤN ANH  ✕  THU TRANG',
-    platform: 'wetv',
-    broadcastTime: '19:00 Mỗi ngày | TRỌN BỘ',
-    releaseDate: '28.12.2026'
-};
-
-/**
- * Intelligent Dynamic Wireframe SVG Component
- * Generates accurate visual representations for all 60 templates
- */
-const TemplateWireframeSvg: React.FC<{ template: PosterTemplateMeta; activeColor: string }> = ({ template, activeColor }) => {
-    const is916 = template.aspectRatio === '9:16';
-    const stroke = activeColor;
-
-    if (is916) {
-        // Vertical 9:16 wireframe (viewBox 0 0 40 64)
-        return (
-            <svg viewBox="0 0 40 64" className="w-full h-full">
-                <rect x="2" y="2" width="36" height="60" rx="3" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
-                {template.id.includes('vogue') ? (
-                    <>
-                        <rect x="4" y="4" width="32" height="56" rx="2" fill="#334155" />
-                        <rect x="6" y="8" width="28" height="6" rx="1" fill="#ffffff" />
-                        <rect x="18" y="48" width="5" height="8" rx="0.5" fill="#94a3b8" />
-                        <rect x="24" y="48" width="5" height="8" rx="0.5" fill="#94a3b8" />
-                    </>
-                ) : template.id.includes('bento') ? (
-                    <>
-                        <rect x="5" y="5" width="30" height="26" rx="2" fill={stroke} opacity="0.85" />
-                        <rect x="5" y="34" width="14" height="12" rx="1.5" fill="#94a3b8" />
-                        <rect x="21" y="34" width="14" height="12" rx="1.5" fill="#94a3b8" />
-                        <rect x="5" y="48" width="14" height="11" rx="1.5" fill="#64748b" />
-                        <rect x="21" y="48" width="14" height="11" rx="1.5" fill="#64748b" />
-                    </>
-                ) : template.id.includes('newspaper') ? (
-                    <>
-                        <rect x="4" y="4" width="32" height="56" rx="1.5" fill="#f6f1e8" stroke="#78350f" strokeWidth="0.8" />
-                        <rect x="7" y="7" width="26" height="4" fill="#1e293b" />
-                        <rect x="7" y="13" width="26" height="24" fill="#64748b" />
-                        <rect x="7" y="40" width="8" height="16" fill="#94a3b8" />
-                        <rect x="16" y="40" width="8" height="16" fill="#94a3b8" />
-                        <rect x="25" y="40" width="8" height="16" fill="#94a3b8" />
-                    </>
-                ) : template.id.includes('music_player') ? (
-                    <>
-                        <rect x="4" y="4" width="32" height="56" rx="3" fill="#1e293b" />
-                        <rect x="6" y="8" width="28" height="26" rx="2" fill={stroke} opacity="0.8" />
-                        <rect x="6" y="36" width="13" height="12" rx="1.5" fill="#64748b" />
-                        <rect x="21" y="36" width="13" height="12" rx="1.5" fill="#64748b" />
-                        <circle cx="20" cy="54" r="4" fill="#ffffff" opacity="0.7" />
-                    </>
-                ) : template.id.includes('kdrama') ? (
-                    <>
-                        <rect x="4" y="4" width="32" height="56" rx="2" fill="#09090b" />
-                        <rect x="6" y="6" width="13" height="26" rx="1" fill="#f43f5e" opacity="0.85" />
-                        <rect x="21" y="6" width="13" height="26" rx="1" fill="#3b82f6" opacity="0.85" />
-                        <rect x="6" y="34" width="28" height="24" rx="1" fill="#64748b" />
-                        <rect x="8" y="30" width="24" height="4" rx="1" fill="#ffffff" />
-                    </>
-                ) : (
-                    <>
-                        <rect x="5" y="6" width="30" height="32" rx="2" fill={stroke} opacity="0.75" />
-                        <rect x="5" y="41" width="14" height="17" rx="1.5" fill="#94a3b8" />
-                        <rect x="21" y="41" width="14" height="17" rx="1.5" fill="#64748b" />
-                    </>
-                )}
-            </svg>
-        );
+const QUICK_TOPIC_PRESETS = [
+    {
+        title: '🎓 Kỉ niệm sinh viên (Music Studio)',
+        prompt: 'Poster kỷ yếu sinh viên đại học phong cách Music Studio 2026, cặp đôi rạng rỡ dưới tán hoa phượng vĩ đỏ mùa hè, dải ruy băng lụa đỏ uốn lượn chân trang, 2 ảnh Polaroid nghiêng nghệ thuật, ánh nắng vàng rực rỡ.',
+        studio: 'Music Studio',
+        concept: 'Sinh viên',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        title: '💍 Ngày cưới (Wedding Save The Date)',
+        prompt: 'Poster ảnh cưới lãng mạn phong cách K-Drama sang trọng, cặp đôi trong trang phục cưới thanh lịch, ánh hoàng hôn ngược nắng ven tóc vàng óng, hoa baby trắng, vệt sáng lóa điện ảnh và chữ Save The Date.',
+        studio: 'Wedding Art',
+        concept: 'Save The Date',
+        year: 'Happy Wedding 2026'
+    },
+    {
+        title: '🎞️ Dải phim 35mm hoài niệm',
+        prompt: 'Poster kỷ yếu dải phim nhựa 35mm uốn lượn 3D ôm quanh 4 khoảnh khắc tuổi học trò, sticker xé giấy màu đỏ và vàng, doodle tai nghe và máy bay giấy, tone màu retro hoài niệm.',
+        studio: 'Music Studio',
+        concept: 'Thanh Xuân',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        title: '📻 Sổ tay giấy rách & Đĩa than',
+        prompt: 'Poster phong cách Vintage Scrapbook bìa Kraft xé viền cháy, đĩa than vinyl đen bóng, cuộn băng cassette, kẹp bướm vàng, 4 ảnh Polaroid dán băng dính và nhành hoa phượng.',
+        studio: 'Music Studio',
+        concept: 'Sinh viên',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        title: '🎸 Pop-Art năng động & Guitar',
+        prompt: 'Poster Pop-Art tuổi trẻ năng động với đàn guitar acoustic, tai nghe DJ, đĩa than vinyl, dải sóng âm thanh và đường lượn sóng vàng-xanh-đỏ rực rỡ.',
+        studio: 'Music Studio',
+        concept: 'Sinh viên',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        title: '👑 Bìa tạp chí thời trang Vogue',
+        prompt: 'Poster bìa tạp chí thời trang cao cấp Vogue High-Fashion, nhân vật chính tạo dáng thần thái cuốn hút, tiêu đề VOGUE in hoa sang trọng, mã vạch barcode và ảnh hậu trường.',
+        studio: 'Vogue Studio',
+        concept: 'Editorial Special',
+        year: 'Special Edition'
+    },
+    {
+        title: '🍂 Mùa thu lá vàng Seoul',
+        prompt: 'Poster lãng mạn mùa thu Hàn Quốc với lá phong đỏ và lá ngân hạnh vàng bay bồng bềnh trong gió, tone màu latte ấm áp, cặp đôi quàng khăn len nụ cười hạnh phúc.',
+        studio: 'Autumn Romance',
+        concept: 'Mùa Thu Yêu Thương',
+        year: 'Seoul 2026'
+    },
+    {
+        title: '❄️ Mùa đông tuyết trắng cổ tích',
+        prompt: 'Poster mùa đông tuyết trắng cổ tích, những hạt tuyết li ti bay mờ ảo, ánh đèn dây tóc fairy lights vàng ấm áp xua tan giá lạnh, cặp đôi ấm áp bên nhau.',
+        studio: 'Winter Tale',
+        concept: 'Tuyết Đầu Mùa',
+        year: 'Winter 2026'
     }
-
-    // Horizontal 16:9 wireframe (viewBox 0 0 64 38)
-    return (
-        <svg viewBox="0 0 64 38" className="w-full h-full">
-            <rect x="2" y="2" width="60" height="34" rx="3" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
-            {template.id.includes('widescreen') ? (
-                <>
-                    <rect x="4" y="4" width="56" height="30" rx="1" fill="#000000" />
-                    <rect x="4" y="9" width="56" height="20" fill={stroke} opacity="0.8" />
-                    <rect x="18" y="23" width="28" height="3" rx="1" fill="#fbbf24" />
-                </>
-            ) : template.id.includes('curved_film') ? (
-                <>
-                    <rect x="4" y="4" width="56" height="30" rx="2" fill="#e0e7ff" />
-                    <path d="M4 22 Q 32 8, 60 20" stroke="#4338ca" strokeWidth="12" fill="none" opacity="0.9" />
-                    <rect x="12" y="14" width="8" height="8" rx="1" fill="#ffffff" />
-                    <rect x="26" y="10" width="8" height="8" rx="1" fill="#ffffff" />
-                    <rect x="40" y="14" width="8" height="8" rx="1" fill="#ffffff" />
-                </>
-            ) : template.id.includes('wall_gallery') ? (
-                <>
-                    <rect x="4" y="4" width="56" height="30" rx="2" fill="#e2e8f0" />
-                    <rect x="6" y="12" width="7" height="14" fill="#64748b" stroke="#92400e" strokeWidth="0.8" />
-                    <rect x="16" y="9" width="9" height="20" fill="#64748b" stroke="#92400e" strokeWidth="0.8" />
-                    <rect x="27" y="7" width="10" height="24" fill={stroke} opacity="0.8" stroke="#92400e" strokeWidth="1" />
-                    <rect x="39" y="9" width="9" height="20" fill="#64748b" stroke="#92400e" strokeWidth="0.8" />
-                    <rect x="51" y="12" width="7" height="14" fill="#64748b" stroke="#92400e" strokeWidth="0.8" />
-                </>
-            ) : template.id.includes('bento') ? (
-                <>
-                    <rect x="5" y="5" width="13" height="13" rx="1.5" fill="#f59e0b" />
-                    <rect x="20" y="5" width="13" height="13" rx="1.5" fill="#d97706" />
-                    <rect x="35" y="5" width="24" height="13" rx="1.5" fill={stroke} opacity="0.85" />
-                    <rect x="5" y="20" width="17" height="13" rx="1.5" fill="#64748b" />
-                    <rect x="24" y="20" width="17" height="13" rx="1.5" fill="#64748b" />
-                    <rect x="43" y="20" width="16" height="13" rx="1.5" fill="#94a3b8" />
-                </>
-            ) : template.id.includes('timeline') || template.id.includes('contact_sheet') ? (
-                <>
-                    <rect x="4" y="4" width="56" height="30" rx="1" fill="#18181b" />
-                    <rect x="6" y="8" width="7" height="22" rx="1" fill="#38bdf8" opacity="0.8" />
-                    <rect x="15" y="8" width="7" height="22" rx="1" fill="#64748b" />
-                    <rect x="24" y="8" width="7" height="22" rx="1" fill="#64748b" />
-                    <rect x="33" y="8" width="7" height="22" rx="1" fill="#64748b" />
-                    <rect x="42" y="8" width="7" height="22" rx="1" fill="#64748b" />
-                    <rect x="51" y="8" width="7" height="22" rx="1" fill="#94a3b8" />
-                </>
-            ) : (
-                <>
-                    <rect x="5" y="5" width="26" height="28" rx="2" fill={stroke} opacity="0.8" />
-                    <rect x="34" y="5" width="25" height="13" rx="1.5" fill="#64748b" />
-                    <rect x="34" y="20" width="25" height="13" rx="1.5" fill="#94a3b8" />
-                </>
-            )}
-        </svg>
-    );
-};
+];
 
 export const PosterStudioPanel: React.FC<PosterStudioPanelProps> = ({
+    onAiGeneratePoster,
     onGeneratePoster,
     isLoading,
+    isDisabled,
     hasInputImage,
     inputCount,
     inputImages = [],
     onSwapInputs,
-    onRemoveInput,
-    selectedTemplateId: externalTemplateId,
-    onTemplateSelect
+    onRemoveInput
 }) => {
-    // 1. Tầng 1: Chủ Đề (Kỷ Yếu vs Phim Ảnh)
-    const [activeCategory, setActiveCategory] = useState<PosterCategory>(() => {
+    // 1. Prompt state
+    const [prompt, setPrompt] = useState<string>(() => {
         try {
-            const saved = localStorage.getItem(STORAGE_KEY_CATEGORY);
-            if (saved === 'ky_yeu' || saved === 'phim_anh') return saved;
+            return localStorage.getItem(STORAGE_KEY_POSTER_PROMPT) || QUICK_TOPIC_PRESETS[0].prompt;
         } catch {
-            // Safe
+            return QUICK_TOPIC_PRESETS[0].prompt;
         }
-        return 'ky_yeu';
     });
 
-    // 2. Tầng 2: Tỷ Lệ Màn Hình (9:16 Dọc vs 16:9 Ngang)
-    const [activeAspectRatio, setActiveAspectRatio] = useState<PosterAspectRatio>(() => {
+    // 2. Aspect Ratio state (9:16 default, 16:9, 1:1)
+    const [aspectRatio, setAspectRatio] = useState<string>(() => {
         try {
-            const saved = localStorage.getItem(STORAGE_KEY_RATIO);
-            if (saved === '9:16' || saved === '16:9') return saved;
+            return localStorage.getItem(STORAGE_KEY_POSTER_RATIO) || '9:16';
         } catch {
-            // Safe
+            return '9:16';
         }
-        return '9:16';
     });
 
-    const [internalTemplateId, setInternalTemplateId] = useState<PosterTemplateId>('kyyeu_916_film_sotay');
-    const selectedTemplateId = externalTemplateId ?? internalTemplateId;
-
-    const setSelectedTemplateId = (id: PosterTemplateId) => {
-        setInternalTemplateId(id);
-        onTemplateSelect?.(id);
-    };
-
-    const [branding, setBranding] = useState<SavedBranding>(() => {
+    // 3. Branding text state
+    const [branding, setBranding] = useState<{
+        studioName: string;
+        conceptName: string;
+        yearTag: string;
+        hotline: string;
+    }>(() => {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY_BRANDING);
-            if (raw) return { ...DEFAULT_BRANDING, ...JSON.parse(raw) };
-        } catch {
-            // Safe ignore
-        }
-        return DEFAULT_BRANDING;
+            const raw = localStorage.getItem(STORAGE_KEY_POSTER_BRANDING);
+            if (raw) return JSON.parse(raw);
+        } catch {}
+        return {
+            studioName: 'Music Studio',
+            conceptName: 'Sinh viên',
+            yearTag: 'Kỉ niệm 2026',
+            hotline: '0342 733 640'
+        };
     });
 
-    const [resolution, setResolution] = useState<'HD' | '2K'>('2K');
-    const [cropBiasY, setCropBiasY] = useState<number>(0.3);
-    const [shuffleSeed, setShuffleSeed] = useState<number>(0);
-
-    // Save branding, category & aspect ratio automatically
+    // Auto-save settings
     useEffect(() => {
         try {
-            localStorage.setItem(STORAGE_KEY_BRANDING, JSON.stringify(branding));
+            localStorage.setItem(STORAGE_KEY_POSTER_PROMPT, prompt);
+        } catch {}
+    }, [prompt]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(STORAGE_KEY_POSTER_RATIO, aspectRatio);
+        } catch {}
+    }, [aspectRatio]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(STORAGE_KEY_POSTER_BRANDING, JSON.stringify(branding));
         } catch {}
     }, [branding]);
 
-    useEffect(() => {
-        try {
-            localStorage.setItem(STORAGE_KEY_CATEGORY, activeCategory);
-        } catch {}
-    }, [activeCategory]);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem(STORAGE_KEY_RATIO, activeAspectRatio);
-        } catch {}
-    }, [activeAspectRatio]);
-
-    // Filter templates strictly by BOTH category and aspect ratio (Always exactly 15 templates!)
-    const activeTemplates = POSTER_TEMPLATES.filter(
-        (t) => t.category === activeCategory && t.aspectRatio === activeAspectRatio
-    );
-    const currentTemplate = POSTER_TEMPLATES.find((t) => t.id === selectedTemplateId) || activeTemplates[0];
-
-    // Ensure selected template stays in active category & ratio
-    const handleSwitchCategory = (cat: PosterCategory) => {
-        setActiveCategory(cat);
-        const match = POSTER_TEMPLATES.find((t) => t.category === cat && t.aspectRatio === activeAspectRatio);
-        if (match) setSelectedTemplateId(match.id);
+    // Handle Quick Chip click
+    const handleSelectPreset = (preset: typeof QUICK_TOPIC_PRESETS[0]) => {
+        setPrompt(preset.prompt);
+        setBranding((prev) => ({
+            ...prev,
+            studioName: preset.studio,
+            conceptName: preset.concept,
+            yearTag: preset.year
+        }));
     };
 
-    const handleSwitchRatio = (ratio: PosterAspectRatio) => {
-        setActiveAspectRatio(ratio);
-        const match = POSTER_TEMPLATES.find((t) => t.category === activeCategory && t.aspectRatio === ratio);
-        if (match) setSelectedTemplateId(match.id);
-    };
-
-    const buildOptions = (): PosterOptions => ({
-        templateId: selectedTemplateId,
-        category: activeCategory,
-        aspectRatio: activeAspectRatio,
-        conceptName: branding.conceptName,
-        studioName: branding.studioName,
-        slogan: branding.slogan,
-        hotline: branding.hotline,
-        yearTag: branding.yearTag,
-        accentColor: branding.accentColor,
-        resolution,
-        cropBiasY,
-        quoteText: branding.quoteText,
-        movieTitle: branding.movieTitle,
-        movieSubtitle: branding.movieSubtitle,
-        actors: branding.actors,
-        platform: branding.platform,
-        broadcastTime: branding.broadcastTime,
-        releaseDate: branding.releaseDate
-    });
-
-    const handleTriggerSingle = () => {
-        if (!hasInputImage || isLoading) return;
-        onGeneratePoster(buildOptions(), 'single', shuffleSeed);
-    };
-
-    const handleTriggerBatch4 = () => {
-        if (!hasInputImage || isLoading) return;
-        onGeneratePoster(buildOptions(), 'top4', shuffleSeed);
-    };
-
-    const handleTriggerAll = () => {
-        if (!hasInputImage || isLoading) return;
-        onGeneratePoster(buildOptions(), 'all', shuffleSeed);
+    const handleTriggerAiGenerate = () => {
+        if (isLoading || isDisabled || !hasInputImage || !prompt.trim()) return;
+        onAiGeneratePoster(prompt.trim(), aspectRatio, branding);
     };
 
     return (
-        <div className="flex flex-col gap-4 text-slate-800">
-            {/* TẦNG 1: Chọn Chủ Đề (Kỷ Yếu vs Phim Ảnh) */}
-            <div className="p-1 bg-slate-100 rounded-2xl flex items-center gap-1 shadow-2xs">
-                <button
-                    type="button"
-                    onClick={() => handleSwitchCategory('ky_yeu')}
-                    className={`flex-1 min-h-[42px] py-2 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                        activeCategory === 'ky_yeu'
-                            ? 'bg-white text-violet-700 shadow-sm ring-1 ring-slate-900/5'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span className="text-base">🎓</span>
-                    <span>Kỷ Yếu Học Đường (30 Mẫu)</span>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => handleSwitchCategory('phim_anh')}
-                    className={`flex-1 min-h-[42px] py-2 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                        activeCategory === 'phim_anh'
-                            ? 'bg-white text-rose-600 shadow-sm ring-1 ring-slate-900/5'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span className="text-base">🎬</span>
-                    <span>Poster Phim Ảnh (30 Mẫu)</span>
-                </button>
+        <div className="flex flex-col gap-5 text-slate-800">
+            {/* Header Badge */}
+            <div className="bg-gradient-to-r from-violet-50 via-indigo-50 to-purple-50 p-4 rounded-2xl border border-violet-200/90 flex gap-3 shadow-xs ring-1 ring-violet-500/10">
+                <div className="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center text-xl flex-shrink-0 shadow-sm shadow-violet-500/25">
+                    🎨
+                </div>
+                <div>
+                    <h3 className="text-sm font-extrabold text-slate-900 leading-tight">
+                        Studio Thiết Kế Poster AI (Generative Model)
+                    </h3>
+                    <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                        AI tự động phân tích ảnh gốc & phối hợp bố cục đa tầng chân thực như ChatGPT (Nhận tối đa 10 ảnh tham chiếu).
+                    </p>
+                </div>
             </div>
 
-            {/* TẦNG 2: Bộ Lọc Tỷ Lệ Màn Hình (9:16 Dọc vs 16:9 Ngang) */}
-            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl ring-1 ring-slate-900/5">
-                <span className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider pl-1.5 hidden sm:inline">
-                    Tỷ lệ:
+            {/* Model Selector (Y chang các tính năng khác trong tool) */}
+            <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                    1. Chọn Model Tạo Ảnh AI
+                </label>
+                <ModelSelector className="" imageCount={1} showResolution={true} />
+            </div>
+
+            {/* Input Status Banner (Tối đa 10 ảnh) */}
+            <div className="bg-gradient-to-r from-violet-50 to-teal-50 border border-violet-200/90 rounded-xl p-3 flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-violet-600 animate-pulse"></span>
+                    <span className="text-xs font-bold text-slate-800">
+                        {inputCount > 0 ? (
+                            <>
+                                Đã nạp <span className="text-violet-700 font-extrabold">{inputCount}</span> ảnh đầu vào (Tối đa 10 ảnh)
+                            </>
+                        ) : (
+                            <>Chưa nạp ảnh đầu vào (Tối đa 10 ảnh)</>
+                        )}
+                    </span>
+                </div>
+                <span className="text-[11px] font-mono font-bold text-violet-700 bg-white px-2.5 py-0.5 rounded-md border border-violet-200">
+                    {inputCount}/10 Slot
                 </span>
-                <button
-                    type="button"
-                    onClick={() => handleSwitchRatio('9:16')}
-                    className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        activeAspectRatio === '9:16'
-                            ? 'bg-white text-slate-900 shadow-2xs ring-1 ring-slate-900/10'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span>📱</span>
-                    <span>Khổ Dọc 9:16 (15 Mẫu)</span>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => handleSwitchRatio('16:9')}
-                    className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        activeAspectRatio === '16:9'
-                            ? 'bg-white text-slate-900 shadow-2xs ring-1 ring-slate-900/10'
-                            : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    <span>🖥️</span>
-                    <span>Khổ Ngang 16:9 (15 Mẫu)</span>
-                </button>
             </div>
 
-            {/* Khay Gán Ảnh Trực Quan Theo Từng Ô (Slot Manager) */}
+            {/* Khay Sắp Xếp Ảnh Đầu Vào (Để user biết ảnh nào là #1 Hero) */}
             {inputCount > 0 && (
                 <div className="bg-slate-50 p-3 rounded-2xl ring-1 ring-slate-900/5 space-y-2">
                     <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                             <span>🎞️</span>
-                            <span>Khay Sắp Xếp Ảnh ({inputCount} ảnh đã tải)</span>
-                        </span>
-                        <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${
-                            inputCount >= currentTemplate.idealSlots
-                                ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500/20'
-                                : 'bg-amber-50 text-amber-700 ring-1 ring-amber-500/20'
-                        }`}>
-                            Khuyến nghị: {currentTemplate.idealSlots} ảnh
+                            <span>Khay Ảnh Tham Chiếu (Ảnh #1 được ưu tiên làm Hero)</span>
                         </span>
                     </div>
 
-                    <p className="text-[10.5px] text-slate-500 leading-snug">
-                        Bấm mũi tên <strong className="text-slate-700">← →</strong> để hoán đổi vị trí ảnh theo đúng từng ô thiết kế:
-                    </p>
-
                     <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-thin">
-                        {inputImages.slice(0, 10).map((imgBase64, idx) => {
-                            const label = currentTemplate.slotLabels[idx] || `Ô #${idx + 1}`;
-                            return (
-                                <div
-                                    key={idx}
-                                    className="flex-shrink-0 w-20 flex flex-col items-center bg-white p-1 rounded-xl ring-1 ring-slate-900/10 shadow-2xs group relative"
-                                >
-                                    <div className="relative w-full h-16 rounded-lg overflow-hidden bg-slate-100 mb-1">
-                                        <img
-                                            src={imgBase64.startsWith('data:') ? imgBase64 : `data:image/jpeg;base64,${imgBase64}`}
-                                            alt={`Slot ${idx + 1}`}
-                                            className="w-full h-full object-cover"
-                                        />
-                                        <span className="absolute top-0.5 left-0.5 w-4 h-4 bg-slate-900/80 text-white text-[9px] font-mono font-bold flex items-center justify-center rounded">
-                                            #{idx + 1}
-                                        </span>
-                                        {onRemoveInput && (
-                                            <button
-                                                type="button"
-                                                onClick={() => onRemoveInput(idx)}
-                                                className="absolute top-0.5 right-0.5 w-4 h-4 bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                                title="Xóa ảnh này"
-                                            >
-                                                ✕
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {/* Slot Role Label */}
-                                    <span className="text-[9px] font-medium text-slate-600 text-center truncate w-full px-0.5 mb-1" title={label}>
-                                        {label}
+                        {inputImages.slice(0, 10).map((imgBase64, idx) => (
+                            <div
+                                key={idx}
+                                className="flex-shrink-0 w-20 flex flex-col items-center bg-white p-1 rounded-xl ring-1 ring-slate-900/10 shadow-2xs group relative"
+                            >
+                                <div className="relative w-full h-16 rounded-lg overflow-hidden bg-slate-100 mb-1">
+                                    <img
+                                        src={imgBase64.startsWith('data:') ? imgBase64 : `data:image/jpeg;base64,${imgBase64}`}
+                                        alt={`Slot ${idx + 1}`}
+                                        className="w-full h-full object-cover"
+                                    />
+                                    <span className="absolute top-0.5 left-0.5 w-4 h-4 bg-slate-900/80 text-white text-[9px] font-mono font-bold flex items-center justify-center rounded">
+                                        #{idx + 1}
                                     </span>
-
-                                    {/* Swap Left / Right Buttons */}
-                                    {onSwapInputs && (
-                                        <div className="flex items-center justify-between w-full px-0.5">
-                                            <button
-                                                type="button"
-                                                disabled={idx === 0}
-                                                onClick={() => onSwapInputs(idx, idx - 1)}
-                                                className="w-4 h-4 rounded text-[10px] font-bold text-slate-500 hover:text-slate-900 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed flex items-center justify-center bg-slate-100"
-                                                title="Đổi sang trái"
-                                            >
-                                                ←
-                                            </button>
-                                            <button
-                                                type="button"
-                                                disabled={idx === inputCount - 1}
-                                                onClick={() => onSwapInputs(idx, idx + 1)}
-                                                className="w-4 h-4 rounded text-[10px] font-bold text-slate-500 hover:text-slate-900 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed flex items-center justify-center bg-slate-100"
-                                                title="Đổi sang phải"
-                                            >
-                                                →
-                                            </button>
-                                        </div>
+                                    {onRemoveInput && (
+                                        <button
+                                            type="button"
+                                            onClick={() => onRemoveInput(idx)}
+                                            className="absolute top-0.5 right-0.5 w-4 h-4 bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                            title="Xóa ảnh này"
+                                        >
+                                            ✕
+                                        </button>
                                     )}
                                 </div>
-                            );
-                        })}
+                                <span className="text-[9px] font-medium text-slate-600 text-center truncate w-full px-0.5 mb-1">
+                                    {idx === 0 ? '⭐ Hero Lớn' : `Phụ #${idx + 1}`}
+                                </span>
+                                {onSwapInputs && (
+                                    <div className="flex items-center justify-between w-full px-0.5">
+                                        <button
+                                            type="button"
+                                            disabled={idx === 0}
+                                            onClick={() => onSwapInputs(idx, idx - 1)}
+                                            className="w-4 h-4 rounded text-[10px] font-bold text-slate-500 hover:text-slate-900 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed flex items-center justify-center bg-slate-100"
+                                            title="Đổi sang trái"
+                                        >
+                                            ←
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={idx === inputCount - 1}
+                                            onClick={() => onSwapInputs(idx, idx + 1)}
+                                            className="w-4 h-4 rounded text-[10px] font-bold text-slate-500 hover:text-slate-900 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed flex items-center justify-center bg-slate-100"
+                                            title="Đổi sang phải"
+                                        >
+                                            →
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
 
-            {/* 1. Chọn Mẫu Trong Nhóm 15 Mẫu Hiện Tại */}
-            <div>
-                <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        1. Danh Sách 15 Mẫu ({activeAspectRatio})
-                    </label>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 ring-1 ring-violet-500/20">
-                        Khổ {currentTemplate.aspectRatio}
-                    </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 max-h-[310px] overflow-y-auto pr-1 scrollbar-thin">
-                    {activeTemplates.map((tpl) => {
-                        const isSelected = tpl.id === selectedTemplateId;
-                        return (
-                            <button
-                                key={tpl.id}
-                                type="button"
-                                onClick={() => setSelectedTemplateId(tpl.id)}
-                                className={`group relative flex flex-col p-2 rounded-xl text-left transition-all duration-150 cursor-pointer min-h-[46px] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
-                                    isSelected
-                                        ? 'bg-violet-50/90 ring-2 ring-violet-600 shadow-xs'
-                                        : 'bg-white ring-1 ring-slate-900/10 hover:bg-slate-50'
-                                }`}
-                            >
-                                <div className="flex items-start gap-2 w-full">
-                                    <div className="w-12 h-12 rounded-lg bg-slate-100 p-0.5 flex-shrink-0 overflow-hidden ring-1 ring-slate-900/5 flex items-center justify-center">
-                                        <TemplateWireframeSvg template={tpl} activeColor={branding.accentColor} />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <span className={`inline-block text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded-full mb-0.5 ${
-                                            isSelected ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-600'
-                                        }`}>
-                                            {tpl.badge}
-                                        </span>
-                                        <p className={`text-[11px] font-semibold leading-tight truncate ${
-                                            isSelected ? 'text-violet-950' : 'text-slate-900'
-                                        }`}>
-                                            {tpl.name}
-                                        </p>
-                                        <p className="text-[9.5px] text-slate-500 mt-0.5 truncate">
-                                            {tpl.recommendedImages}
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        );
-                    })}
-                </div>
-
-                {/* Selected Template Description Pill */}
-                <div className="mt-2 p-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-900/5">
-                    <p className="text-[11px] text-slate-700 leading-relaxed">
-                        <strong className="text-slate-900">{currentTemplate.name}:</strong> {currentTemplate.description}
-                    </p>
-                </div>
-            </div>
-
-            {/* 2. Form Tùy Chỉnh Chữ Động Theo Chủ Đề */}
-            <div className="space-y-2.5">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    2. Tùy Chỉnh Chữ Poster ({activeCategory === 'ky_yeu' ? 'Kỷ Yếu' : 'Phim Ảnh'})
+            {/* 2. Chủ Đề & Prompt Thiết Kế Poster */}
+            <div className="space-y-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                    2. Chủ Đề Poster (Prompt ngắn gọn)
                 </label>
 
-                {activeCategory === 'ky_yeu' ? (
-                    /* Form Kỷ Yếu */
-                    <div className="space-y-2">
-                        <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] font-semibold text-slate-600">Tên Concept / Lớp</span>
-                                <div className="flex items-center gap-1">
-                                    {['Tuổi Học Trò', 'Thanh Xuân', '12A4', 'Dormitory'].map((tag) => (
-                                        <button
-                                            key={tag}
-                                            type="button"
-                                            onClick={() => setBranding((prev) => ({ ...prev, conceptName: tag }))}
-                                            className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer font-medium"
-                                        >
-                                            {tag}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <input
-                                type="text"
-                                value={branding.conceptName}
-                                onChange={(e) => setBranding((prev) => ({ ...prev, conceptName: e.target.value }))}
-                                placeholder="Tuổi Học Trò / Thanh Xuân..."
-                                className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                            />
-                        </div>
+                {/* Quick Topic Presets */}
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1 scrollbar-thin">
+                    {QUICK_TOPIC_PRESETS.map((p, idx) => (
+                        <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleSelectPreset(p)}
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-700 hover:text-violet-900 text-[11px] font-semibold transition-all cursor-pointer"
+                        >
+                            {p.title}
+                        </button>
+                    ))}
+                </div>
 
-                        <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] font-semibold text-slate-600">Câu Trích Dẫn / Thơ Thanh Xuân</span>
-                                <span className="text-[9.5px] text-violet-600 font-semibold">Gợi ý câu hay</span>
-                            </div>
-                            <select
-                                value={branding.quoteText}
-                                onChange={(e) => setBranding((prev) => ({ ...prev, quoteText: e.target.value }))}
-                                className="w-full min-h-[36px] px-2.5 py-1 text-[11px] font-medium text-slate-800 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500 mb-1"
-                            >
-                                {YEARBOOK_QUOTE_PRESETS.map((q, idx) => (
-                                    <option key={idx} value={q}>
-                                        {q}
-                                    </option>
-                                ))}
-                            </select>
-                            <input
-                                type="text"
-                                value={branding.quoteText}
-                                onChange={(e) => setBranding((prev) => ({ ...prev, quoteText: e.target.value }))}
-                                placeholder="Tự nhập câu thơ/châm ngôn thanh xuân..."
-                                className="w-full min-h-[36px] px-2.5 py-1 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Studio / Tên Trường</span>
-                                <input
-                                    type="text"
-                                    value={branding.studioName}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, studioName: e.target.value }))}
-                                    placeholder="TNT MEDIA / THPT Chu Văn An..."
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                                />
-                            </div>
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Niên khóa / Năm</span>
-                                <input
-                                    type="text"
-                                    value={branding.yearTag}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, yearTag: e.target.value }))}
-                                    placeholder="kỷ yếu 2025-2026"
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Slogan Chân Trang</span>
-                                <input
-                                    type="text"
-                                    value={branding.slogan}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, slogan: e.target.value }))}
-                                    placeholder="TOP 10 KỶ YẾU CÓ TÂM"
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                                />
-                            </div>
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Hotline / Zalo</span>
-                                <input
-                                    type="text"
-                                    value={branding.hotline}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, hotline: e.target.value }))}
-                                    placeholder="094 191 59 68"
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-mono font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    /* Form Phim Ảnh */
-                    <div className="space-y-2">
-                        <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] font-semibold text-slate-600">Tên Phim Chính (Movie Title)</span>
-                                <div className="flex items-center gap-1">
-                                    {['TÌNH YÊU ANH DÀNH CHO EM', 'ĐỒNG THOẠI', 'TIẾNG YÊU NÀY'].map((t) => (
-                                        <button
-                                            key={t}
-                                            type="button"
-                                            onClick={() => setBranding((prev) => ({ ...prev, movieTitle: t }))}
-                                            className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer font-medium truncate max-w-[100px]"
-                                        >
-                                            {t.slice(0, 10)}...
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <input
-                                type="text"
-                                value={branding.movieTitle}
-                                onChange={(e) => setBranding((prev) => ({ ...prev, movieTitle: e.target.value }))}
-                                placeholder="TÌNH YÊU ANH DÀNH CHO EM / ĐỒNG THOẠI..."
-                                className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-rose-500 uppercase"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Tagline / Tên Phụ Tiếng Anh</span>
-                                <input
-                                    type="text"
-                                    value={branding.movieSubtitle}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, movieSubtitle: e.target.value }))}
-                                    placeholder="One Of A Kind Romance / Chung Đôi..."
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                                />
-                            </div>
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Diễn Viên / Cặp Đôi Chính</span>
-                                <input
-                                    type="text"
-                                    value={branding.actors}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, actors: e.target.value }))}
-                                    placeholder="Tuấn Anh ✕ Thu Trang..."
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <span className="block text-[10px] font-semibold text-slate-600 mb-1">Logo Kênh / Nền Tảng Chiếu</span>
-                            <div className="grid grid-cols-5 gap-1 bg-slate-100 p-1 rounded-xl">
-                                {[
-                                    { id: 'wetv', label: 'WeTV' },
-                                    { id: 'vieon', label: 'VieON' },
-                                    { id: 'netflix', label: 'Netflix' },
-                                    { id: 'cinema', label: 'Cinema' },
-                                    { id: 'none', label: 'Tắt Logo' }
-                                ].map((p) => (
-                                    <button
-                                        key={p.id}
-                                        type="button"
-                                        onClick={() => setBranding((prev) => ({ ...prev, platform: p.id as any }))}
-                                        className={`py-1.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
-                                            branding.platform === p.id
-                                                ? 'bg-white text-rose-600 shadow-2xs'
-                                                : 'text-slate-600 hover:text-slate-900'
-                                        }`}
-                                    >
-                                        {p.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Lịch Chiếu / Giờ Phát Sóng</span>
-                                <input
-                                    type="text"
-                                    value={branding.broadcastTime}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, broadcastTime: e.target.value }))}
-                                    placeholder="19:00 Mỗi ngày trên VieON..."
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                                />
-                            </div>
-                            <div>
-                                <span className="block text-[10px] font-semibold text-slate-600 mb-1">Ngày Công Chiếu</span>
-                                <input
-                                    type="text"
-                                    value={branding.releaseDate}
-                                    onChange={(e) => setBranding((prev) => ({ ...prev, releaseDate: e.target.value }))}
-                                    placeholder="28.12.2026"
-                                    className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-mono font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Nhập mô tả poster mong muốn: Kỉ niệm sinh viên 2026, hoa phượng đỏ, dải ruy băng lụa đỏ, ngày cưới K-Drama..."
+                    rows={3}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 outline-none transition-all placeholder:text-slate-400"
+                />
             </div>
 
-            {/* 3. Màu Sắc & AI Căn Khung */}
-            <div className="space-y-3">
-                <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-                        3. Tone Màu Nhấn
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                        {THEME_COLOR_PRESETS.map((preset) => {
-                            const active = branding.accentColor.toLowerCase() === preset.hex.toLowerCase();
-                            return (
-                                <button
-                                    key={preset.id}
-                                    type="button"
-                                    onClick={() => setBranding((prev) => ({ ...prev, accentColor: preset.hex }))}
-                                    title={preset.name}
-                                    className={`w-8 h-8 rounded-full transition-all cursor-pointer flex items-center justify-center active:scale-95 ${
-                                        active ? 'ring-2 ring-offset-2 ring-slate-900 scale-105' : 'ring-1 ring-slate-900/10 hover:scale-105'
-                                    }`}
-                                    style={{ backgroundColor: preset.hex }}
-                                    aria-label={preset.name}
-                                >
-                                    {active && (
-                                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                        </svg>
-                                    )}
-                                </button>
-                            );
-                        })}
+            {/* 3. Tùy Chỉnh Chữ Trực Tiếp Cho AI Vẽ */}
+            <div className="space-y-2.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                    3. Thông Tin Chữ Trên Poster (AI Sẽ Nhúng Trực Tiếp Vào Tranh)
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">Tên Tiêu Đề / Studio</span>
+                        <input
+                            type="text"
+                            value={branding.studioName}
+                            onChange={(e) => setBranding((prev) => ({ ...prev, studioName: e.target.value }))}
+                            placeholder="Music Studio..."
+                            className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
+                    </div>
+                    <div>
+                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">Niên khóa / Năm</span>
+                        <input
+                            type="text"
+                            value={branding.yearTag}
+                            onChange={(e) => setBranding((prev) => ({ ...prev, yearTag: e.target.value }))}
+                            placeholder="Kỉ niệm 2026..."
+                            className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
                     </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                     <div>
-                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">AI Căn Khung Mặt</span>
-                        <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
-                            {[
-                                { label: 'Mũ/Đầu', val: 0.15 },
-                                { label: 'AI Chuẩn', val: 0.3 },
-                                { label: 'Ngực', val: 0.5 }
-                            ].map((opt) => (
-                                <button
-                                    key={opt.label}
-                                    type="button"
-                                    onClick={() => setCropBiasY(opt.val)}
-                                    className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all cursor-pointer ${
-                                        cropBiasY === opt.val
-                                            ? 'bg-white text-slate-900 shadow-2xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                    }`}
-                                >
-                                    {opt.label}
-                                </button>
-                            ))}
-                        </div>
+                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">Concept / Tên Lớp (Chữ Thư Pháp)</span>
+                        <input
+                            type="text"
+                            value={branding.conceptName}
+                            onChange={(e) => setBranding((prev) => ({ ...prev, conceptName: e.target.value }))}
+                            placeholder="Sinh viên / Tuổi Học Trò..."
+                            className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
                     </div>
-
                     <div>
-                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">Độ phân giải</span>
-                        <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl">
-                            {(['HD', '2K'] as const).map((res) => (
-                                <button
-                                    key={res}
-                                    type="button"
-                                    onClick={() => setResolution(res)}
-                                    className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all cursor-pointer ${
-                                        resolution === res
-                                            ? 'bg-white text-violet-700 shadow-2xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                    }`}
-                                >
-                                    {res === '2K' ? '2K Nét' : 'HD'}
-                                </button>
-                            ))}
-                        </div>
+                        <span className="block text-[10px] font-semibold text-slate-600 mb-1">Số Hotline (Vẽ Thành Pill Kim Loại)</span>
+                        <input
+                            type="text"
+                            value={branding.hotline}
+                            onChange={(e) => setBranding((prev) => ({ ...prev, hotline: e.target.value }))}
+                            placeholder="0342 733 640..."
+                            className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-mono font-medium text-slate-900 bg-white rounded-xl ring-1 ring-slate-900/10 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
                     </div>
                 </div>
             </div>
 
-            {/* 4. Action Buttons */}
-            <div className="space-y-2.5 pt-1">
+            {/* 4. Chọn Tỷ Lệ Màn Hình */}
+            <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                    4. Tỷ Lệ Màn Hình
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1.5 rounded-xl">
+                    {[
+                        { id: '9:16', label: '📱 Khổ Dọc 9:16', desc: 'Story / TikTok' },
+                        { id: '16:9', label: '🖥️ Khổ Ngang 16:9', desc: 'PC / Smart TV' },
+                        { id: '1:1', label: '⬜ Khổ Vuông 1:1', desc: 'Post Facebook' }
+                    ].map((r) => (
+                        <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => setAspectRatio(r.id)}
+                            className={`py-2 px-1 text-center rounded-lg transition-all cursor-pointer ${
+                                aspectRatio === r.id
+                                    ? 'bg-white text-violet-700 shadow-2xs font-extrabold ring-1 ring-slate-900/5'
+                                    : 'text-slate-600 hover:text-slate-900 font-semibold'
+                            }`}
+                        >
+                            <span className="block text-xs leading-tight">{r.label}</span>
+                            <span className="block text-[9.5px] text-slate-400 mt-0.5">{r.desc}</span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* 5. Nút Bấm Thực Thi Tạo Poster AI */}
+            <div className="space-y-2 pt-1">
                 {!hasInputImage && (
                     <div className="p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px] font-medium ring-1 ring-amber-200/80 flex items-center gap-2">
                         <span>💡</span>
-                        <span>Hãy tải lên 1 đến 10 ảnh ở khung phía trên để ghép Poster.</span>
+                        <span>Vui lòng tải lên từ 1 đến 10 ảnh ở khung bên trái để AI bắt đầu thiết kế.</span>
                     </div>
                 )}
 
-                {/* Primary Action Button */}
                 <button
                     type="button"
-                    onClick={handleTriggerSingle}
-                    disabled={isLoading || !hasInputImage}
-                    className={`w-full min-h-[44px] py-3 px-4 rounded-xl font-semibold text-xs uppercase tracking-wider text-white transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] shadow-sm ${
-                        isLoading || !hasInputImage
+                    onClick={handleTriggerAiGenerate}
+                    disabled={isLoading || isDisabled || !hasInputImage || !prompt.trim()}
+                    className={`w-full min-h-[48px] py-3.5 px-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wider text-white transition-all duration-150 flex items-center justify-center gap-2 shadow-sm ${
+                        isLoading || isDisabled || !hasInputImage || !prompt.trim()
                             ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
-                            : activeCategory === 'ky_yeu'
-                            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 shadow-violet-500/25'
-                            : 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 shadow-rose-500/25'
+                            : 'bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 active:scale-[0.98] shadow-violet-500/30 cursor-pointer ring-1 ring-violet-500/20'
                     }`}
                 >
                     <span>✨</span>
                     <span>
                         {isLoading
-                            ? 'Đang kết xuất Poster...'
-                            : `Xuất Poster "${currentTemplate.name}" (${activeAspectRatio})`}
+                            ? 'AI ĐANG THIẾT KẾ POSTER...'
+                            : inputCount === 0
+                            ? 'VUI LÒNG NẠP ẢNH ĐẦU VÀO'
+                            : `TẠO POSTER THIẾT KẾ AI (${aspectRatio})`}
                     </span>
                 </button>
-
-                {/* Secondary Actions Row */}
-                <div className="grid grid-cols-2 gap-2">
-                    <button
-                        type="button"
-                        onClick={handleTriggerBatch4}
-                        disabled={isLoading || !hasInputImage}
-                        className="min-h-[44px] px-3 py-2 rounded-xl font-semibold text-[11px] text-slate-700 bg-white ring-1 ring-slate-900/10 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                        <span>⚡</span>
-                        <span>Thử 4 Mẫu Hot</span>
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={handleTriggerAll}
-                        disabled={isLoading || !hasInputImage}
-                        className="min-h-[44px] px-3 py-2 rounded-xl font-semibold text-[11px] text-slate-700 bg-white ring-1 ring-slate-900/10 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                        <span>🎨</span>
-                        <span>Xuất Toàn Bộ 15 Mẫu ({activeAspectRatio})</span>
-                    </button>
-                </div>
-
-                {/* Shuffle Button when >1 image */}
-                {inputCount > 1 && (
-                    <button
-                        type="button"
-                        onClick={() => {
-                            const nextSeed = shuffleSeed + 1;
-                            setShuffleSeed(nextSeed);
-                            onGeneratePoster(buildOptions(), 'single', nextSeed);
-                        }}
-                        disabled={isLoading}
-                        className="w-full min-h-[40px] px-3 py-2 rounded-xl font-medium text-[11px] text-violet-700 bg-violet-50 hover:bg-violet-100/80 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                        <span>🔀</span>
-                        <span>Đảo vị trí {inputCount} ảnh & Tạo lại</span>
-                    </button>
-                )}
             </div>
         </div>
     );

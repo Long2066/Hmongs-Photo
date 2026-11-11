@@ -16,7 +16,7 @@ import { renderStudioPoster, POSTER_TEMPLATES, type PosterOptions, type PosterTe
 import { FlowEmbeddedPage } from './components/FlowEmbeddedPage';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
+import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, generateAiPoster, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
 import { generateOpenRouterVideo } from './services/openRouterVideoService';
 import { getVideoConfig, calculateVideoPriceVnd, getVideoModelMeta } from './services/videoConfigService';
 import type { RestoreOptions } from './services/aiService';
@@ -132,7 +132,7 @@ const App: React.FC = () => {
 
     // --- MODE MANAGEMENT ---
     const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video' | 'poster'>('creative');
-    const [posterTemplateId, setPosterTemplateId] = useState<PosterTemplateId>('tnt_wood_classic');
+    const [posterTemplateId, setPosterTemplateId] = useState<PosterTemplateId>('creative_thanh_xuan_hoa_phuong');
     const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('image_to_video');
     const [videoEntries, setVideoEntries] = useState<VideoEntry[]>([]);
 
@@ -1106,6 +1106,87 @@ const App: React.FC = () => {
         });
     }, []);
 
+    // 9A. AI Poster Generation via Selected Model (Generative AI - like ChatGPT)
+    const handleAiPosterGenerate = useCallback(async (
+        topicPrompt: string,
+        aspectRatio: string = '9:16',
+        brandingInfo?: { studioName?: string; conceptName?: string; yearTag?: string; hotline?: string }
+    ) => {
+        const apiKey = getApiKeyOrAlert();
+        if (!apiKey) return;
+
+        const inputs = modeStates['poster']?.inputs || [];
+        if (inputs.length === 0) {
+            setError('Vui lòng tải lên từ 1 đến 10 ảnh đầu vào ở khung bên trái để AI thiết kế Poster.');
+            return;
+        }
+
+        if (!await validateSubscriptionBeforeGenerate(1)) return;
+
+        setIsLoading(true);
+        setError(null);
+        setIsMenuOpen(false);
+        setModeStates(prev => ({
+            ...prev,
+            poster: { ...prev.poster, outputs: [null], prompts: [topicPrompt] }
+        }));
+        setLoadingStatus('AI đang phân tích ảnh tham chiếu và sáng tạo Poster đa tầng...');
+
+        try {
+            const referenceParts = inputs.slice(0, 10).map((img, idx) => ({
+                data: img.base64.replace(/^data:image\/[a-z]+;base64,/i, ''),
+                mimeType: img.mimeType || 'image/jpeg',
+                label: idx === 0 ? 'Hero Primary Subject' : `Secondary Subject ${idx + 1}`
+            }));
+
+            const studio = brandingInfo?.studioName || 'Music Studio';
+            const concept = brandingInfo?.conceptName || 'Sinh viên';
+            const yearTag = brandingInfo?.yearTag || 'Kỉ niệm 2026';
+            const hotline = brandingInfo?.hotline || '0342 733 640';
+
+            const fullDesignPrompt = `*** HIGH-END STUDIO GRAPHIC POSTER DESIGN (RATIO: ${aspectRatio}) ***
+Create an authentic, ultra-high-end studio graphic poster featuring the exact character(s)/subject(s) from the attached reference photo(s).
+THEME & MOOD: ${topicPrompt}.
+
+MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
+1. HERO SUBJECT: Feature the primary character(s) from Reference Photo 1 as the prominent, high-fashion hero subject with authentic face, hair, and clothing faithfully preserved.
+2. ARTISTIC SECONDARY ACCENTS: Naturally incorporate multi-photo frames matching the theme (such as tilted Polaroid photo cards showing other angles, a curved 3D 35mm film strip, ripped kraft paper stickers, or lush red royal poinciana blossoms).
+3. IN-IMAGE NATIVE TYPOGRAPHY & BRANDING:
+   - Primary title in elegant high-contrast serif: "${studio}"
+   - Sub-headline with dashes: "— ${yearTag} —"
+   - Graceful flowing script: "${concept}"
+   - A luxury metallic gold pill button or banner: "Hotline: ${hotline}"
+4. LIGHTING & REALISM: Realistic studio rim lighting, authentic shadows cast by the text and stickers, depth of field, 8K ultra-sharp details.`;
+
+            const rawResult = await generateAiPoster(apiKey, referenceParts, fullDesignPrompt, aspectRatio);
+            if (rawResult) {
+                const formattedResult = rawResult.startsWith('data:') || rawResult.startsWith('http')
+                    ? rawResult
+                    : `data:image/png;base64,${rawResult}`;
+
+                setModeStates(prev => ({
+                    ...prev,
+                    poster: { ...prev.poster, outputs: [formattedResult], prompts: [topicPrompt] }
+                }));
+                await deductBalanceForVIP(1, 'poster');
+                saveHistory('AI Poster Studio', topicPrompt, [formattedResult], studio);
+                if (autoDownload) triggerDownload(formattedResult, `ai_poster_${Date.now()}.png`);
+            } else {
+                throw new Error('AI không tạo được poster. Vui lòng kiểm tra lại prompt hoặc model.');
+            }
+        } catch (e: any) {
+            console.error('[AI Poster] Error:', e);
+            setError(e?.message || 'Có lỗi xảy ra trong quá trình tạo poster AI.');
+            setModeStates(prev => ({
+                ...prev,
+                poster: { ...prev.poster, outputs: [] }
+            }));
+        } finally {
+            setIsLoading(false);
+            setLoadingStatus('');
+        }
+    }, [modeStates, getApiKeyOrAlert, validateSubscriptionBeforeGenerate, deductBalanceForVIP, saveHistory, autoDownload]);
+
     const handleGeneratePoster = useCallback(async (
         options: PosterOptions,
         batchMode: 'single' | 'top4' | 'all',
@@ -1262,8 +1343,10 @@ const App: React.FC = () => {
         if (mode === 'poster') {
             return (
                 <PosterStudioPanel
+                    onAiGeneratePoster={handleAiPosterGenerate}
                     onGeneratePoster={handleGeneratePoster}
                     isLoading={isLoading}
+                    isDisabled={!currentUser}
                     hasInputImage={mState.inputs.length > 0}
                     inputCount={mState.inputs.length}
                     inputImages={mState.inputs.map(img => img.base64)}

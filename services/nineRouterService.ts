@@ -36,7 +36,7 @@ export interface NineRouterImageRequest {
     style?: string;
     model?: string;
     // Task-specific routing and prompt handling
-    taskType?: 'create' | 'extract' | 'edit' | 'relight' | 'profile' | 'upscale' | 'mix' | 'restore' | 'raw';
+    taskType?: 'create' | 'extract' | 'edit' | 'relight' | 'profile' | 'upscale' | 'mix' | 'restore' | 'poster' | 'raw';
     rawPrompt?: boolean;
     // VIP-related options
     useVIPPrompt?: boolean;
@@ -1357,8 +1357,9 @@ export const generateImageViaNineRouter = async (
     const hasFemaleRef = referenceImages.some(img => (img.label || '').toUpperCase().includes('FEMALE OUTFIT') || (img.label || '').toUpperCase().includes('NỮ') || (img.label || '').toUpperCase().includes('NU'));
     const isCoupleScene = request.outputMode === 'couple' || (hasMaleRef && hasFemaleRef);
 
-    // Determine task type (extract, edit, mix, relight, upscale, profile, restore, create)
+    // Determine task type (extract, edit, mix, relight, upscale, profile, restore, poster, create)
     const taskType = request.taskType || (
+        request.prompt.includes('POSTER DESIGN') || request.prompt.includes('STUDIO POSTER') ? 'poster' :
         request.prompt.includes('CLOTHING EXTRACTION') ? 'extract' :
         request.prompt.includes('OUTFIT MIXING') ? 'mix' :
         request.prompt.includes('RELIGHTING TASK') ? 'relight' :
@@ -1435,6 +1436,19 @@ Preserve 100% of the pixels, face, clothing, and composition of the attached ima
 
         geminiInstruction = `*** PROFESSIONAL PORTRAIT / ID PHOTO TASK ***
 Generate a polished, centered, professional ID/profile portrait maintaining realistic facial proportions and professional lighting.`;
+    } else if (taskType === 'poster') {
+        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** HIGH-END STUDIO GRAPHIC POSTER DESIGN DIRECTIVE ***
+- GOAL: Generate a complete, visually stunning, multi-layered studio graphic poster featuring the exact characters/subjects from the attached reference photos.
+- GRAPHIC COMPOSITION MASTERY:
+  * Seamlessly place the prominent hero character(s) from the reference photos into the design with realistic sunlight, rim lighting, and contact shadows.
+  * Utilize creative graphic storytelling: floating tilted Polaroid cards showing other reference photos, 3D curved 35mm film strips, ripped kraft paper stickers, vinyl LP discs, flowing satin ribbons, and decorative floral accents (e.g. royal poinciana red blossoms).
+  * Render all titles, subtitles, quotes, slogans, and phone numbers cleanly, naturally, and legibly right into the artwork with matching perspective and typography.
+- 100% SUBJECT IDENTITY PRESERVATION: Preserve the exact faces, hairstyles, outfits, and authentic expressions of the subjects in the reference images without distortion.`;
+
+        geminiInstruction = `*** HIGH-END STUDIO GRAPHIC POSTER DESIGN TASK ***
+Examine all ${referenceImages.length} attached reference photo(s). Compose a complete, breathtaking studio graphic design poster featuring these exact subjects according to the user's theme and text details below:
+${request.prompt}`;
     } else if (isCoupleScene) {
         // Couple / Dual-subject Creative Generation
         systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
