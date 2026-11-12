@@ -112,7 +112,7 @@ export const PayOSCheckoutModal: React.FC<PayOSCheckoutModalProps> = ({
                 <header className="flex items-center justify-between gap-4 bg-slate-900 px-4 py-4 text-white sm:px-6">
                     <div>
                         <h2 className="text-lg font-semibold leading-tight">Thanh toán {plan.name}</h2>
-                        <p className="mt-1 text-sm text-slate-200">Giá gói <span className="font-mono tabular-nums">{formatVND(plan.price)}</span> · {planId === 'plus' ? '100' : '200'} ảnh trong 30 ngày</p>
+                        <p className="mt-1 text-sm text-slate-200">Giá gói <span className="font-mono tabular-nums">{formatVND(plan.price)}</span> · {planId === 'plus' ? '300 ảnh + 60s Video' : 'Tạo ảnh không giới hạn + 180s Video'} trong 30 ngày</p>
                     </div>
                     <button type="button" onClick={onClose} aria-label="Đóng thanh toán" className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-white hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-95">✕</button>
                 </header>
@@ -121,7 +121,7 @@ export const PayOSCheckoutModal: React.FC<PayOSCheckoutModalProps> = ({
                         <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 text-center">
                             <span aria-hidden="true" className="rounded-full bg-emerald-100 px-5 py-3 text-3xl text-emerald-800">✓</span>
                             <h3 className="text-xl font-semibold leading-tight text-slate-900">Thanh toán đã được xác nhận</h3>
-                            <p className="text-sm leading-relaxed text-slate-700">Gói có <strong className="font-mono tabular-nums text-slate-900">{imagesGranted} ảnh</strong>{expiresAt && <> · Hạn đến <strong className="font-mono tabular-nums text-slate-900">{new Date(expiresAt).toLocaleDateString('vi-VN')}</strong></>}</p>
+                            <p className="text-sm leading-relaxed text-slate-700">{planId === 'pro' ? 'Tạo ảnh hoàn toàn không giới hạn + 180s Video' : <>Gói có <strong className="font-mono tabular-nums text-slate-900">{imagesGranted || 300} ảnh</strong></>}{expiresAt && <> · Hạn đến <strong className="font-mono tabular-nums text-slate-900">{new Date(expiresAt).toLocaleDateString('vi-VN')}</strong></>}</p>
                             <button type="button" onClick={onClose} className="min-h-[44px] rounded-xl bg-indigo-700 px-6 font-semibold text-white hover:bg-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 active:scale-[0.98]">Hoàn tất</button>
                         </div>
                     ) : (

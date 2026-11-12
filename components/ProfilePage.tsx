@@ -123,74 +123,96 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
     };
 
     return (
-        <div className="max-w-7xl mx-auto min-h-screen pb-20">
-            {/* Header Area */}
-            <div className="relative h-44 sm:h-48 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 rounded-3xl mb-16 shadow-md ring-1 ring-slate-900/5">
+        <div className="max-w-7xl mx-auto min-h-screen pb-32 sm:pb-20">
+            {/* MOBILE ONLY STICKY TOP NAVIGATION BAR */}
+            <div className="lg:hidden sticky top-14 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2.5 bg-white/95 backdrop-blur-md border-b border-indigo-100/90 shadow-2xs flex items-center justify-between mb-4 animate-fade-in">
                 <button
+                    type="button"
                     onClick={onBack}
-                    className="absolute top-5 left-5 bg-white/20 hover:bg-white/30 active:scale-[0.98] text-white p-2.5 rounded-full backdrop-blur-sm transition-all min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
-                    aria-label="Quay lại"
+                    className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md shadow-violet-500/25 min-h-[44px] cursor-pointer"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.4} stroke="currentColor" className="w-4 h-4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                     </svg>
+                    <span>Quay lại Studio</span>
                 </button>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                    <span>👤</span>
+                    <span>Hồ sơ cá nhân</span>
+                </div>
+            </div>
 
-                {/* Active Plan Status Pill in Header */}
-                <div className="absolute top-5 right-5 flex items-center gap-2.5">
-                    <div className="bg-white/15 backdrop-blur-md ring-1 ring-white/25 rounded-2xl px-4 py-2 text-white flex items-center gap-3">
-                        <div>
-                            <p className="text-[10px] font-semibold uppercase tracking-wider text-white/80">
+            {/* Header Area */}
+            <div className="relative h-44 sm:h-48 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 rounded-3xl p-4 sm:p-5 shadow-md ring-1 ring-slate-900/5">
+                <div className="flex flex-wrap items-start justify-between gap-2 z-10">
+                    <button
+                        onClick={onBack}
+                        className="bg-white/20 hover:bg-white/30 active:scale-[0.98] text-white px-3.5 py-2 rounded-2xl backdrop-blur-md transition-all min-h-[44px] flex items-center gap-2 cursor-pointer border border-white/25 shadow-sm flex-shrink-0"
+                        aria-label="Quay lại"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.4} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                        </svg>
+                        <span className="text-xs font-bold">Quay lại</span>
+                    </button>
+
+                    {/* Active Plan Status Pill in Header */}
+                    <div className="bg-white/15 backdrop-blur-md ring-1 ring-white/25 rounded-2xl px-3 sm:px-4 py-1.5 sm:py-2 text-white flex items-center gap-2 sm:gap-3 max-w-full">
+                        <div className="text-right sm:text-left min-w-0">
+                            <p className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider text-white/80">
                                 Gói đang dùng
                             </p>
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold">
+                            <div className="flex items-center gap-1.5 sm:gap-2 justify-end sm:justify-start flex-wrap">
+                                <span className="text-xs sm:text-sm font-bold">
                                     {SUBSCRIPTION_PLANS[activePlan].name}
                                 </span>
-                                <span className="text-xs text-white/90 font-mono tabular-nums bg-white/20 px-2 py-0.5 rounded-full font-semibold">
+                                <span className="text-[10px] sm:text-xs text-white/90 font-mono tabular-nums bg-white/20 px-1.5 sm:px-2 py-0.5 rounded-full font-semibold">
                                     {activePlan === 'free'
-                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh${bonusImages > 0 ? ` (+${bonusImages} ảnh thưởng)` : ''} • ${remainingVideoSeconds}s video`
-                                        : `Còn ${remainingImages} ảnh${bonusImages > 0 ? ` (+${bonusImages} ảnh thưởng)` : ''} • ${remainingVideoSeconds}s video`}
+                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh${bonusImages > 0 ? ` (+${bonusImages})` : ''} • ${remainingVideoSeconds}s`
+                                        : activePlan === 'pro'
+                                            ? `Không giới hạn ảnh • ${remainingVideoSeconds}s video`
+                                            : `Còn ${remainingImages} ảnh${bonusImages > 0 ? ` (+${bonusImages})` : ''} • ${remainingVideoSeconds}s`}
                                 </span>
                             </div>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div className="absolute -bottom-12 left-6 md:left-10 flex items-end gap-5">
-                    <div className="relative group">
-                        <img
-                            src={avatar}
-                            alt="Profile"
-                            className="w-28 h-28 sm:w-32 sm:h-32 rounded-full border-4 border-white shadow-lg object-cover bg-white"
-                        />
-                        <button
-                            onClick={() => fileRef.current?.click()}
-                            className="absolute bottom-1 right-1 bg-indigo-600 text-white p-2.5 rounded-full shadow-md hover:bg-indigo-700 transition-colors cursor-pointer"
-                            title="Đổi ảnh đại diện"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                        </button>
-                        <input type="file" ref={fileRef} onChange={handleAvatarChange} className="hidden" accept="image/*" />
+            {/* Avatar & User Info (neatly overlapping banner without clipping or collision on mobile) */}
+            <div className="-mt-12 sm:-mt-14 px-4 sm:px-8 mb-8 relative z-10 flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-5">
+                <div className="relative group w-fit">
+                    <img
+                        src={avatar}
+                        alt="Profile"
+                        className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-white shadow-lg object-cover bg-white"
+                    />
+                    <button
+                        onClick={() => fileRef.current?.click()}
+                        className="absolute bottom-0 right-0 sm:bottom-1 sm:right-1 bg-indigo-600 text-white p-2.5 rounded-full shadow-md hover:bg-indigo-700 transition-colors cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
+                        title="Đổi ảnh đại diện"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </button>
+                    <input type="file" ref={fileRef} onChange={handleAvatarChange} className="hidden" accept="image/*" />
+                </div>
+                <div className="pb-1 sm:pb-3 min-w-0">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight truncate">{user.name}</h1>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                            activePlan === 'pro'
+                                ? 'bg-indigo-600 text-white'
+                                : activePlan === 'plus'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-slate-200 text-slate-700'
+                        }`}>
+                            {SUBSCRIPTION_PLANS[activePlan].name}
+                        </span>
                     </div>
-                    <div className="mb-3">
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">{user.name}</h1>
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
-                                activePlan === 'pro'
-                                    ? 'bg-indigo-600 text-white'
-                                    : activePlan === 'plus'
-                                        ? 'bg-emerald-600 text-white'
-                                        : 'bg-slate-200 text-slate-700'
-                            }`}>
-                                {SUBSCRIPTION_PLANS[activePlan].name}
-                            </span>
-                        </div>
-                        <p className="text-slate-500 text-sm font-medium">{user.username}</p>
-                    </div>
+                    <p className="text-slate-500 text-sm font-medium truncate">{user.username}</p>
                 </div>
             </div>
 
@@ -276,6 +298,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
                 </div>
             </div>
 
+            {/* FLOATING ACTION BAR FOR MOBILE: Always reachable at thumb position */}
+            <div className="lg:hidden fixed bottom-4 inset-x-3 sm:inset-x-6 z-40">
+                <button
+                    type="button"
+                    onClick={onBack}
+                    className="w-full py-3.5 px-5 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 hover:from-violet-700 hover:to-indigo-700 active:scale-[0.98] text-white font-extrabold text-sm rounded-2xl shadow-xl shadow-indigo-500/35 border border-white/20 flex items-center justify-center gap-2.5 min-h-[48px] cursor-pointer"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.4} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                    </svg>
+                    <span>Quay lại Studio Sáng Tạo</span>
+                </button>
+            </div>
         </div>
     );
 };

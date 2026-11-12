@@ -8,6 +8,7 @@ interface HeaderProps {
     onLoginClick: () => void;
     onLogout: () => void;
     onHistoryClick: () => void;
+    onBackFromProfile?: () => void;
     onApiKeyClick?: () => void;
     onQuotaStationClick?: () => void;
     onBotClick?: () => void;
@@ -103,6 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
     onLoginClick,
     onLogout,
     onHistoryClick,
+    onBackFromProfile,
     onApiKeyClick,
     onQuotaStationClick,
     onBotClick,
@@ -144,44 +146,72 @@ export const Header: React.FC<HeaderProps> = ({
                     {/* MOBILE TOP BAR (lg:hidden): 3-Gạch góc trái, Bot AI góc phải */}
                     {/* ============================================================== */}
                     <div className="flex lg:hidden items-center justify-between h-14 w-full">
-                        {/* GÓC TRÁI: Nút 3 gạch hamburger + Brand Logo */}
-                        <div className="flex items-center gap-2 min-w-0">
-                            {/* Nút Hamburger 3 gạch (Touch target chuẩn 44x44px) */}
-                            <button
-                                type="button"
-                                onClick={() => setDrawerOpen(true)}
-                                aria-label="Mở menu tính năng và trang cá nhân"
-                                className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-xl text-slate-700 hover:text-indigo-600 hover:bg-indigo-50/80 active:scale-95 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-6 h-6">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                                </svg>
-                            </button>
-
-                            {/* Brand Logo & Mode Badge */}
-                            <div
-                                className="flex items-center gap-2 cursor-pointer truncate select-none group"
-                                onClick={() => {
-                                    if (isHistoryVisible) onHistoryClick();
-                                    else setDrawerOpen(true);
-                                }}
-                            >
-                                <img
-                                    src="/icon.png"
-                                    alt="ImageTool"
-                                    className="w-8 h-8 rounded-lg object-contain shadow-2xs ring-1 ring-indigo-900/5 group-hover:scale-105 transition-transform"
-                                />
+                        {isHistoryVisible ? (
+                            /* Khi đang ở trang cá nhân trên mobile: Nút QUAY LẠI to rõ ràng chuẩn Mobile First */
+                            <div className="flex items-center gap-2 min-w-0">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (onBackFromProfile) onBackFromProfile();
+                                        else onHistoryClick();
+                                    }}
+                                    aria-label="Quay lại Studio tạo ảnh"
+                                    className="min-w-[44px] min-h-[44px] px-3.5 py-2 flex items-center gap-2 rounded-xl bg-violet-600 hover:bg-violet-700 active:scale-95 text-white font-bold text-xs shadow-md shadow-violet-500/25 transition-all cursor-pointer"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.4} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                                    </svg>
+                                    <span>Quay lại</span>
+                                </button>
                                 <div className="flex flex-col min-w-0">
-                                    <div className="flex items-center gap-1.5 truncate">
-                                        <span className="text-sm font-extrabold text-slate-900 tracking-tight">ImageTool</span>
-                                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 truncate max-w-[110px]">
-                                            {modeLabels[currentMode]?.icon} {modeLabels[currentMode]?.label}
-                                        </span>
-                                    </div>
-                                    <span className="text-[9px] text-slate-400 font-semibold tracking-wider uppercase leading-none">Studio Edition</span>
+                                    <span className="text-xs font-extrabold text-slate-900 truncate">Hồ sơ cá nhân</span>
+                                    <span className="text-[10px] text-slate-500 font-medium truncate">Chạm để về Studio</span>
                                 </div>
                             </div>
-                        </div>
+                        ) : (
+                            /* GÓC TRÁI BÌNH THƯỜNG: Nút 3 gạch hamburger + Brand Logo */
+                            <div className="flex items-center gap-2 min-w-0">
+                                {/* Nút Hamburger 3 gạch (Touch target chuẩn 44x44px) */}
+                                <button
+                                    type="button"
+                                    onClick={() => setDrawerOpen(true)}
+                                    aria-label="Mở menu tính năng và trang cá nhân"
+                                    className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-xl text-slate-700 hover:text-indigo-600 hover:bg-indigo-50/80 active:scale-95 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-6 h-6">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                                    </svg>
+                                </button>
+
+                                {/* Brand Logo & Mode Badge */}
+                                <div
+                                    className="flex items-center gap-2 cursor-pointer truncate select-none group"
+                                    onClick={() => {
+                                        if (isHistoryVisible) {
+                                            if (onBackFromProfile) onBackFromProfile();
+                                            else onHistoryClick();
+                                        } else {
+                                            setDrawerOpen(true);
+                                        }
+                                    }}
+                                >
+                                    <img
+                                        src="/icon.png"
+                                        alt="ImageTool"
+                                        className="w-8 h-8 rounded-lg object-contain shadow-2xs ring-1 ring-indigo-900/5 group-hover:scale-105 transition-transform"
+                                    />
+                                    <div className="flex flex-col min-w-0">
+                                        <div className="flex items-center gap-1.5 truncate">
+                                            <span className="text-sm font-extrabold text-slate-900 tracking-tight">ImageTool</span>
+                                            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 truncate max-w-[110px]">
+                                                {modeLabels[currentMode]?.icon} {modeLabels[currentMode]?.label}
+                                            </span>
+                                        </div>
+                                        <span className="text-[9px] text-slate-400 font-semibold tracking-wider uppercase leading-none">Studio Edition</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* GÓC PHẢI: Con bot AI lên đầu trang góc phải */}
                         <div className="flex items-center gap-2 flex-shrink-0">
@@ -209,7 +239,7 @@ export const Header: React.FC<HeaderProps> = ({
                     {/* ============================================================== */}
                     <div className="hidden lg:flex items-center justify-between h-16 py-2.5 gap-3">
                         {/* Logo Section */}
-                        <div className="flex items-center space-x-2.5 cursor-pointer group flex-shrink-0" onClick={() => isHistoryVisible && onHistoryClick()}>
+                        <div className="flex items-center space-x-2.5 cursor-pointer group flex-shrink-0" onClick={() => { if (isHistoryVisible) { if (onBackFromProfile) onBackFromProfile(); else onHistoryClick(); } }}>
                             <img
                                 src="/icon.png"
                                 alt="ImageTool Logo"
@@ -223,8 +253,8 @@ export const Header: React.FC<HeaderProps> = ({
                             </div>
                         </div>
 
-                        {/* Mode Switcher - 7 Pill Tabs */}
-                        {!isHistoryVisible && (
+                        {/* Mode Switcher - 8 Pill Tabs or Back Button when in Profile */}
+                        {!isHistoryVisible ? (
                             <div className="flex overflow-x-auto items-center gap-1.5 scrollbar-hide max-w-full py-0.5 px-1">
                                 {(Object.keys(modeLabels) as Array<keyof typeof modeLabels>).map((modeKey) => {
                                     const item = modeLabels[modeKey];
@@ -243,6 +273,25 @@ export const Header: React.FC<HeaderProps> = ({
                                         </button>
                                     );
                                 })}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (onBackFromProfile) onBackFromProfile();
+                                        else onHistoryClick();
+                                    }}
+                                    className="px-4 py-2 bg-violet-600 hover:bg-violet-700 active:scale-95 text-white text-xs font-bold rounded-full shadow-md shadow-violet-500/25 transition-all flex items-center gap-2 cursor-pointer min-h-[40px]"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.4} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                                    </svg>
+                                    <span>Quay lại Studio Sáng Tạo</span>
+                                </button>
+                                <span className="text-xs font-semibold text-slate-500">
+                                    Đang xem trang cá nhân & lịch sử
+                                </span>
                             </div>
                         )}
 
@@ -341,12 +390,32 @@ export const Header: React.FC<HeaderProps> = ({
                                                 type="button"
                                                 onClick={() => {
                                                     setDrawerOpen(false);
-                                                    onHistoryClick();
+                                                    if (isHistoryVisible) {
+                                                        if (onBackFromProfile) onBackFromProfile();
+                                                        else onHistoryClick();
+                                                    } else {
+                                                        onHistoryClick();
+                                                    }
                                                 }}
-                                                className="min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200/80 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                                className={`min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border shadow-2xs transition-all active:scale-95 cursor-pointer ${
+                                                    isHistoryVisible
+                                                        ? 'bg-violet-600 hover:bg-violet-700 text-white border-violet-600 shadow-md shadow-violet-500/20'
+                                                        : 'bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200/80'
+                                                }`}
                                             >
-                                                <UserCircleIcon className="w-4 h-4" />
-                                                <span>Trang cá nhân</span>
+                                                {isHistoryVisible ? (
+                                                    <>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.3} stroke="currentColor" className="w-4 h-4">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                                                        </svg>
+                                                        <span>Về Studio</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <UserCircleIcon className="w-4 h-4" />
+                                                        <span>Trang cá nhân</span>
+                                                    </>
+                                                )}
                                             </button>
 
                                             <button
@@ -429,6 +498,7 @@ export const Header: React.FC<HeaderProps> = ({
                                                 type="button"
                                                 onClick={() => {
                                                     onModeChange(modeKey as any);
+                                                    if (isHistoryVisible && onBackFromProfile) onBackFromProfile();
                                                     setDrawerOpen(false);
                                                 }}
                                                 className={`w-full min-h-[48px] p-2.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${isActive

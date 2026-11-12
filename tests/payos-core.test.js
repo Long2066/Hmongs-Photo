@@ -53,11 +53,11 @@ test('duplicate delivery grants the plan only once in a transaction', async () =
   const paid = await creditPaidOrder(state.db, 12345, payment);
   assert.equal(paid.status, 'PAID');
   assert.equal(paid.balance, 10000);
-  assert.equal(paid.remainingImages, 100);
+  assert.equal(paid.remainingImages, 300);
   assert.equal(paid.plan, 'plus');
   assert.deepEqual(await creditPaidOrder(state.db, 12345, payment), { status: 'PAID' });
   assert.equal(state.docs.get('userCredits/user-a').credits, 10000);
-  assert.equal(state.docs.get('userCredits/user-a').remainingImages, 100);
+  assert.equal(state.docs.get('userCredits/user-a').remainingImages, 300);
   assert.equal(state.docs.get('approvedBills/PAYOS_12345').amount, 50000);
   assert.equal(state.commits, 1);
 });
@@ -77,7 +77,7 @@ test('status only reports PAID after authoritative payment verification and comm
     const result = await verifiedOrderStatus(state.db, client, 12345, 'user-a');
     assert.equal(result.status, 'PAID');
     assert.equal(result.balance, 10000);
-    assert.equal(result.remainingImages, 100);
+    assert.equal(result.remainingImages, 300);
   }
   assert.equal(state.commits, 1);
   await assert.rejects(verifiedOrderStatus(state.db, { paymentRequests: { get: async () => ({ ...payment, id: 'other' }) } }, 12345, 'user-a'));
@@ -95,6 +95,6 @@ test('new paid subscription accepts a free account with only daily usage fields'
   state.docs.set('userCredits/user-a', { userId: 'user-a', dailyFreeUsed: 4 });
   const result = await creditPaidOrder(state.db, 12345, payment);
   assert.equal(result.status, 'PAID');
-  assert.equal(result.remainingImages, 100);
+  assert.equal(result.remainingImages, 300);
   assert.equal(state.docs.get('userCredits/user-a').credits, undefined);
 });

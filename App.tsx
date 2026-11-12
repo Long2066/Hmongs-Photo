@@ -87,6 +87,25 @@ const App: React.FC = () => {
     const [isHistoryVisible, setHistoryVisible] = useState(false);
     const [isPackagesVisible, setPackagesVisible] = useState(false);
     const [packagesOrigin, setPackagesOrigin] = useState(false);
+
+    // Close profile cleanly & support mobile hardware/browser back button
+    const handleCloseProfile = useCallback(() => {
+        setHistoryVisible(false);
+    }, []);
+
+    useEffect(() => {
+        if (!isHistoryVisible) return;
+        try {
+            window.history.pushState({ page: 'profile' }, '');
+        } catch {}
+        const handlePopState = () => {
+            setHistoryVisible(false);
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [isHistoryVisible]);
     const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
     const [isApiKeyModalOpen, setApiKeyModalOpen] = useState(false);
     const [isQuotaStationOpen, setQuotaStationOpen] = useState(false);
@@ -441,10 +460,12 @@ const App: React.FC = () => {
                 setError('Model này không thuộc gói hiện tại. Plus mở GPT Image 2.5, Flare, Sunburst và GPT Image 2; Pro mở toàn bộ model.');
                 return false;
             }
-            const bonusImgs = firebaseService.getCachedBonusImages(currentUser.id);
-            if (requestedImages > entitlement.remainingImages + bonusImgs) {
-                setError(`Gói ${entitlement.plan === 'pro' ? 'Pro' : 'Plus'} chỉ còn ${entitlement.remainingImages} ảnh${bonusImgs ? ` (+${bonusImgs} ảnh thưởng)` : ''}. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
-                return false;
+            if (entitlement.plan !== 'pro') {
+                const bonusImgs = firebaseService.getCachedBonusImages(currentUser.id);
+                if (requestedImages > entitlement.remainingImages + bonusImgs) {
+                    setError(`Gói Plus chỉ còn ${entitlement.remainingImages} ảnh${bonusImgs ? ` (+${bonusImgs} ảnh thưởng)` : ''}. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
+                    return false;
+                }
             }
             return true;
         }
@@ -470,6 +491,9 @@ const App: React.FC = () => {
         let remainingToDeduct = imagesCount;
 
         if (currentSubscriptionPlan !== 'free') {
+            if (currentSubscriptionPlan === 'pro') {
+                return;
+            }
             const availBonus = firebaseService.getCachedBonusImages(currentUser.id);
             if (availBonus > 0) {
                 const fromBonus = Math.min(remainingToDeduct, availBonus);
@@ -1408,6 +1432,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                 onLoginClick={() => setAuthModalOpen(true)}
                 onLogout={handleLogout}
                 onHistoryClick={() => { setPackagesVisible(false); setHistoryVisible(true); }}
+                onBackFromProfile={handleCloseProfile}
                 onQuotaStationClick={() => { setPackagesOrigin(isHistoryVisible); setHistoryVisible(false); setPackagesVisible(true); }}
                 onBotClick={() => setIsSupportBotOpen(true)}
                 isHistoryVisible={isHistoryVisible}
@@ -1415,6 +1440,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                 onModeChange={(nextMode) => {
                     setError(null);
                     setMode(nextMode);
+                    setHistoryVisible(false);
                     if (nextMode !== 'creative') setIsAiConfigExpanded(true);
                 }}
             />
@@ -1545,8 +1571,8 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                 {/* MAIN CONTENT AREA - Scenic Studio Canvas */}
                 <main className="flex-1 lg:overflow-y-auto overscroll-contain bg-[#f4f3fb] flex flex-col w-full relative custom-scrollbar pb-28 lg:pb-8 min-h-0">
                     {isHistoryVisible && currentUser ? (
-                        <div className="p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
-                            <ProfilePage user={currentUser} onBack={() => setHistoryVisible(false)} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />
+                        <div className="p-3 sm:p-4 md:p-8 w-full max-w-7xl mx-auto animate-fade-in">
+                            <ProfilePage user={currentUser} onBack={handleCloseProfile} onImageClick={(url) => setSelectedImage({ url, index: 0 })} />
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col p-3 sm:p-4 w-full min-h-full h-auto">

@@ -81,7 +81,13 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                         </div>
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Ảnh còn lại</p>
-                            <p className="text-right font-mono tabular-nums font-semibold text-indigo-700">{activePlan === 'free' ? `${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} hôm nay` : `${remainingImages} ảnh`}</p>
+                            <p className="text-right font-mono tabular-nums font-semibold text-indigo-700">
+                                {activePlan === 'pro'
+                                    ? 'Không giới hạn'
+                                    : activePlan === 'free'
+                                        ? `${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} hôm nay`
+                                        : `${remainingImages} ảnh`}
+                            </p>
                         </div>
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Video còn lại</p>
@@ -105,7 +111,7 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                 </div>
 
                 {/* Pricing Grid: Free / Plus / Pro */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch pt-4">
                     {/* 1. GÓI FREE */}
                     <div className={`bg-white rounded-2xl p-6 flex flex-col justify-between transition-all ${
                         activePlan === 'free'
@@ -123,7 +129,7 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     </p>
                                 </div>
                                 <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider bg-slate-100 text-slate-700">
-                                    Mặc định
+                                    MẶC ĐỊNH
                                 </span>
                             </div>
 
@@ -134,8 +140,8 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     </span>
                                     <span className="text-xs text-slate-500 font-medium">/ ngày</span>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1.5 font-medium">
-                                    Tặng <strong className="text-slate-800 font-mono tabular-nums">10 ảnh / ngày</strong> + <strong className="text-amber-700 font-mono tabular-nums">{FREE_ACCOUNT_VIDEO_SECONDS}s video</strong> cho tài khoản mới
+                                <p className="text-xs text-slate-600 mt-1.5 font-medium">
+                                    Tặng <strong className="text-slate-900 font-mono tabular-nums">50 ảnh / ngày</strong> + <strong className="text-amber-700 font-mono tabular-nums">8s video</strong> cho tài khoản mới
                                 </p>
                             </div>
 
@@ -144,13 +150,13 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Tạo tối đa <strong className="text-slate-900 font-semibold font-mono tabular-nums">10 ảnh / ngày</strong> miễn phí</span>
+                                    <span>Tạo tối đa <strong className="text-slate-900 font-semibold font-mono tabular-nums">50 ảnh / ngày</strong> miễn phí</span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Tặng <strong className="text-amber-700 font-semibold font-mono tabular-nums">{FREE_ACCOUNT_VIDEO_SECONDS} giây tạo Video AI</strong> cho mỗi tài khoản mới tạo</span>
+                                    <span>Tặng <strong className="text-amber-700 font-semibold font-mono tabular-nums">8 giây tạo Video AI</strong></span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -199,11 +205,11 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                         )}
                                     </h3>
                                     <p className="text-xs text-slate-500 mt-0.5">
-                                        100 ảnh + 60s Video AI • Tối đa FHD
+                                        300 ảnh + 60s Video AI • Tối đa FHD
                                     </p>
                                 </div>
                                 <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider bg-emerald-50 text-emerald-700">
-                                    Giảm 58%
+                                    GIẢM 58%
                                 </span>
                             </div>
 
@@ -223,7 +229,7 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     <span className="text-xs text-slate-500 font-medium">/ 30 ngày</span>
                                 </div>
                                 <p className="text-xs text-emerald-700 mt-1.5 font-semibold font-mono tabular-nums">
-                                    100 ảnh + 60 giây Video AI (hạn 30 ngày)
+                                    300 ảnh + 60 giây Video AI (hạn 30 ngày)
                                 </p>
                             </div>
 
@@ -232,13 +238,13 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Nhận <strong className="text-slate-900 font-semibold font-mono tabular-nums">100 ảnh</strong> và <strong className="text-amber-700 font-semibold font-mono tabular-nums">60 giây tạo Video AI</strong> riêng biệt</span>
+                                    <span>Nhận <strong className="text-slate-900 font-semibold font-mono tabular-nums">300 ảnh</strong> và <strong className="text-amber-700 font-semibold font-mono tabular-nums">60 giây tạo Video AI</strong></span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Sử dụng <strong className="text-slate-900 font-semibold">full tất cả các tính năng</strong> trên công cụ</span>
+                                    <span>Sử dụng <strong className="text-slate-900 font-semibold">full tất cả các tính năng trên công cụ</strong></span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -250,7 +256,7 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                                     <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    <span>Tạo ảnh độ phân giải tối đa mức <strong className="text-slate-900 font-semibold">FHD</strong> • Hết hạn sau <strong>30 ngày</strong> tự về Free</span>
+                                    <span>Tạo ảnh độ phân giải tối đa mức <strong className="text-slate-900 font-semibold">FHD</strong> • Hết hạn sau <strong>30 ngày</strong></span>
                                 </li>
                             </ul>
                         </div>
@@ -269,84 +275,114 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                         </div>
                     </div>
 
-                    {/* 3. GÓI PRO (Highlighted Primary Tier) */}
-                    <div className="bg-gradient-to-b from-indigo-50/70 via-white to-white rounded-2xl p-6 flex flex-col justify-between ring-2 ring-indigo-600 shadow-lg relative">
-                        <div>
-                            <div className="flex items-center justify-between gap-2 mb-4">
+                    {/* 3. GÓI PRO (Ultra-Highlighted Premium Tier) */}
+                    <div className="relative bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-7 flex flex-col justify-between ring-2 ring-amber-400 shadow-2xl shadow-indigo-600/30 transform lg:-translate-y-2 lg:scale-[1.02] transition-all group">
+                        {/* Decorative Ambient Glow in the background (clipped safely inside rounded-3xl) */}
+                        <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
+                            <div className="absolute -top-24 -right-24 w-56 h-56 bg-amber-400/15 rounded-full blur-3xl" />
+                            <div className="absolute -bottom-24 -left-24 w-56 h-56 bg-indigo-500/20 rounded-full blur-3xl" />
+                        </div>
+
+                        {/* Top Floating Badge */}
+                        <div className="absolute top-0 right-0 left-0 flex justify-center -translate-y-1/2 pointer-events-none z-20">
+                            <span className="bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-bold px-4 py-1 rounded-full text-[11px] shadow-lg shadow-amber-500/30 tracking-wider uppercase flex items-center gap-1.5 border border-amber-200 whitespace-nowrap">
+                                <span>⭐ CAO CẤP NHẤT & KHUYÊN DÙNG ⭐</span>
+                            </span>
+                        </div>
+
+                        <div className="relative z-10 pt-1">
+                            <div className="flex items-center justify-between gap-2 mb-3">
                                 <div>
-                                    <h3 className="text-lg font-semibold text-slate-900 leading-tight flex items-center gap-2">
+                                    <h3 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
                                         <span>Gói Pro</span>
                                         {activePlan === 'pro' && (
-                                            <span className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-indigo-100 text-indigo-800">
+                                            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                                 Đang dùng
                                             </span>
                                         )}
                                     </h3>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        200 ảnh + 180s Video AI & Độ phân giải 4K
+                                    <p className="text-xs text-amber-200/90 mt-1 font-medium">
+                                        Tạo ảnh không giơi hạn + 180s Video AI & Độ phân giải 4K
                                     </p>
                                 </div>
-                                <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider bg-indigo-600 text-white shadow-xs">
-                                    Cao cấp nhất
+                                <span className="px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-400 text-slate-950 shadow-sm">
+                                    CAO CẤP NHẤT
                                 </span>
                             </div>
 
-                            <div className="mb-6 pb-5 border-b border-slate-200/80">
+                            {/* Unlimited Highlight Callout Banner */}
+                            <div className="my-3.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400/20 via-indigo-500/25 to-purple-500/20 border border-amber-400/40 flex items-center gap-2.5">
+                                <span className="text-lg">🔥</span>
+                                <div className="text-xs font-bold text-amber-300 uppercase tracking-wide">
+                                    Tạo ảnh hoàn toàn không bị giới hạn
+                                </div>
+                            </div>
+
+                            <div className="mb-5 pb-5 border-b border-indigo-800/60">
                                 <div className="flex items-center gap-2 mb-1">
                                     <span className="text-sm text-slate-400 line-through font-mono tabular-nums">
                                         200.000đ
                                     </span>
-                                    <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                                    <span className="text-[11px] font-bold text-amber-300 bg-amber-400/20 border border-amber-400/30 px-2 py-0.5 rounded-md">
                                         Giảm 50% (-100.000đ)
                                     </span>
                                 </div>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-3xl font-bold text-indigo-600 font-mono tabular-nums">
+                                    <span className="text-3xl sm:text-4xl font-extrabold text-amber-400 font-mono tabular-nums drop-shadow-sm">
                                         100.000đ
                                     </span>
-                                    <span className="text-xs text-slate-500 font-medium">/ 30 ngày</span>
+                                    <span className="text-xs text-slate-300 font-medium">/ 30 ngày</span>
                                 </div>
-                                <p className="text-xs text-indigo-700 mt-1.5 font-semibold font-mono tabular-nums">
-                                    200 ảnh + 180 giây Video AI (hạn 30 ngày)
+                                <p className="text-xs text-amber-300/90 mt-1.5 font-bold font-mono tabular-nums flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                    <span>Tạo ảnh không giới hạn + 180 giây Video AI</span>
                                 </p>
                             </div>
 
-                            <ul className="space-y-3 text-sm text-slate-700 mb-6">
+                            <ul className="space-y-3 text-sm text-slate-200 mb-6">
                                 <li className="flex items-start gap-2.5">
-                                    <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    <span>Nhận <strong className="text-slate-900 font-semibold font-mono tabular-nums">200 ảnh</strong> và <strong className="text-amber-700 font-semibold font-mono tabular-nums">180 giây tạo Video AI</strong> riêng biệt</span>
+                                    <div className="w-5 h-5 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <svg className="w-3.5 h-3.5 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-white font-medium">Tạo ảnh hoàn toàn không bị giới hạn và <strong className="text-amber-300 font-bold font-mono tabular-nums">180 giây tạo Video AI</strong></span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
-                                    <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    <span>Sử dụng <strong className="text-slate-900 font-semibold">full các tính năng có trên Tool</strong> trong hạn mức của gói</span>
+                                    <div className="w-5 h-5 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <svg className="w-3.5 h-3.5 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <span>Sử dụng <strong className="text-white font-semibold">full các tính năng có trên Tool</strong> trong hạn mức của gói</span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
-                                    <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    <span>Mở khóa toàn bộ độ phân giải <strong className="text-indigo-700 font-semibold">HD, FHD, 2K, 4K Ultra Sharp</strong></span>
+                                    <div className="w-5 h-5 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <svg className="w-3.5 h-3.5 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <span>Mở khóa toàn bộ độ phân giải <strong className="text-amber-300 font-bold">HD, FHD, 2K, 4K Ultra Sharp</strong></span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
-                                    <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    <span>Mở khóa <strong className="text-indigo-700 font-semibold">Full toàn bộ Model AI</strong> • Hết hạn sau <strong>30 ngày</strong> tự về Free</span>
+                                    <div className="w-5 h-5 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <svg className="w-3.5 h-3.5 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <span>Mở khóa <strong className="text-amber-300 font-bold">Full toàn bộ Model AI</strong> • Hết hạn sau <strong>30 ngày</strong></span>
                                 </li>
                             </ul>
                         </div>
 
-                        <div className="pt-2">
+                        <div className="pt-2 relative z-10">
                             <button
                                 type="button"
                                 onClick={() => setCheckoutPlan('pro')}
-                                className="w-full py-3.5 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-semibold text-sm shadow-md shadow-indigo-600/20 transition-all min-h-[44px] flex items-center justify-center gap-2 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 active:scale-[0.98] text-slate-950 font-bold text-sm shadow-xl shadow-amber-500/25 hover:shadow-amber-500/40 transition-all min-h-[48px] flex items-center justify-center gap-2 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <span>{activePlan === 'pro' ? 'Mua thêm Gói Pro — 100.000đ' : 'Mua Gói Pro — 100.000đ'}</span>
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-4 h-4 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                                 </svg>
                             </button>

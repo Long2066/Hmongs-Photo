@@ -1,5 +1,5 @@
 /**
- * Poster & Catalog Studio Rendering Engine (v2.25.52)
+ * Poster & Catalog Studio Rendering Engine (v2.25.53)
  * High-End Creative Generative Graphic Compositor
  * Supports 16 Cinematic & Multi-Layer Themes across BOTH:
  * - 📱 Khổ Dọc 9:16 (Story, TikTok, Mobile Wallpaper, Standee)

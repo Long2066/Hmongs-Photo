@@ -809,7 +809,7 @@ const FAILED_BILLS_COLLECTION = "failedBills";
 export type SubscriptionPlan = 'free' | 'plus' | 'pro';
 
 export const IMAGE_COST_VND = 500;
-export const FREE_DAILY_IMAGE_LIMIT = 10;
+export const FREE_DAILY_IMAGE_LIMIT = 50;
 export const FREE_ACCOUNT_VIDEO_SECONDS = 8;
 export const PLAN_VIDEO_ALLOWANCE: Record<SubscriptionPlan, number> = {
     free: 8,
@@ -839,58 +839,56 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanInfo> = {
     free: {
         id: 'free',
         name: 'Gói Free',
-        badge: 'Miễn phí',
+        badge: 'MẶC ĐỊNH',
         originalPrice: 0,
         price: 0,
         costPerImage: 0,
         maxResolution: 'FHD',
         dailyFreeLimit: FREE_DAILY_IMAGE_LIMIT,
         videoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
-        description: 'Trải nghiệm tạo ảnh AI cơ bản mỗi ngày hoàn toàn miễn phí.',
+        description: 'Dành cho người mới trải nghiệm',
         features: [
-            'Tạo tối đa 10 ảnh / ngày',
-            'Tặng 8 giây tạo Video AI cho mỗi tài khoản mới',
-            'Sử dụng model GPT Image 1.5',
-            'Độ phân giải tiêu chuẩn (HD / FHD)',
-            'Lưu trữ lịch sử tạo ảnh 72 giờ'
+            'Tạo tối đa 50 ảnh / ngày miễn phí',
+            'Tặng 8 giây tạo Video AI',
+            'Tạo ảnh sử dụng model GPT 1.5',
+            'Giới hạn các model AI cao cấp & độ phân giải 2K/4K',
+            'Gói cơ bản miễn phí'
         ]
     },
     plus: {
         id: 'plus',
         name: 'Gói Plus',
-        badge: 'Tiết kiệm 58%',
+        badge: 'GIẢM 58%',
         originalPrice: 120000,
         price: 50000,
         costPerImage: IMAGE_COST_VND,
         maxResolution: 'FHD',
-        totalImages: 100,
+        totalImages: 300,
         videoSeconds: 60,
-        description: 'Mở khóa toàn bộ tính năng sáng tạo với mức chi phí siêu tiết kiệm.',
+        description: '300 ảnh + 60s Video AI • Tối đa FHD',
         features: [
-            'Nhận 100 ảnh + 60 giây tạo Video AI trong 30 ngày',
+            'Nhận 300 ảnh và 60 giây tạo Video AI',
             'Sử dụng full tất cả các tính năng trên công cụ',
-            'Mở khóa các Model AI: GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2 (cùng các model miễn phí)',
-            'Tạo ảnh độ phân giải tối đa mức FHD (Full HD)',
-            'Hết hạn sau 30 ngày tự động quay về gói Free'
+            'Mở khóa các Model AI: GPT Image 2.5, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, GPT Image 2',
+            'Tạo ảnh độ phân giải tối đa mức FHD • Hết hạn sau 30 ngày'
         ]
     },
     pro: {
         id: 'pro',
         name: 'Gói Pro',
-        badge: 'Giảm 50% • Cao cấp nhất',
+        badge: 'CAO CẤP NHẤT',
         originalPrice: 200000,
         price: 100000,
         costPerImage: IMAGE_COST_VND,
         maxResolution: '4K',
-        totalImages: 200,
+        totalImages: 999999, // Không giới hạn tạo ảnh trong 30 ngày
         videoSeconds: 180,
-        description: 'Sức mạnh tối đa không giới hạn cho Studio & Designer chuyên nghiệp.',
+        description: 'Tạo ảnh không giơi hạn + 180s Video AI & Độ phân giải 4K',
         features: [
-            'Nhận 200 ảnh + 180 giây tạo Video AI trong 30 ngày',
-            'Sử dụng full toàn bộ tính năng có trên Tool',
-            'Mở khóa Full toàn bộ Model AI (không giới hạn model)',
-            'Mở khóa mọi mức độ phân giải: HD, FHD, 2K, 4K Ultra',
-            'Hết hạn sau 30 ngày tự động quay về gói Free'
+            'Tạo ảnh hoàn toàn không bị giới hạn và 180 giây tạo Video AI',
+            'Sử dụng full các tính năng có trên Tool trong hạn mức của gói',
+            'Mở khóa toàn bộ độ phân giải HD, FHD, 2K, 4K Ultra Sharp',
+            'Mở khóa Full toàn bộ Model AI • Hết hạn sau 30 ngày'
         ]
     }
 };
@@ -944,8 +942,9 @@ export const resolveEffectivePlan = (
     remainingVideoSeconds: number = 0
 ): SubscriptionPlan => {
     if (!planExpiresAt || planExpiresAt <= Date.now()) return 'free';
+    if (rawPlan === 'pro') return 'pro';
     if (remainingImages <= 0 && remainingVideoSeconds <= 0) return 'free';
-    return rawPlan === 'plus' || rawPlan === 'pro' ? rawPlan : 'free';
+    return rawPlan === 'plus' ? rawPlan : 'free';
 };
 
 export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
@@ -1229,10 +1228,11 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
 
         const currentRemaining = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
         const currentVideoSec = Number.isSafeInteger(data.remainingVideoSeconds) ? data.remainingVideoSeconds : 0;
-        const newRemaining = Math.max(0, currentRemaining - count);
-        const newPlan: SubscriptionPlan = (newRemaining > 0 || currentVideoSec > 0)
-            ? (data.plan === 'pro' || data.plan === 'plus' ? data.plan : 'free')
-            : 'free';
+        const isProPlan = data.plan === 'pro';
+        const newRemaining = isProPlan ? Math.max(999999, currentRemaining) : Math.max(0, currentRemaining - count);
+        const newPlan: SubscriptionPlan = isProPlan
+            ? 'pro'
+            : ((newRemaining > 0 || currentVideoSec > 0) && data.plan === 'plus' ? 'plus' : 'free');
 
         await setDoc(docRef, {
             userId,
@@ -1299,7 +1299,7 @@ export const consumeUserVideoSecondsDirect = async (userId: string, seconds: num
         const newVideoSec = Math.max(0, currentVideoSec - seconds);
         const isPaid = data.plan === 'pro' || data.plan === 'plus';
         const newPlan: SubscriptionPlan = isPaid
-            ? (currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
+            ? (data.plan === 'pro' || currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
             : 'free';
 
         await setDoc(docRef, {
@@ -1673,7 +1673,7 @@ export interface TermsData {
 const DEFAULT_TERMS_CONTENT = `📜 ĐIỀU KHOẢN SỬ DỤNG IMAGETOOL
 1. Chấp thuận: Đăng ký tài khoản đồng nghĩa bạn đã đọc, hiểu và đồng ý toàn bộ điều khoản này.
 2. Bảo mật: Bạn tự chịu trách nhiệm bảo mật mật khẩu và mọi hoạt động dưới tài khoản của mình.
-3. Gói cước: Gói Free tặng 10 ảnh/ngày; gói Plus có 100 ảnh, gói Pro có 200 ảnh trong 30 ngày kể từ khi kích hoạt. Gói kết thúc khi hết lượt hoặc hết hạn, tùy điều kiện nào đến trước.
+3. Gói cước: Gói Free tặng 50 ảnh/ngày + 8s video; gói Plus có 300 ảnh + 60s video, gói Pro tạo ảnh không giới hạn + 180s video trong 30 ngày kể từ khi kích hoạt. Gói kết thúc khi hết lượt hoặc hết hạn, tùy điều kiện nào đến trước.
 4. Không hoàn tiền: Gói dịch vụ sau khi thanh toán thành công không thể quy đổi hay hoàn lại tiền mặt.
 5. Bảo mật ảnh: Ảnh tải lên chỉ phục vụ xử lý AI, cam kết không bán hay chia sẻ cho bên thứ 3.
 6. Lưu trữ: Lịch sử ảnh tạm tự động xóa sau 72 giờ để bảo mật, bạn vui lòng tải ảnh về máy ngay khi tạo.
