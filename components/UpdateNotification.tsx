@@ -173,7 +173,18 @@ export const UpdateNotification: React.FC = () => {
         }
 
         if (!downloadUrl) {
-            openDownloadPage();
+            setMobileDownloading(true);
+            setError('');
+            try {
+                const ota = await checkAndApplySilentOta(true);
+                if (ota.updated) {
+                    setOtaToastVersion(ota.version || null);
+                    setUpdateAvailable(false);
+                    return;
+                }
+            } catch {}
+            setError('Chưa có file APK cho phiên bản này. Vui lòng thử lại sau.');
+            setMobileDownloading(false);
             return;
         }
 

@@ -79,8 +79,8 @@ class ApkInstallerPlugin extends Plugin {
                 // 1. Download zip from CDN
                 URL url = new URL(bundleUrl);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(30000);
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(120000);
                 conn.setInstanceFollowRedirects(true);
                 conn.connect();
 

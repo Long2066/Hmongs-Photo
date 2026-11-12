@@ -222,8 +222,10 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 
         const data = await response.json();
         const latestVersion = data.tag_name?.replace(/^v/, '') || data.name?.replace(/^v/, '') || '';
-        const hasUpdate = isNewerVersion(currentVersion, latestVersion);
         const downloadUrl = isAndroid ? findApkUrl(data.assets) : null;
+        // On Android, only report a GitHub binary update if an actual .apk asset exists in the release.
+        // Never redirect mobile users to a Windows-only (.exe) release page.
+        const hasUpdate = isNewerVersion(currentVersion, latestVersion) && (!isAndroid || !!downloadUrl);
 
         return {
             hasUpdate,

@@ -25,7 +25,7 @@ with zipfile.ZipFile(bundle_zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6
 
 manifest = {
     "version": version,
-    "minNativeVersion": "2.25.42",
+    "minNativeVersion": "2.25.40",
     "bundleUrl": f"https://toolphoto-2025.web.app/ota/bundle.zip?v={version}",
     "notes": f"Phien ban {version} - Tu dong cap nhat khi co mang & toi uu full man hinh"
 }
