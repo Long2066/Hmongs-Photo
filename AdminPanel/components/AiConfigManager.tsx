@@ -46,12 +46,14 @@ const SUPPORTED_IMAGE_MODELS = [
     { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst' },
     { id: 'gpt-image-2', name: 'GPT Image 2' },
     { id: 'gpt-image-1.5', name: 'GPT Image 1.5' },
+    { id: 'muse-image', name: 'Muse AI Image (muse2api)' },
 ];
 
 const PRESETS = [
     { label: 'Ngrok Tunnel', url: 'https://753c-158-178-235-87.ngrok-free.app/v1' },
     { label: 'VPS Cloud', url: 'http://158.178.235.87:20128/v1' },
-    { label: 'Localhost', url: 'http://127.0.0.1:8317/v1' },
+    { label: 'Muse AI Gateway (18610)', url: 'http://127.0.0.1:18610/v1' },
+    { label: 'Localhost (8317)', url: 'http://127.0.0.1:8317/v1' },
 ];
 
 export const AiConfigManager: React.FC<AiConfigManagerProps> = ({ admin }) => {

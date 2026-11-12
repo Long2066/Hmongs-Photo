@@ -762,7 +762,107 @@ const executeVivixVideoCall = async (
 };
 
 /**
- * Điều phối gọi API theo đúng nhà cung cấp của model (Vivix Chính chủ, idea.ai hoặc OpenRouter)
+ * Gọi API tạo video qua Muse AI Gateway (muse2api):
+ * POST {museAiBaseUrl}/videos -> polling GET {museAiBaseUrl}/videos/{task_id}
+ */
+const executeMuseAiVideoCall = async (
+    config: OpenRouterVideoConfig,
+    options: GenerateOpenRouterVideoOptions,
+    aspectRatio: '16:9' | '9:16' | '1:1',
+    duration: number
+): Promise<string> => {
+    const rawBaseUrl = (config.museAiBaseUrl || 'http://127.0.0.1:18610/v1').trim();
+    const baseUrl = rawBaseUrl.replace(/\/+$/, '');
+    const apiKey = (config.museAiApiKey || '').trim();
+
+    options.onProgress?.('Đang gửi yêu cầu tạo video tới Muse AI Gateway...');
+
+    let imagePayload: string | undefined = undefined;
+    if (options.inputImageBase64 && options.inputImageBase64.trim()) {
+        const trimmed = options.inputImageBase64.trim();
+        imagePayload = trimmed.startsWith('data:') || trimmed.startsWith('http')
+            ? trimmed
+            : `data:image/png;base64,${trimmed}`;
+    }
+
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
+    if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const bodyPayload: Record<string, any> = {
+        model: 'muse-video',
+        prompt: options.prompt,
+        size: aspectRatio,
+        duration
+    };
+    if (imagePayload) {
+        bodyPayload.image = imagePayload;
+    }
+
+    const submitResp = await fetch(`${baseUrl}/videos`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(bodyPayload)
+    });
+
+    if (!submitResp.ok) {
+        const errText = await submitResp.text().catch(() => '');
+        throw new Error(`Muse AI Gateway lỗi (HTTP ${submitResp.status}): ${errText || submitResp.statusText}`);
+    }
+
+    const submitData = await submitResp.json();
+    const taskId = submitData?.id;
+    if (!taskId) {
+        throw new Error('Muse AI Gateway không trả về mã tác vụ (Task ID).');
+    }
+
+    const maxAttempts = 200; // ~10 phút tối đa (3s/lần)
+    for (let i = 1; i <= maxAttempts; i++) {
+        await sleep(3000);
+        const pollResp = await fetch(`${baseUrl}/videos/${encodeURIComponent(taskId)}`, {
+            method: 'GET',
+            headers
+        });
+
+        if (!pollResp.ok) {
+            if (pollResp.status === 404) {
+                throw new Error(`Không tìm thấy tác vụ video ${taskId} trên Muse AI Gateway.`);
+            }
+            continue;
+        }
+
+        const pollData = await pollResp.json();
+        const progressText = typeof pollData.progress === 'number' && pollData.progress > 0
+            ? ` (${pollData.progress}%)`
+            : '';
+        options.onProgress?.(`Muse AI đang kết xuất video${progressText} [${i * 3}s]...`);
+
+        if (pollData.status === 'succeeded' && pollData.result?.url) {
+            try {
+                const mediaResp = await fetch(pollData.result.url);
+                if (mediaResp.ok) {
+                    const blob = await mediaResp.blob();
+                    return URL.createObjectURL(blob);
+                }
+            } catch {
+                // Fallback trả thẳng URL nếu fetch blob gặp lỗi mạng
+            }
+            return pollData.result.url;
+        }
+
+        if (pollData.status === 'failed' || pollData.status === 'cancelled') {
+            throw new Error(`Muse AI tạo video thất bại: ${pollData.error?.message || pollData.status}`);
+        }
+    }
+
+    throw new Error('Quá thời gian chờ kết xuất video từ Muse AI Gateway.');
+};
+
+/**
+ * Điều phối gọi API theo đúng nhà cung cấp của model (Vivix Chính chủ, idea.ai, Muse AI hoặc OpenRouter)
  */
 const executeModelVideoCall = async (
     modelId: string,
@@ -791,6 +891,10 @@ const executeModelVideoCall = async (
             throw new Error('Chưa cấu hình API Key idea.ai (cfak_...) trên trang Quản trị (Admin Panel). Vui lòng nhập API Key idea.ai để sử dụng Vivix W1 T.');
         }
         return executeIdeaAiVideoCall(meta.id, ideaKey, options, aspectRatio, duration);
+    }
+
+    if (meta.provider === 'muse_ai') {
+        return executeMuseAiVideoCall(config, options, aspectRatio, duration);
     }
 
     const orKey = (config.openRouterApiKey || '').trim();
@@ -840,6 +944,8 @@ export const generateOpenRouterVideo = async (
                  ? Boolean(config.vivixAiApiKey?.trim())
                  : m.provider === 'idea_ai'
                  ? Boolean(config.ideaAiApiKey?.trim())
+                 : m.provider === 'muse_ai'
+                 ? Boolean(config.museAiApiKey?.trim() || config.museAiBaseUrl?.trim())
                  : Boolean(config.openRouterApiKey?.trim()))
     );
 

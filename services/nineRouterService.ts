@@ -6,6 +6,7 @@
  */
 
 import { optimizeReferenceImages, createCompositeReferenceImage } from './imageOptimizer';
+import { getVideoConfig } from './videoConfigService';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'https://753c-158-178-235-87.ngrok-free.app/v1';
@@ -168,6 +169,15 @@ export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
         tagColor: 'purple',
         description: 'Tốc độ tạo nhanh, tiết kiệm quota, phù hợp tạo thử nghiệm và xem trước',
         speed: 'fast'
+    },
+    {
+        id: 'muse-image',
+        name: 'Muse AI Image (muse-image)',
+        shortName: 'Muse Image',
+        tag: 'Muse AI Gateway',
+        tagColor: 'purple',
+        description: 'Tạo ảnh & kết hợp trang phục qua Gateway Muse AI (cấu hình trên Admin Panel)',
+        speed: 'fast'
     }
 ];
 
@@ -191,7 +201,8 @@ export const DEFAULT_MODEL_PRICING: Record<string, boolean> = {
     'gpt-image-2.5-flare': true,     // Trả phí
     'gpt-image-2.5-sunburst': true,  // Trả phí
     'gpt-image-2': true,             // Trả phí
-    'gpt-image-1.5': false           // Miễn phí
+    'gpt-image-1.5': false,          // Miễn phí
+    'muse-image': false              // Miễn phí
 };
 
 let _cachedCloudConfig: AiProxyCloudConfig | null = null;
@@ -597,6 +608,46 @@ const extractImageFromChatResponse = (parsed: ParsedNineRouterResponse): string 
  * Check connection to 9Router
  */
 export const checkConnection = async (customUrl?: string, customApiKey?: string): Promise<NineRouterStatus> => {
+    // Nếu đang chọn model muse-image và không truyền customUrl kiểm tra 9Router, kiểm tra thẳng Muse AI Gateway
+    if (customUrl === undefined && getNineRouterImageModel().toLowerCase().includes('muse')) {
+        try {
+            const videoCfg = await getVideoConfig();
+            if (videoCfg.museAiEnabled === false) {
+                return {
+                    connected: false,
+                    errorType: 'auth',
+                    errorMessage: 'Nguồn Muse AI Gateway đang tắt trên Admin Panel.',
+                    lastChecked: Date.now()
+                };
+            }
+            const museBase = (videoCfg.museAiBaseUrl || 'http://127.0.0.1:18610/v1').replace(/\/+$/, '');
+            const museKey = (videoCfg.museAiApiKey || '').trim();
+            const museHeaders: Record<string, string> = {};
+            if (museKey) museHeaders['Authorization'] = `Bearer ${museKey}`;
+
+            const museResp = await fetchWithTimeout(`${museBase}/models`, {
+                method: 'GET',
+                headers: museHeaders
+            }, 8000);
+            if (museResp.ok) {
+                const mData = await museResp.json().catch(() => ({}));
+                const mModels = Array.isArray(mData?.data) ? mData.data.map((m: any) => String(m.id || m)) : [];
+                return {
+                    connected: true,
+                    models: mModels,
+                    lastChecked: Date.now()
+                };
+            }
+        } catch (museErr: any) {
+            return {
+                connected: false,
+                errorType: 'network',
+                errorMessage: museErr?.message || 'Không thể kết nối tới Muse AI Gateway.',
+                lastChecked: Date.now()
+            };
+        }
+    }
+
     const baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
     const apiKey = customApiKey !== undefined ? customApiKey.trim() : getNineRouterApiKey();
     const headers: Record<string, string> = {
@@ -1516,6 +1567,62 @@ CRITICAL RULES:
     const combinedPrompt = fullDirective
         ? `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`
         : request.prompt;
+
+    // If Muse AI Image model is selected, route directly to Muse AI Gateway configured on Admin Panel
+    const isMuseSelected = activeModel.toLowerCase().includes('muse');
+    if (isMuseSelected) {
+        const videoCfg = await getVideoConfig();
+        if (videoCfg.museAiEnabled === false) {
+            throw new Error('Nguồn Muse AI Gateway hiện đang tạm tắt trên Admin Panel.');
+        }
+
+        const museUrl = (videoCfg.museAiBaseUrl || 'http://127.0.0.1:18610/v1').replace(/\/+$/, '');
+        const museKey = (videoCfg.museAiApiKey || '').trim();
+        const museHeaders: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (museKey) {
+            museHeaders['Authorization'] = `Bearer ${museKey}`;
+        }
+
+        const refsPayload = referenceImages.map(img =>
+            `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
+        );
+
+        const musePayload: Record<string, any> = {
+            model: 'muse-image',
+            prompt: combinedPrompt,
+            size: ratio,
+            n: 1,
+            response_format: 'url'
+        };
+        if (refsPayload.length === 1) {
+            musePayload.image = refsPayload[0];
+        } else if (refsPayload.length > 1) {
+            musePayload.image = refsPayload.slice(0, 4);
+        }
+
+        console.log(`[MuseAI] Generating image via ${museUrl}/images/generations (ratio: ${ratio}, refs: ${refsPayload.length})`);
+        const respMuse = await fetchWithTimeout(`${museUrl}/images/generations`, {
+            method: 'POST',
+            headers: museHeaders,
+            signal: abortSignal,
+            body: JSON.stringify(musePayload)
+        }, 240000);
+
+        if (!respMuse.ok) {
+            const errText = await respMuse.text().catch(() => '');
+            throw new Error(`Muse AI Gateway tạo ảnh lỗi (HTTP ${respMuse.status}): ${errText || respMuse.statusText}`);
+        }
+
+        const parsedMuse = await parseNineRouterResponse(respMuse);
+        const museImage = await extractAnyImageFromResponse(parsedMuse);
+        if (museImage) {
+            console.log('[MuseAI] Successfully generated image via /v1/images/generations');
+            return museImage;
+        }
+        throw new Error('Muse AI Gateway không trả về dữ liệu ảnh.');
+    }
 
     // Build candidate models order based on user selection
     const isGeminiSelected = activeModel.toLowerCase().includes('gemini');

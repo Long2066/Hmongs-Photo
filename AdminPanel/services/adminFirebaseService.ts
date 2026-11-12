@@ -861,7 +861,8 @@ export const DEFAULT_AI_PROXY_CONFIG: AiProxyConfig = {
         'gpt-image-2.5-flare': true,     // Trả phí
         'gpt-image-2.5-sunburst': true,  // Trả phí
         'gpt-image-2': true,             // Trả phí
-        'gpt-image-1.5': false           // Miễn phí
+        'gpt-image-1.5': false,          // Miễn phí
+        'muse-image': false              // Miễn phí
     }
 };
 

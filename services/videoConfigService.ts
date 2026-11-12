@@ -1,7 +1,7 @@
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../src/firebaseConfig';
 
-export type VideoProviderType = 'openrouter' | 'idea_ai' | 'vivix_ai';
+export type VideoProviderType = 'openrouter' | 'idea_ai' | 'vivix_ai' | 'muse_ai';
 
 export interface VideoModelMetadata {
     id: string;
@@ -93,6 +93,23 @@ export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
         costPerSecondVnd: 1400, // $0.05/s + 10% markup
         baseInputFeeVnd: 0,
         priceLabel: '~4.200đ (3s) • ~7.000đ (5s)'
+    },
+    {
+        id: 'muse.ai/muse-video',
+        provider: 'muse_ai',
+        providerLabel: 'Muse AI Gateway',
+        name: 'Muse Video AI',
+        shortName: 'Muse Video AI',
+        badge: 'Muse AI',
+        badgeColor: 'violet',
+        description: 'Chạy qua Gateway muse2api (127.0.0.1:18610), hỗ trợ I2V & T2V, đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
+        supportedAspectRatios: ['16:9', '9:16', '1:1'],
+        supportedDurations: [5, 10, 15],
+        defaultResolution: '720p',
+        supportsAudio: false,
+        costPerSecondVnd: 200,
+        baseInputFeeVnd: 0,
+        priceLabel: '~1.000đ (5s) • ~2.000đ (10s)'
     }
 ];
 
@@ -118,6 +135,9 @@ export const isVideoModelProviderEnabled = (
     if (meta.provider === 'idea_ai') {
         return config.ideaAiEnabled !== false;
     }
+    if (meta.provider === 'muse_ai') {
+        return config.museAiEnabled !== false;
+    }
     return config.openRouterEnabled !== false;
 };
 
@@ -142,8 +162,11 @@ export interface OpenRouterVideoConfig {
     openRouterApiKey: string;     // sk-or-v1-...
     ideaAiEnabled: boolean;       // Bật/tắt các model thuộc idea.ai (Vivix W1 T)
     ideaAiApiKey: string;         // cfak_...
-    primaryModel: string;         // 'vivix.ai/vivix-w1' | 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
-    fallbackModel: string;        // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
+    museAiEnabled?: boolean;      // Bật/tắt Gateway Muse AI (muse2api)
+    museAiBaseUrl?: string;       // http://127.0.0.1:18610/v1
+    museAiApiKey?: string;        // m2a-...
+    primaryModel: string;         // 'vivix.ai/vivix-w1' | 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'muse.ai/muse-video'
+    fallbackModel: string;        // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0' | 'muse.ai/muse-video'
     pricePerVideoVnd: number;     // Giá mặc định tham chiếu
     costPerVideoVnd: number;
     profitMarkupPercent: number;  // Tỷ lệ lợi nhuận (+10%)
@@ -162,6 +185,9 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     openRouterApiKey: '',
     ideaAiEnabled: true,
     ideaAiApiKey: '',
+    museAiEnabled: true,
+    museAiBaseUrl: 'http://127.0.0.1:18610/v1',
+    museAiApiKey: 'm2a-QLC1SthwZ5ET3IcvOToDVlvql-LwrXGG',
     primaryModel: 'vivix.ai/vivix-w1',
     fallbackModel: 'idea.ai/vivix_w1',
     pricePerVideoVnd: 2000,
@@ -184,7 +210,10 @@ const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVid
         openRouterEnabled: raw.openRouterEnabled !== undefined ? Boolean(raw.openRouterEnabled) : true,
         ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
         openRouterApiKey: raw.openRouterApiKey || '',
-        ideaAiApiKey: raw.ideaAiApiKey || ''
+        ideaAiApiKey: raw.ideaAiApiKey || '',
+        museAiEnabled: raw.museAiEnabled !== undefined ? Boolean(raw.museAiEnabled) : true,
+        museAiBaseUrl: raw.museAiBaseUrl || DEFAULT_VIDEO_CONFIG.museAiBaseUrl,
+        museAiApiKey: raw.museAiApiKey !== undefined ? raw.museAiApiKey : DEFAULT_VIDEO_CONFIG.museAiApiKey
     };
     const validModelIds = OPENROUTER_VIDEO_MODELS.map(m => m.id);
     if (!merged.primaryModel || !validModelIds.includes(merged.primaryModel)) {

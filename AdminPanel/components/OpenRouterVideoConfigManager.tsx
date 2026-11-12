@@ -12,7 +12,8 @@ import {
     ShieldCheck,
     Coins,
     Sliders,
-    Layers
+    Layers,
+    Server
 } from 'lucide-react';
 import {
     getVideoConfig,
@@ -20,6 +21,7 @@ import {
     testOpenRouterApiKey,
     testIdeaAiApiKey,
     testVivixApiKey,
+    testMuseApiKey,
     OpenRouterVideoConfig,
     DEFAULT_VIDEO_CONFIG
 } from '../services/videoConfigService';
@@ -57,6 +59,13 @@ const SUPPORTED_VIDEO_MODELS = [
         badge: 'OpenRouter - Có âm thanh',
         desc: 'Tối ưu gương mặt Á Đông, có âm thanh gốc, hỗ trợ 3s–15s',
         costEstimate: '~1.400đ/giây'
+    },
+    {
+        id: 'muse.ai/muse-video',
+        name: 'Muse AI Gateway: Muse Video AI (muse-video)',
+        badge: 'Muse AI - Text & Video',
+        desc: 'Chạy qua Gateway muse2api (localhost:18610), hỗ trợ T2V & I2V, 9:16 / 16:9 / 1:1 (5s–15s)',
+        costEstimate: 'Nội bộ (Tùy gói Muse)'
     }
 ];
 
@@ -97,6 +106,16 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
         checkedAt?: number;
     } | null>(null);
 
+    // Muse AI Gateway test states
+    const [testingMuse, setTestingMuse] = useState(false);
+    const [showMuseKey, setShowMuseKey] = useState(false);
+    const [museTestResult, setMuseTestResult] = useState<{
+        valid: boolean;
+        label?: string;
+        error?: string;
+        checkedAt?: number;
+    } | null>(null);
+
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -114,6 +133,9 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                     }
                     if (res.openRouterApiKey) {
                         handleTestOpenRouterKey(res.openRouterApiKey);
+                    }
+                    if (res.museAiBaseUrl || res.museAiApiKey) {
+                        handleTestMuseKey(res.museAiBaseUrl, res.museAiApiKey);
                     }
                 }
             })
@@ -221,6 +243,29 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
             });
         } finally {
             setTestingIdea(false);
+        }
+    };
+
+    const handleTestMuseKey = async (urlToTest?: string, keyToTest?: string) => {
+        const url = (urlToTest !== undefined ? urlToTest : (config.museAiBaseUrl || 'http://127.0.0.1:18610/v1')).trim();
+        const key = (keyToTest !== undefined ? keyToTest : (config.museAiApiKey || '')).trim();
+        setTestingMuse(true);
+        try {
+            const res = await testMuseApiKey(url, key);
+            setMuseTestResult({
+                valid: res.valid,
+                label: res.label,
+                error: res.error,
+                checkedAt: Date.now()
+            });
+        } catch (err: any) {
+            setMuseTestResult({
+                valid: false,
+                error: err?.message || 'Lỗi kiểm tra kết nối Muse AI Gateway',
+                checkedAt: Date.now()
+            });
+        } finally {
+            setTestingMuse(false);
         }
     };
 
@@ -916,6 +961,209 @@ export const OpenRouterVideoConfigManager: React.FC<OpenRouterVideoConfigManager
                                     Đã dùng: ${(orTestResult.usage).toFixed(3)} {orTestResult.limit ? `/ Giới hạn: $${orTestResult.limit}` : ''}
                                 </span>
                             )}
+                        </div>
+                    )}
+                </div>
+
+                {/* 4. MUSE AI GATEWAY (muse2api) & PROVIDER TOGGLE */}
+                <div style={{
+                    background: config.museAiEnabled !== false ? '#f0fdf4' : '#f8fafc',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
+                    border: `1.5px solid ${config.museAiEnabled !== false ? '#86efac' : '#e2e8f0'}`,
+                    transition: 'all 0.2s ease'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label htmlFor="muse-ai-api-key" style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Server size={16} style={{ color: '#059669' }} />
+                                <span>Nguồn 4: Muse AI Gateway (muse2api)</span>
+                            </label>
+                            <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: config.museAiEnabled !== false ? '#dcfce7' : '#e2e8f0',
+                                color: config.museAiEnabled !== false ? '#047857' : '#64748b'
+                            }}>
+                                Model: Muse Video AI &amp; Muse Image (Text/Ảnh/Video)
+                            </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button
+                                type="button"
+                                onClick={() => handleTestMuseKey()}
+                                disabled={testingMuse}
+                                className="btn btn-secondary"
+                                style={{
+                                    padding: '6px 14px',
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    minHeight: '34px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <RefreshCw size={14} className={testingMuse ? 'loading-spinner' : ''} />
+                                Kiểm tra kết nối
+                            </button>
+
+                            {/* Toggle Muse AI */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: config.museAiEnabled !== false ? '#047857' : '#64748b' }}>
+                                    {config.museAiEnabled !== false ? 'Đang BẬT' : 'Đang TẮT (Khóa xám)'}
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={config.museAiEnabled !== false}
+                                    onClick={() => setConfig(prev => ({ ...prev, museAiEnabled: !(prev.museAiEnabled !== false) }))}
+                                    style={{
+                                        width: '46px',
+                                        height: '24px',
+                                        borderRadius: '9999px',
+                                        background: config.museAiEnabled !== false ? '#10b981' : '#cbd5e1',
+                                        border: 'none',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s ease',
+                                        padding: '2px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center'
+                                    }}
+                                >
+                                    <span style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: '#ffffff',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        transform: config.museAiEnabled !== false ? 'translateX(22px)' : 'translateX(0px)',
+                                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                                    }} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                        {/* Base URL Input */}
+                        <div>
+                            <label htmlFor="muse-ai-base-url" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                                Gateway Endpoint URL (mặc định local :18610/v1)
+                            </label>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                background: '#ffffff',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '12px',
+                                padding: '0 14px',
+                                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+                                opacity: config.museAiEnabled !== false ? 1 : 0.65
+                            }}>
+                                <input
+                                    id="muse-ai-base-url"
+                                    type="text"
+                                    value={config.museAiBaseUrl || ''}
+                                    onChange={e => setConfig(prev => ({ ...prev, museAiBaseUrl: e.target.value }))}
+                                    placeholder="http://127.0.0.1:18610/v1"
+                                    style={{
+                                        width: '100%',
+                                        padding: '11px 0',
+                                        border: 'none',
+                                        outline: 'none',
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.84rem',
+                                        color: '#0f172a',
+                                        background: 'transparent'
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* API Key Input */}
+                        <div>
+                            <label htmlFor="muse-ai-api-key" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                                Muse AI API Key (từ data/api_key)
+                            </label>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                background: '#ffffff',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '12px',
+                                padding: '0 14px',
+                                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+                                opacity: config.museAiEnabled !== false ? 1 : 0.65
+                            }}>
+                                <input
+                                    id="muse-ai-api-key"
+                                    type={showMuseKey ? 'text' : 'password'}
+                                    value={config.museAiApiKey || ''}
+                                    onChange={e => setConfig(prev => ({ ...prev, museAiApiKey: e.target.value }))}
+                                    placeholder="m2a-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                    style={{
+                                        width: '100%',
+                                        padding: '11px 0',
+                                        border: 'none',
+                                        outline: 'none',
+                                        fontFamily: showMuseKey ? 'monospace' : undefined,
+                                        fontSize: '0.84rem',
+                                        color: '#0f172a',
+                                        background: 'transparent'
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowMuseKey(!showMuseKey)}
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#64748b',
+                                        cursor: 'pointer',
+                                        padding: '6px',
+                                        display: 'flex',
+                                        alignItems: 'center'
+                                    }}
+                                    title={showMuseKey ? 'Ẩn khóa' : 'Hiện khóa'}
+                                >
+                                    {showMuseKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {museTestResult && (
+                        <div style={{
+                            marginTop: '12px',
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            background: museTestResult.valid ? '#ecfdf5' : '#fef2f2',
+                            border: `1px solid ${museTestResult.valid ? '#a7f3d0' : '#fecaca'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '8px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {museTestResult.valid ? (
+                                    <CheckCircle2 size={16} style={{ color: '#059669' }} />
+                                ) : (
+                                    <XCircle size={16} style={{ color: '#dc2626' }} />
+                                )}
+                                <span style={{
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600,
+                                    color: museTestResult.valid ? '#047857' : '#991b1b'
+                                }}>
+                                    {museTestResult.valid ? (museTestResult.label || 'Muse AI Gateway hợp lệ!') : (museTestResult.error || 'Chưa kết nối được Muse AI Gateway')}
+                                </span>
+                            </div>
                         </div>
                     )}
                 </div>

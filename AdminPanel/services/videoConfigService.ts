@@ -10,8 +10,11 @@ export interface OpenRouterVideoConfig {
     openRouterApiKey: string;     // sk-or-v1-...
     ideaAiEnabled: boolean;       // Bật/tắt cụm model idea.ai (Vivix W1 T)
     ideaAiApiKey: string;         // cfak_...
-    primaryModel: string;         // 'vivix.ai/vivix-w1' | 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite'
-    fallbackModel: string;        // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0'
+    museAiEnabled?: boolean;      // Bật/tắt Gateway Muse AI (muse2api)
+    museAiBaseUrl?: string;       // Endpoint Gateway, mặc định http://127.0.0.1:18610/v1
+    museAiApiKey?: string;        // API Key Gateway m2a-...
+    primaryModel: string;         // 'vivix.ai/vivix-w1' | 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'muse.ai/muse-video'
+    fallbackModel: string;        // 'idea.ai/vivix_w1' | 'x-ai/grok-imagine-video-1.5-lite' | 'alibaba/wan-3.0' | 'muse.ai/muse-video'
     pricePerVideoVnd: number;     // Giá bán trên ImageTool (+10% lợi nhuận, vd: 2000đ)
     costPerVideoVnd: number;      // Giá gốc
     profitMarkupPercent: number;  // Tỷ lệ lợi nhuận (+10%)
@@ -30,6 +33,9 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     openRouterApiKey: '',
     ideaAiEnabled: true,
     ideaAiApiKey: '',
+    museAiEnabled: true,
+    museAiBaseUrl: 'http://127.0.0.1:18610/v1',
+    museAiApiKey: 'm2a-QLC1SthwZ5ET3IcvOToDVlvql-LwrXGG',
     primaryModel: 'vivix.ai/vivix-w1',
     fallbackModel: 'idea.ai/vivix_w1',
     pricePerVideoVnd: 2000,
@@ -43,7 +49,8 @@ const VALID_MODEL_IDS = [
     'vivix.ai/vivix-w1',
     'idea.ai/vivix_w1',
     'x-ai/grok-imagine-video-1.5-lite',
-    'alibaba/wan-3.0'
+    'alibaba/wan-3.0',
+    'muse.ai/muse-video'
 ];
 
 const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVideoConfig => {
@@ -56,7 +63,10 @@ const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVid
         openRouterEnabled: raw.openRouterEnabled !== undefined ? Boolean(raw.openRouterEnabled) : true,
         ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
         openRouterApiKey: raw.openRouterApiKey || '',
-        ideaAiApiKey: raw.ideaAiApiKey || ''
+        ideaAiApiKey: raw.ideaAiApiKey || '',
+        museAiEnabled: raw.museAiEnabled !== undefined ? Boolean(raw.museAiEnabled) : true,
+        museAiBaseUrl: raw.museAiBaseUrl || DEFAULT_VIDEO_CONFIG.museAiBaseUrl,
+        museAiApiKey: raw.museAiApiKey !== undefined ? raw.museAiApiKey : DEFAULT_VIDEO_CONFIG.museAiApiKey
     };
     if (!merged.primaryModel || !VALID_MODEL_IDS.includes(merged.primaryModel)) {
         merged.primaryModel = DEFAULT_VIDEO_CONFIG.primaryModel;
@@ -414,5 +424,65 @@ export const testVivixApiKey = async (
             return { valid: false, error: 'Hết thời gian chờ kết nối Vivix (Timeout 12s)' };
         }
         return { valid: false, error: err.message || 'Lỗi mạng khi kiểm tra API Key Vivix' };
+    }
+};
+
+/**
+ * Kiểm tra kết nối và tính hợp lệ của Muse AI Gateway (muse2api)
+ * Gọi endpoint GET {baseUrl}/models và GET {baseUrl}/readyz
+ */
+export const testMuseApiKey = async (
+    rawBaseUrl?: string,
+    apiKey?: string
+): Promise<{
+    valid: boolean;
+    label?: string;
+    models?: string[];
+    error?: string;
+}> => {
+    const url = (rawBaseUrl || DEFAULT_VIDEO_CONFIG.museAiBaseUrl || 'http://127.0.0.1:18610/v1').replace(/\/+$/, '');
+    const key = (apiKey !== undefined ? apiKey : (DEFAULT_VIDEO_CONFIG.museAiApiKey || '')).trim();
+
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        const headers: Record<string, string> = {
+            'Accept': 'application/json'
+        };
+        if (key) {
+            headers['Authorization'] = `Bearer ${key}`;
+        }
+
+        const resp = await fetch(`${url}/models`, {
+            method: 'GET',
+            headers,
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (!resp.ok) {
+            return {
+                valid: false,
+                error: `Muse AI Gateway trả về HTTP ${resp.status}. Kiểm tra lại API Key hoặc Port 18610.`
+            };
+        }
+
+        const data = await resp.json().catch(() => ({}));
+        const modelList = Array.isArray(data?.data) ? data.data.map((m: any) => m.id || String(m)) : [];
+
+        return {
+            valid: true,
+            label: `Kết nối Muse AI Gateway thành công! (${modelList.filter((m: string) => m.includes('muse')).join(', ') || 'muse-video, muse-image, muse-chat'})`,
+            models: modelList
+        };
+    } catch (err: any) {
+        if (err.name === 'AbortError') {
+            return { valid: false, error: 'Hết thời gian chờ kết nối Muse AI Gateway (Timeout 10s)' };
+        }
+        return {
+            valid: false,
+            error: err.message || 'Không thể kết nối đến máy chủ Muse AI Gateway (Kiểm tra xem python -m muse2api đã bật chưa)'
+        };
     }
 };
