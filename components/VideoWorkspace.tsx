@@ -232,11 +232,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                     </div>
 
                     <h3 className="text-base font-bold text-slate-900">
-                        {loadingStatus || 'Đang kết xuất chuyển động video...'}
+                        {loadingStatus || 'Vui lòng chờ...'}
                     </h3>
-                    <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
-                        Đang phân tích khung hình gốc và render các khung hình liên tục qua Google Gemini Omni Flash.
-                    </p>
 
                     <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs font-mono font-bold text-slate-700">
                         <span className="text-amber-600"><ClockIcon /></span>

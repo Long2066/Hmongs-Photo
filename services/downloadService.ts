@@ -50,9 +50,24 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
         // 1. Try Native MediaStore downloader via ApkInstaller plugin
         try {
             const isUrl = /^https?:\/\//i.test(dataOrUrl);
+            let payloadBase64: string | undefined = !isUrl ? dataOrUrl : undefined;
+            if (!isUrl && dataOrUrl.startsWith('blob:')) {
+                const blobResp = await fetch(dataOrUrl);
+                const blob = await blobResp.blob();
+                payloadBase64 = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const res = reader.result as string;
+                        resolve(res.includes(',') ? res.split(',')[1] : res);
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            }
+
             const res = await ApkInstaller.saveMediaToGallery?.({
                 url: isUrl ? dataOrUrl : undefined,
-                base64: !isUrl ? dataOrUrl : undefined,
+                base64: payloadBase64,
                 filename,
                 mimeType
             });
@@ -67,7 +82,7 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
             console.warn('[Download] Native saveMediaToGallery failed, falling back to Filesystem:', nativeErr);
         }
 
-        // 2. Fallback to Filesystem (handles both base64 and https:// URLs)
+        // 2. Fallback to Filesystem (handles both base64, blob and https:// URLs)
         return downloadNative(dataOrUrl, filename);
     } else {
         return downloadWeb(dataOrUrl, filename);
@@ -77,13 +92,27 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
 /**
  * Electron desktop download using native Node filesystem via IPC
  */
-async function downloadElectron(base64: string, filename: string): Promise<DownloadResult> {
+async function downloadElectron(dataOrUrl: string, filename: string): Promise<DownloadResult> {
     try {
         let result: any;
-        if (base64.startsWith('http://') || base64.startsWith('https://')) {
-            result = await (window as any).electronAPI.saveFile('', filename, base64);
+        if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
+            result = await (window as any).electronAPI.saveFile('', filename, dataOrUrl);
+        } else if (dataOrUrl.startsWith('blob:')) {
+            // Convert blob URL to Base64 so Node filesystem writes the real binary file
+            const blobResp = await fetch(dataOrUrl);
+            const blob = await blobResp.blob();
+            const base64Str = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const res = reader.result as string;
+                    resolve(res.includes(',') ? res.split(',')[1] : res);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+            result = await (window as any).electronAPI.saveFile(base64Str, filename);
         } else {
-            const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
+            const cleanBase64 = dataOrUrl.includes(',') ? dataOrUrl.split(',')[1] : dataOrUrl;
             result = await (window as any).electronAPI.saveFile(cleanBase64, filename);
         }
 
@@ -96,11 +125,11 @@ async function downloadElectron(base64: string, filename: string): Promise<Downl
             };
         } else {
             console.warn('[Download] Electron saveFile returned error, falling back to web:', result?.error);
-            return downloadWeb(base64, filename);
+            return downloadWeb(dataOrUrl, filename);
         }
     } catch (err: any) {
         console.error('[Download] Failed to save file via Electron:', err);
-        return downloadWeb(base64, filename);
+        return downloadWeb(dataOrUrl, filename);
     }
 }
 
@@ -121,9 +150,9 @@ async function downloadNative(dataOrUrl: string, filename: string): Promise<Down
             }
         }
 
-        // If URL, fetch and convert to base64 first
+        // If URL or blob, fetch and convert to base64 first
         let base64Data = dataOrUrl;
-        if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
+        if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://') || dataOrUrl.startsWith('blob:')) {
             const res = await fetch(dataOrUrl);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const blob = await res.blob();

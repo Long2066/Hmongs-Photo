@@ -838,7 +838,7 @@ const executeMuseAiVideoCall = async (
         const progressText = typeof pollData.progress === 'number' && pollData.progress > 0
             ? ` (${pollData.progress}%)`
             : '';
-        options.onProgress?.(`Muse AI đang kết xuất video${progressText} [${i * 3}s]...`);
+        options.onProgress?.(`Vui lòng chờ${progressText} [${i * 3}s]...`);
 
         if (pollData.status === 'succeeded' && pollData.result?.url) {
             let videoUrl: string = pollData.result.url;
@@ -849,15 +849,6 @@ const executeMuseAiVideoCall = async (
                 videoUrl = `${cleanBase}${mediaPath}`;
             }
 
-            try {
-                const mediaResp = await fetch(videoUrl);
-                if (mediaResp.ok) {
-                    const blob = await mediaResp.blob();
-                    return URL.createObjectURL(blob);
-                }
-            } catch (mediaErr) {
-                console.warn('[MuseAI] Failed to fetch video blob, returning normalized URL:', mediaErr);
-            }
             return videoUrl;
         }
 
