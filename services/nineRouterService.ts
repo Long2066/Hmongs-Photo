@@ -1341,7 +1341,7 @@ const base64ToBlob = (base64Data: string, mimeType: string = 'image/jpeg'): Blob
 /**
  * Extract image data from any response format (JSON data array, b64_json, url, or chat completion)
  */
-const extractAnyImageFromResponse = async (parsed: ParsedNineRouterResponse): Promise<string | null> => {
+const extractAnyImageFromResponse = async (parsed: ParsedNineRouterResponse, fallbackBaseUrl?: string): Promise<string | null> => {
     const payloads = parsed.events.length > 0 ? parsed.events : (parsed.json ? [parsed.json] : []);
     const imageItems = payloads.flatMap(p => Array.isArray(p?.data) ? p.data : []);
     const first = imageItems[0];
@@ -1349,16 +1349,33 @@ const extractAnyImageFromResponse = async (parsed: ParsedNineRouterResponse): Pr
     if (first?.url) {
         const dataUrl = extractBase64FromDataUri(first.url);
         if (dataUrl) return dataUrl;
-        if (first.url.startsWith('http')) {
-            const imgResp = await fetch(first.url);
-            if (imgResp.ok) {
-                const arrayBuffer = await imgResp.arrayBuffer();
-                let binary = '';
-                const bytes = new Uint8Array(arrayBuffer);
-                for (let i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
+        if (first.url.startsWith('http') || first.url.startsWith('/')) {
+            const urlsToTry: string[] = [];
+            // Nếu link media trả về dạng IP hoặc localhost, tự động thay thế host bằng fallbackBaseUrl (Cloudflare Tunnel)
+            if (fallbackBaseUrl && first.url.includes('/v1/media/')) {
+                const mediaPath = first.url.substring(first.url.indexOf('/v1/media/'));
+                const normalizedBase = fallbackBaseUrl.replace(/\/v1\/?$/, '');
+                urlsToTry.push(`${normalizedBase}${mediaPath}`);
+            }
+            if (first.url.startsWith('http')) {
+                urlsToTry.push(first.url);
+            }
+
+            for (const targetUrl of urlsToTry) {
+                try {
+                    const imgResp = await fetch(targetUrl);
+                    if (imgResp.ok) {
+                        const arrayBuffer = await imgResp.arrayBuffer();
+                        let binary = '';
+                        const bytes = new Uint8Array(arrayBuffer);
+                        for (let i = 0; i < bytes.byteLength; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        return btoa(binary);
+                    }
+                } catch (fetchErr) {
+                    console.warn(`[ImageExtraction] Failed to fetch from ${targetUrl}:`, fetchErr);
                 }
-                return btoa(binary);
             }
         }
     }
@@ -1594,7 +1611,7 @@ CRITICAL RULES:
             prompt: combinedPrompt,
             size: ratio,
             n: 1,
-            response_format: 'url'
+            response_format: 'b64_json'
         };
         if (refsPayload.length === 1) {
             musePayload.image = refsPayload[0];
@@ -1616,7 +1633,7 @@ CRITICAL RULES:
         }
 
         const parsedMuse = await parseNineRouterResponse(respMuse);
-        const museImage = await extractAnyImageFromResponse(parsedMuse);
+        const museImage = await extractAnyImageFromResponse(parsedMuse, museUrl);
         if (museImage) {
             console.log('[MuseAI] Successfully generated image via /v1/images/generations');
             return museImage;

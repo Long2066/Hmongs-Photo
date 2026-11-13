@@ -841,16 +841,24 @@ const executeMuseAiVideoCall = async (
         options.onProgress?.(`Muse AI đang kết xuất video${progressText} [${i * 3}s]...`);
 
         if (pollData.status === 'succeeded' && pollData.result?.url) {
+            let videoUrl: string = pollData.result.url;
+            // Chuẩn hóa link video: Nếu Muse AI Gateway trả về link IP VPS hoặc localhost thay vì public tunnel
+            if (videoUrl.includes('/v1/media/')) {
+                const mediaPath = videoUrl.substring(videoUrl.indexOf('/v1/media/'));
+                const cleanBase = baseUrl.replace(/\/v1\/?$/, '');
+                videoUrl = `${cleanBase}${mediaPath}`;
+            }
+
             try {
-                const mediaResp = await fetch(pollData.result.url);
+                const mediaResp = await fetch(videoUrl);
                 if (mediaResp.ok) {
                     const blob = await mediaResp.blob();
                     return URL.createObjectURL(blob);
                 }
-            } catch {
-                // Fallback trả thẳng URL nếu fetch blob gặp lỗi mạng
+            } catch (mediaErr) {
+                console.warn('[MuseAI] Failed to fetch video blob, returning normalized URL:', mediaErr);
             }
-            return pollData.result.url;
+            return videoUrl;
         }
 
         if (pollData.status === 'failed' || pollData.status === 'cancelled') {
