@@ -1623,8 +1623,15 @@ export const subscribeToNotifications = (
             const data = docSnap.data();
             // Include if targeted to this user or broadcast to ALL
             if (data.targetUserId === userId || data.targetUserId === 'ALL') {
+                const notifId = docSnap.id;
+                // Nếu thông báo cá nhân đã được đánh dấu đọc từ trước trong máy, tự động dọn dẹp khỏi Firestore
+                if (data.targetUserId === userId && isNotificationRead(userId, notifId)) {
+                    deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, notifId)).catch(() => {});
+                    return; // Đã đọc & dọn dẹp, không gửi về UI
+                }
+
                 notifications.push({
-                    id: docSnap.id,
+                    id: notifId,
                     targetUserId: data.targetUserId,
                     title: data.title,
                     message: data.message,
@@ -1639,27 +1646,74 @@ export const subscribeToNotifications = (
     });
 };
 
-// Mark notification as read for a specific user (stores in localStorage since Firestore doc is shared)
+// Mark notification as read for a specific user (stores in localStorage safely)
 export const markNotificationAsRead = (userId: string, notificationId: string): void => {
-    const key = `read_notifications_${userId}`;
-    const readIds = JSON.parse(localStorage.getItem(key) || '[]');
-    if (!readIds.includes(notificationId)) {
-        readIds.push(notificationId);
-        localStorage.setItem(key, JSON.stringify(readIds));
+    try {
+        const key = `read_notifications_${userId}`;
+        const readIds: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+        if (!readIds.includes(notificationId)) {
+            readIds.push(notificationId);
+            localStorage.setItem(key, JSON.stringify(readIds));
+        }
+    } catch (e) {
+        console.warn("Could not write read notification to localStorage:", e);
     }
 };
 
 // Check if notification is read by user
 export const isNotificationRead = (userId: string, notificationId: string): boolean => {
-    const key = `read_notifications_${userId}`;
-    const readIds = JSON.parse(localStorage.getItem(key) || '[]');
-    return readIds.includes(notificationId);
+    try {
+        const key = `read_notifications_${userId}`;
+        const readIds: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+        return readIds.includes(notificationId);
+    } catch {
+        return false;
+    }
+};
+
+// Permanently dismiss / delete a notification
+export const dismissNotification = async (
+    userId: string,
+    notificationId: string,
+    targetUserId?: string
+): Promise<void> => {
+    // 1. Ghi nhận đã đọc và đã hiển thị vào localStorage ngay lập tức
+    markNotificationAsRead(userId, notificationId);
+    try {
+        localStorage.setItem(`last_shown_notif_${userId}`, notificationId);
+    } catch (e) {
+        console.warn("Error setting last_shown_notif in localStorage:", e);
+    }
+
+    // 2. Nếu là thông báo cá nhân (gửi riêng cho user, khác 'ALL')
+    // -> Xóa vĩnh viễn khỏi Firestore để không bao giờ hiện lại ở bất kỳ đâu (Web, Electron, APK)
+    if (targetUserId && targetUserId !== 'ALL') {
+        try {
+            await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, notificationId));
+            console.log(`[Notification] Đã xóa vĩnh viễn thông báo ${notificationId} khỏi Firestore.`);
+        } catch (error) {
+            console.error(`[Notification] Lỗi xóa thông báo ${notificationId}:`, error);
+        }
+    }
+};
+
+// Direct deletion helper
+export const deleteNotificationPermanently = async (notificationId: string): Promise<void> => {
+    try {
+        await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, notificationId));
+    } catch (error) {
+        console.error("Error deleting notification:", error);
+    }
 };
 
 // Get unread notification count
 export const getUnreadNotificationIds = (userId: string): string[] => {
-    const key = `read_notifications_${userId}`;
-    return JSON.parse(localStorage.getItem(key) || '[]');
+    try {
+        const key = `read_notifications_${userId}`;
+        return JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+        return [];
+    }
 };
 
 // --- Terms of Service ---
