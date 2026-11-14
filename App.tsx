@@ -18,6 +18,7 @@ import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
 import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, generateAiPoster, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
 import { generateOpenRouterVideo } from './services/openRouterVideoService';
+import { mergeVideos } from './services/videoMergeService';
 import { getVideoConfig, calculateVideoPriceVnd, getVideoModelMeta } from './services/videoConfigService';
 import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
@@ -985,24 +986,25 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
-    // 8. Video Generation (Idea.ai Vivix W1 + OpenRouter Grok / Wan 3.0)
+    // 8. Video Generation (Hỗ trợ 1-10 ảnh phân cảnh, auto ghép nối tuần tự Cảnh 1 -> Cảnh N thành 1 video hoàn chỉnh)
     const handleVideoGenerate = useCallback(async (
         prompt: string,
         aspectRatio: '16:9' | '9:16' | '1:1',
         subMode: 'text_to_video' | 'image_to_video',
         model?: string,
-        outputCount: number = 1,
-        duration: number = 5
+        _outputCount: number = 1,
+        duration: number = 5,
+        title?: string
     ) => {
         const inputs = modeStates['video'].inputs;
         if (subMode === 'image_to_video' && inputs.length === 0) {
-            setError('Vui lòng tải lên 1 ảnh để làm chuyển động video.');
+            setError('Vui lòng tải lên từ 1 đến 10 ảnh để tạo các phân cảnh video.');
             return;
         }
 
-        const count = Math.max(1, Math.min(3, outputCount || 1));
+        const sceneCount = subMode === 'image_to_video' ? Math.max(1, Math.min(10, inputs.length)) : 1;
         const modelMeta = getVideoModelMeta(model);
-        const totalSecondsNeeded = duration * count;
+        const totalSecondsNeeded = duration * sceneCount;
 
         if (!storage.isAdmin()) {
             let effectiveVideoSec = remainingVideoSeconds;
@@ -1021,7 +1023,7 @@ const App: React.FC = () => {
                 setError(
                     effectiveVideoSec <= 0
                         ? `Bạn đã dùng hết số giây tạo video của gói ${planLabel}. Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s) tại Cấu hình & gói dịch vụ.`
-                        : `Số giây video còn lại (${effectiveVideoSec}s) không đủ để tạo ${count} video × ${duration}s (${totalSecondsNeeded}s). Vui lòng chọn thời lượng ngắn hơn hoặc nâng cấp gói.`
+                        : `Số giây video còn lại (${effectiveVideoSec}s) không đủ để tạo ${sceneCount} phân cảnh × ${duration}s (${totalSecondsNeeded}s). Vui lòng chọn thời lượng ngắn hơn hoặc nâng cấp gói.`
                 );
                 setPackagesVisible(true);
                 return;
@@ -1031,34 +1033,65 @@ const App: React.FC = () => {
         setIsLoading(true);
         setError(null);
         setIsMenuOpen(false);
-        setLoadingStatus(`Đang gửi yêu cầu tạo ${count} video tới ${modelMeta.shortName} (${duration}s • ${aspectRatio})...`);
+        const cleanTitle = (title && title.trim()) ? title.trim().replace(/[/\\?%*:|"<>]/g, '_') : `Video_Series_${Date.now()}`;
+        setLoadingStatus(`Đang chuẩn bị sản xuất ${sceneCount} phân cảnh (${duration}s/cảnh) qua ${modelMeta.shortName}...`);
         setVideoEntries([]);
         updateModeState(() => ({
-            outputs: Array(count).fill(null),
-            prompts: Array(count).fill(prompt),
+            outputs: Array(1).fill(null),
+            prompts: Array(1).fill(prompt),
         }));
 
         try {
-            const inputImageBase64 = subMode === 'image_to_video' && inputs.length > 0
-                ? inputs[0].base64
-                : undefined;
+            const clipUrls: string[] = [];
+            const mandatoryPrefix = 'Giữ tuyệt đối khuôn mặt và nhân vật gốc.';
 
-            const result = await generateOpenRouterVideo({
-                prompt,
-                aspectRatio,
-                duration,
-                modelOverride: model === 'auto' ? undefined : model,
-                outputCount: count,
-                inputImageBase64,
-                onProgress: (status) => setLoadingStatus(status),
-            });
+            for (let i = 0; i < sceneCount; i++) {
+                const scenePrompt = subMode === 'image_to_video'
+                    ? `${mandatoryPrefix} ${prompt.replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/g, '')} - Cảnh ${i + 1}/${sceneCount}`
+                    : prompt;
 
-            const finalUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
-                .filter((url): url is string => typeof url === 'string' && url.length > 0);
-            if (finalUrls.length === 0) throw new Error('Dịch vụ chưa trả về video. Vui lòng thử lại.');
+                setLoadingStatus(`Đang render phân cảnh ${i + 1}/${sceneCount} (${duration}s • ${aspectRatio})...`);
 
-            // Trừ số giây tạo video thực tế đã tạo thành công (Free 8s / Plus 60s / Pro 180s)
-            const consumedSeconds = (result.duration || duration) * finalUrls.length;
+                const inputImageBase64 = subMode === 'image_to_video' && inputs[i]
+                    ? inputs[i].base64
+                    : undefined;
+
+                const result = await generateOpenRouterVideo({
+                    prompt: scenePrompt,
+                    aspectRatio,
+                    duration,
+                    modelOverride: model === 'auto' ? undefined : model,
+                    outputCount: 1,
+                    inputImageBase64,
+                    onProgress: (status) => setLoadingStatus(`[Cảnh ${i + 1}/${sceneCount}] ${status}`),
+                });
+
+                const returnedUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
+                    .filter((u): u is string => typeof u === 'string' && u.length > 0);
+                if (returnedUrls.length === 0) {
+                    throw new Error(`Phân cảnh ${i + 1} chưa nhận được video từ AI.`);
+                }
+                clipUrls.push(returnedUrls[0]);
+            }
+
+            // Tự động ghép nối tuần tự Cảnh 1 -> Cảnh N thành 1 video duy nhất
+            let finalVideoUrl = clipUrls[0];
+            if (clipUrls.length > 1) {
+                setLoadingStatus(`Đang tự động ghép nối ${clipUrls.length} phân cảnh thành video hoàn chỉnh [${cleanTitle}.mp4]...`);
+                try {
+                    finalVideoUrl = await mergeVideos({
+                        videoUrls: clipUrls,
+                        aspectRatio,
+                        onProgress: (mergeStatus) => setLoadingStatus(mergeStatus)
+                    });
+                } catch (mergeErr) {
+                    console.warn('[VideoMerge] Không thể ghép nối client, sử dụng video đầu tiên:', mergeErr);
+                    finalVideoUrl = clipUrls[0];
+                }
+            }
+
+            // Trừ số giây tạo video thực tế đã tạo thành công
+            const consumedSeconds = duration * sceneCount;
             if (!storage.isAdmin() && currentUser && consumedSeconds > 0) {
                 try {
                     const updatedEntitlement = await consumeSubscriptionVideoSeconds(consumedSeconds);
@@ -1076,23 +1109,24 @@ const App: React.FC = () => {
                     : `data:${source.mimeType};base64,${source.base64}`
                 : undefined;
             const createdAt = Date.now();
-            setVideoEntries(
-                finalUrls.map(url => ({
-                    url,
-                    firstFrame,
-                    createdAt,
-                    prompt,
-                    modelUsed: result.modelUsed,
-                    duration: result.duration,
-                    aspectRatio: result.aspectRatio
-                }))
-            );
+
+            setVideoEntries([{
+                url: finalVideoUrl,
+                firstFrame,
+                createdAt,
+                prompt,
+                modelUsed: model,
+                duration: totalSecondsNeeded,
+                aspectRatio,
+                title: cleanTitle
+            }]);
+
             updateModeState(() => ({
-                outputs: finalUrls,
-                prompts: Array(finalUrls.length).fill(prompt),
+                outputs: [finalVideoUrl],
+                prompts: [prompt],
             }));
 
-            saveHistory('Video Omni AI', prompt, finalUrls, subMode === 'image_to_video' ? 'Image-to-Video' : 'Text-to-Video');
+            saveHistory('Video Omni AI', prompt, [finalVideoUrl], subMode === 'image_to_video' ? `Image-to-Video Series (${sceneCount} cảnh)` : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
             const msg = e instanceof Error ? e.message : 'Lỗi tạo video AI.';
@@ -1188,13 +1222,14 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                     ? rawResult
                     : `data:image/png;base64,${rawResult}`;
 
+                const cleanConcept = (concept && concept.trim()) ? concept.trim().replace(/[/\\?%*:|"<>]/g, '_') : 'AI_Poster';
                 setModeStates(prev => ({
                     ...prev,
-                    poster: { ...prev.poster, outputs: [formattedResult], prompts: [topicPrompt] }
+                    poster: { ...prev.poster, outputs: [formattedResult], prompts: [cleanConcept] }
                 }));
                 await deductBalanceForVIP(1, 'poster');
                 saveHistory('AI Poster Studio', topicPrompt, [formattedResult], studio);
-                if (autoDownload) triggerDownload(formattedResult, `ai_poster_${Date.now()}.png`);
+                if (autoDownload) triggerDownload(formattedResult, `${cleanConcept}.png`);
             } else {
                 throw new Error('AI không tạo được poster. Vui lòng kiểm tra lại prompt hoặc model.');
             }
@@ -1258,10 +1293,13 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                     resolution: batchMode === 'all' ? 'HD' : options.resolution
                 });
                 results.push(renderedUrl);
-                labels.push(meta?.name || tplId);
+                const cleanConcept = (options.conceptName && options.conceptName.trim())
+                    ? options.conceptName.trim().replace(/[/\\?%*:|"<>]/g, '_')
+                    : 'Poster';
+                labels.push(`${cleanConcept}_${meta?.name || tplId}`);
 
                 if (autoDownload && batchMode === 'single' && renderedUrl) {
-                    triggerDownload(renderedUrl, `poster_${tplId}.jpg`);
+                    triggerDownload(renderedUrl, `${cleanConcept}_${tplId}.jpg`);
                 }
             }
 
@@ -1323,9 +1361,9 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
             return (
                 <div className="p-3">
                     <ImageUploader
-                        label="Ảnh nguồn tạo video (I2V)"
+                        label="Ảnh các phân cảnh tạo phim (Tối đa 10 ảnh • Mỗi ảnh 1 cảnh)"
                         onImagesChange={handleImagesChange}
-                        maxImages={1}
+                        maxImages={10}
                     />
                 </div>
             );
@@ -1391,6 +1429,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                     isLoading={isLoading}
                     isDisabled={!currentUser}
                     hasInputImage={mState.inputs.length > 0}
+                    inputImageCount={mState.inputs.length}
                     inputImagePreview={mState.inputs[0]?.base64}
                     remainingVideoSeconds={remainingVideoSeconds}
                     userPlan={currentSubscriptionPlan}

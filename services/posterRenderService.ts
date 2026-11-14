@@ -361,6 +361,8 @@ function drawCoverImage(
     cropBiasY: number = 0.3
 ) {
     ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     if (radius > 0) {
         roundRect(ctx, x, y, w, h, radius);
         ctx.clip();
@@ -1284,6 +1286,9 @@ export async function renderStudioPoster(
 
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Trình duyệt không hỗ trợ Canvas 2D.');
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     ctx.scale(resolutionScale, resolutionScale);
 

@@ -199,8 +199,11 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
         e.stopPropagation();
         setDownloadingIdx(index);
         try {
-            const promptTitle = prompts[index] || `poster_studio_${index + 1}`;
-            const safeName = `${promptTitle.replace(/[^a-zA-Z0-9_\-]/g, '_').toLowerCase()}.png`;
+            const rawLabel = prompts[index] || `Poster_Studio_${index + 1}`;
+            const cleanLabel = rawLabel.trim().replace(/[/\\?%*:|"<>]/g, '_');
+            const safeName = cleanLabel.toLowerCase().endsWith('.png') || cleanLabel.toLowerCase().endsWith('.jpg')
+                ? cleanLabel
+                : `${cleanLabel}.png`;
             await downloadImage(url, safeName);
         } catch (err) {
             console.error('Download error:', err);
@@ -233,11 +236,11 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
     );
 
     // =========================================================================
-    // Empty State: Interactive Guide & Template Showcase
+    // Empty State: Sleek, Minimalist & Modern Showcase
     // =========================================================================
     if (!isLoading && !hasOutputs) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in text-center max-w-4xl mx-auto w-full">
+            <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in text-center max-w-3xl mx-auto w-full">
                 {/* Error Banner */}
                 {error && (
                     <div
@@ -260,116 +263,63 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
                     </div>
                 )}
 
-                {/* Hero Icon Badge */}
-                <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center text-3xl shadow-lg shadow-violet-500/25 mb-4">
-                    🖼️
+                {/* Minimalist Ambient Hero Card */}
+                <div className="w-full bg-gradient-to-b from-white via-slate-50/60 to-violet-50/30 rounded-3xl p-6 sm:p-10 shadow-sm ring-1 ring-slate-900/5 flex flex-col items-center justify-center text-center">
+                    {/* Glowing Icon Stage */}
+                    <div className="relative mb-5 flex items-center justify-center">
+                        <div className="absolute -inset-2 bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 rounded-2xl blur-lg opacity-70 animate-pulse" />
+                        <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center text-3xl shadow-md shadow-violet-500/20">
+                            🎨
+                        </div>
+                    </div>
+
+                    <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
+                        Poster & Catalog Studio
+                    </h2>
+                    <p className="mt-2 text-xs sm:text-sm leading-relaxed text-slate-600 max-w-lg mx-auto">
+                        Tự động dàn trang poster điện ảnh, kỷ yếu thanh xuân & bìa tạp chí nghệ thuật với <span className="font-semibold text-violet-700">50+ chủ đề phong phú</span>. Cắt ghép thông minh, giữ trọn nét sắc, không biến dạng.
+                    </p>
+
+                    {/* 3 Step Flow Pills */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-xl mt-6 text-left">
+                        <div className="p-3.5 rounded-2xl bg-white ring-1 ring-slate-900/5 shadow-2xs flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-xl bg-violet-100 text-violet-800 font-bold text-xs flex items-center justify-center shrink-0">
+                                1
+                            </span>
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-900">Chọn 1–10 ảnh</h4>
+                                <p className="text-[10.5px] text-slate-500">Kéo thả ảnh tham chiếu</p>
+                            </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-white ring-1 ring-slate-900/5 shadow-2xs flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center justify-center shrink-0">
+                                2
+                            </span>
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-900">Chọn chủ đề</h4>
+                                <p className="text-[10.5px] text-slate-500">50 chủ đề sắc nét</p>
+                            </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-white ring-1 ring-slate-900/5 shadow-2xs flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0">
+                                3
+                            </span>
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-900">Xuất Poster 2K</h4>
+                                <p className="text-[10.5px] text-slate-500">Sắc nét, khớp tiêu đề</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {!hasInputImages && (
+                        <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-50 text-violet-700 text-xs font-semibold ring-1 ring-violet-500/20">
+                            <span>👈</span>
+                            <span>Tải ảnh ở khung bên trái và bấm Tạo Poster để bắt đầu</span>
+                        </div>
+                    )}
                 </div>
-
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                    Ghép Poster & Catalog Studio (Kỷ Yếu & Phim Ảnh)
-                </h2>
-                <p className="mt-2 text-xs sm:text-sm leading-relaxed text-slate-600 max-w-xl mx-auto">
-                    Biến 1–10 ảnh chụp thành các tấm poster kỷ yếu, poster phim lãng mạn, K-Drama và bìa tạp chí chỉ trong <strong className="text-slate-900 font-semibold">0.3 giây</strong>. Tự động căn khung khuôn mặt bằng AI, không cắt mất đầu.
-                </p>
-
-                {/* 3 Simple Steps */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-2xl mt-6 text-left">
-                    <div className="p-3.5 rounded-2xl bg-white ring-1 ring-slate-900/5 shadow-xs">
-                        <span className="w-6 h-6 rounded-lg bg-violet-50 text-violet-700 font-bold text-xs flex items-center justify-center font-mono mb-2">
-                            1
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-900">Tải 1–10 ảnh</h4>
-                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                            Kéo thả ảnh kỷ yếu/couple vào khung tải ảnh bên trái (hỗ trợ tối đa 10 ảnh).
-                        </p>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-white ring-1 ring-slate-900/5 shadow-xs">
-                        <span className="w-6 h-6 rounded-lg bg-violet-50 text-violet-700 font-bold text-xs flex items-center justify-center font-mono mb-2">
-                            2
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-900">Chọn chủ đề & mẫu</h4>
-                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                            Phân rõ 2 chủ đề: Kỷ yếu học đường (15 mẫu) hoặc Poster phim ảnh điện ảnh (7 mẫu).
-                        </p>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-white ring-1 ring-slate-900/5 shadow-xs">
-                        <span className="w-6 h-6 rounded-lg bg-violet-50 text-violet-700 font-bold text-xs flex items-center justify-center font-mono mb-2">
-                            3
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-900">Xuất ảnh 2K</h4>
-                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                            Bấm nút Xuất Poster Studio để nhận ảnh nét căng kèm thông tin thương hiệu của bạn.
-                        </p>
-                    </div>
-                </div>
-
-                {/* Category & Ratio Switchers for Quick Badges */}
-                <div className="mt-6 flex flex-col sm:flex-row items-center gap-2">
-                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-                        <button
-                            type="button"
-                            onClick={() => setWorkspaceCategory('ky_yeu')}
-                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                workspaceCategory === 'ky_yeu' ? 'bg-white text-violet-700 shadow-2xs' : 'text-slate-600'
-                            }`}
-                        >
-                            🎓 Kỷ Yếu (30)
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setWorkspaceCategory('phim_anh')}
-                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                workspaceCategory === 'phim_anh' ? 'bg-white text-rose-600 shadow-2xs' : 'text-slate-600'
-                            }`}
-                        >
-                            🎬 Phim Ảnh (30)
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-                        <button
-                            type="button"
-                            onClick={() => setWorkspaceRatio('9:16')}
-                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                workspaceRatio === '9:16' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
-                            }`}
-                        >
-                            📱 Khổ Dọc 9:16 (15)
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setWorkspaceRatio('16:9')}
-                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                workspaceRatio === '16:9' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
-                            }`}
-                        >
-                            🖥️ Khổ Ngang 16:9 (15)
-                        </button>
-                    </div>
-                </div>
-
-                {/* Quick Preset Badges */}
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 max-w-2xl">
-                    {filteredTemplates.map((tpl) => (
-                        <button
-                            key={tpl.id}
-                            type="button"
-                            onClick={() => onQuickPickTemplate?.(tpl.id)}
-                            className="px-2.5 py-1 rounded-lg bg-white ring-1 ring-slate-900/10 hover:ring-violet-400 hover:text-violet-700 text-[10.5px] font-medium text-slate-700 transition-all cursor-pointer"
-                        >
-                            {tpl.name}
-                        </button>
-                    ))}
-                </div>
-
-                {!hasInputImages && (
-                    <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-50 text-violet-700 text-xs font-semibold ring-1 ring-violet-500/20">
-                        <span>👈</span>
-                        <span>Hãy tải lên ảnh ở khung bên trái để bắt đầu tạo poster</span>
-                    </div>
-                )}
             </div>
         );
     }

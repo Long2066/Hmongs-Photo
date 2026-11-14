@@ -55,6 +55,7 @@ const shotTypes = [
 ];
 
 const styles = [
+    'Phim Cổ trang Trung Hoa',
     'Truyền thống H’Mông cổ điển',
     'H’Mông hiện đại – bản sắc kết hợp thời trang',
     'H’Mông cổ tích – Fantasy',

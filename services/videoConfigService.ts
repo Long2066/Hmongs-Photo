@@ -1,4 +1,4 @@
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+﻿import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../src/firebaseConfig';
 
 export type VideoProviderType = 'openrouter' | 'idea_ai' | 'vivix_ai' | 'muse_ai';

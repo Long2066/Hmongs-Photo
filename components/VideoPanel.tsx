@@ -59,12 +59,14 @@ export interface VideoPanelProps {
         subMode: 'text_to_video' | 'image_to_video',
         model: string,
         outputCount: number,
-        duration: number
+        duration: number,
+        title?: string
     ) => void;
     onImagesChange?: (images: { base64: string; mimeType: string; id: number; fileName?: string }[]) => void;
     isLoading: boolean;
     isDisabled: boolean;
     hasInputImage: boolean;
+    inputImageCount?: number;
     inputImagePreview?: string;
     remainingVideoSeconds?: number;
     userPlan?: SubscriptionPlan;
@@ -80,6 +82,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     isLoading,
     isDisabled,
     hasInputImage,
+    inputImageCount = 0,
     inputImagePreview,
     remainingVideoSeconds = 0,
     userPlan = 'free',
@@ -91,7 +94,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [selectedModel, setSelectedModel] = useState<string>(OPENROUTER_VIDEO_MODELS[0].id);
     const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
     const [duration, setDuration] = useState<number>(5);
-    const [outputCount, setOutputCount] = useState<number>(1);
+    const [videoTitle, setVideoTitle] = useState<string>('Tap_1');
     const [prompt, setPrompt] = useState<string>('');
 
     const activeModelMeta = getVideoModelMeta(selectedModel);
@@ -170,8 +173,13 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         img.src = src;
     }, [inputImagePreview, activeModelMeta]);
 
-    // Calculate video seconds needed based on duration & outputCount
-    const totalSecondsNeeded = duration * outputCount;
+    // Tự động tính số phân cảnh dựa trên số ảnh đầu vào (1 đến 10 ảnh)
+    const effectiveScenes = subMode === 'image_to_video'
+        ? Math.max(1, Math.min(10, inputImageCount || (hasInputImage ? 1 : 1)))
+        : 1;
+
+    // Calculate video seconds needed based on duration & effectiveScenes
+    const totalSecondsNeeded = duration * effectiveScenes;
     const hasEnoughSeconds = isAdmin || remainingVideoSeconds >= totalSecondsNeeded;
     const planLabel = userPlan === 'pro' ? 'Gói Pro' : userPlan === 'plus' ? 'Gói Plus' : 'Gói Free';
 
@@ -179,7 +187,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         if (isDisabled || isLoading || !anyProviderEnabled || !isCurrentModelEnabled) return;
 
         if (subMode === 'image_to_video' && !hasInputImage) {
-            alert('Vui lòng tải lên 1 ảnh nguồn ở khung tải ảnh phía trên để tạo video.');
+            alert('Vui lòng tải lên từ 1 đến 10 ảnh nguồn ở khung tải ảnh phía trên để tạo video.');
             return;
         }
 
@@ -187,13 +195,18 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             if (onRequestTopUp) {
                 onRequestTopUp();
             } else {
-                alert(`Số giây video còn lại (${remainingVideoSeconds}s) không đủ để tạo video (${totalSecondsNeeded}s). Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s).`);
+                alert(`Số giây video còn lại (${remainingVideoSeconds}s) không đủ để tạo video (${totalSecondsNeeded}s cho ${effectiveScenes} cảnh). Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s).`);
             }
             return;
         }
 
-        const finalPrompt = prompt.trim() || 'Chuyển động tự nhiên mượt mà điện ảnh, giữ nét khuôn mặt chân thực';
-        onGenerate(finalPrompt, aspectRatio, subMode, activeModelMeta.id, outputCount, duration);
+        const rawUserPrompt = prompt.trim() || 'Chuyển động tự nhiên mượt mà điện ảnh, sắc nét chân thực';
+        // Bắt buộc bổ sung cụm prompt "Giữ tuyệt đối khuôn mặt và nhân vật gốc" theo đúng kế hoạch
+        const finalPrompt = rawUserPrompt.includes('Giữ tuyệt đối khuôn mặt và nhân vật gốc')
+            ? rawUserPrompt
+            : `Giữ tuyệt đối khuôn mặt và nhân vật gốc. ${rawUserPrompt}`;
+
+        onGenerate(finalPrompt, aspectRatio, subMode, activeModelMeta.id, 1, duration, videoTitle.trim() || 'Video_Series');
     };
 
     return (
@@ -243,7 +256,30 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 </div>
             </div>
 
-            {/* 2. MOTION PROMPT */}
+            {/* 2. TIÊU ĐỀ VIDEO & OUTPUT TITLE (Khớp 100% khi xuất file) */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-indigo-600">🎬</span>
+                        <span>Tiêu đề Video / Tên tập phim</span>
+                    </label>
+                    <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        Khớp output 100%
+                    </span>
+                </div>
+                <input
+                    type="text"
+                    value={videoTitle}
+                    onChange={(e) => setVideoTitle(e.target.value)}
+                    placeholder="Nhập tiêu đề video / tên phim (ví dụ: Phim_Tap_1, Ky_Yeu_Thanh_Xuan...)"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50"
+                />
+                <p className="text-[10.5px] text-slate-500 leading-tight">
+                    File video hoàn chỉnh xuất ra sẽ được đặt tên chính xác là <strong className="text-slate-800 font-mono">{(videoTitle.trim() || 'Video_Series').replace(/[/\\?%*:|"<>]/g, '_')}.mp4</strong>.
+                </p>
+            </div>
+
+            {/* 3. MOTION PROMPT */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -271,6 +307,13 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     rows={3}
                     className="w-full p-3 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none bg-slate-50/50 leading-relaxed"
                 />
+
+                <div className="mt-2.5 p-2.5 rounded-xl bg-indigo-50/80 border border-indigo-200/60 flex items-start gap-2">
+                    <span className="text-indigo-600 text-sm">🔒</span>
+                    <p className="text-[11px] text-indigo-900 leading-relaxed font-medium">
+                        <strong>Quy chuẩn bảo toàn:</strong> Hệ thống tự động gắn kèm chỉ dẫn <span className="underline decoration-indigo-400 font-semibold">"Giữ tuyệt đối khuôn mặt và nhân vật gốc"</span> vào từng phân cảnh để đồng nhất nhân vật.
+                    </p>
+                </div>
             </div>
 
             {/* 3. ASPECT RATIO & DURATION (Khóa tự động các mục model không hỗ trợ) */}
@@ -366,30 +409,30 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     </div>
                 </div>
 
+                {/* Auto Series Factory Info */}
                 <div className="pt-2 border-t border-slate-100">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                            Số lượng video render
+                    <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                            <span>🎞️</span>
+                            <span>Dây chuyền tạo phim & Auto Ghép nối</span>
                         </span>
                         <span className="text-xs font-bold text-indigo-600 font-mono tabular-nums">
-                            {outputCount} video
+                            {effectiveScenes} Cảnh → 1 Video
                         </span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                        {[1, 2, 3].map((cnt) => (
-                            <button
-                                key={cnt}
-                                type="button"
-                                onClick={() => setOutputCount(cnt)}
-                                className={`min-h-[44px] rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center border ${
-                                    outputCount === cnt
-                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                                }`}
-                            >
-                                {cnt} Video
-                            </button>
-                        ))}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
+                        <div className="flex items-center justify-between">
+                            <span>Số ảnh đầu vào (Tối đa 10):</span>
+                            <span className="font-bold text-slate-800 font-mono">{effectiveScenes} ảnh ({effectiveScenes} cảnh)</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Thời lượng mỗi phân cảnh:</span>
+                            <span className="font-bold text-amber-600 font-mono">{duration}s / cảnh</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Quy trình ghép nối tự động:</span>
+                            <span className="font-bold text-emerald-600">Cảnh 1 → {effectiveScenes} (Đã ghép hoàn chỉnh)</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -409,7 +452,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         <span>Thời lượng tiêu thụ:</span>
                     </div>
                     <span className="font-mono font-bold tabular-nums text-slate-900">
-                        {totalSecondsNeeded} giây ({outputCount} video × {duration}s)
+                        {totalSecondsNeeded} giây ({effectiveScenes} cảnh × {duration}s)
                     </span>
                 </div>
 
@@ -486,7 +529,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     ) : (
                         <>
                             <PlayIcon />
-                            <span>Bắt đầu tạo video (-{totalSecondsNeeded} giây)</span>
+                            <span>{effectiveScenes > 1 ? `Bắt đầu tạo & ghép ${effectiveScenes} cảnh (-${totalSecondsNeeded}s)` : `Bắt đầu tạo video (-${totalSecondsNeeded}s)`}</span>
                         </>
                     )}
                 </button>

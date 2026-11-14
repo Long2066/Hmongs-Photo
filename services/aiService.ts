@@ -971,6 +971,7 @@ export const validateGeminiKey = async (apiKey: string): Promise<{ isValid: bool
 // --- STYLE TRANSLATION HELPER ---
 const getStylePrompt = (style: string): string => {
     const mapping: Record<string, string> = {
+        'Phim Cổ trang Trung Hoa': 'Chinese Period Drama / Xianxia Historical Cinematic: Majestic ancient Chinese visual aesthetic, ethereal flowing silk robes, exquisite traditional craftsmanship, poetic atmospheric mood, dramatic volumetric lighting, cinematic color grading, 1:1 realistic human scale.',
         'Truyền thống H’Mông cổ điển': 'Classic Traditional Hmong Style: Authentic vintage aesthetic, documentary realism, focus on highly detailed hand-embroidery (Paj Ntaub), heavy silver jewelry (Xauv), hemp fabrics, natural mountain daylight, earthy tones, mountainous village background, realistic 1:1 human scale, respectful cultural representation.',
         'H’Mông hiện đại – bản sắc kết hợp thời trang': 'Modern Hmong Fusion: High-fashion editorial look, contemporary streetwear silhouettes mixed with authentic traditional Hmong batik patterns and embroidery, stylish highland backdrop, grounded natural posture, sharp focus.',
         'H’Mông cổ tích – Fantasy': 'Hmong Fantasy Folklore: Enchanting and mystical atmosphere, soft morning mist drifting through mountains, lush blooming flora, characters wearing elaborate traditional Hmong attire with glowing accents, naturally grounded on solid terrain at realistic human scale.',
@@ -991,9 +992,30 @@ const getStylePrompt = (style: string): string => {
     return mapping[style] || 'High quality, photorealistic, Hmong cultural elements, 1:1 realistic human scale.';
 };
 
+export const CHINESE_PERIOD_DRAMA_CHARACTER_AESTHETICS = `
+*** MANDATORY CHINESE PERIOD DRAMA CHARACTER AESTHETICS (PHIM CỔ TRANG TRUNG HOA) ***
+- MALE CHARACTER (MỸ NAM TUẤN TÚ CỔ TRANG TRUNG HOA):
+  * Exceptionally handsome ancient Chinese nobleman / swordsman (Tuyệt sắc mỹ nam phim cổ trang Trung Quốc), 18-23 years old, tall athletic and graceful posture (182cm+).
+  * Flawless fair luminous porcelain skin, sharp defined jawline, captivating heroic sword-like eyebrows (kiếm mi tinh mục), magnetic expressive eyes.
+  * Traditional Chinese long hair (tóc dài đen nhánh buộc cao nửa đầu bằng trâm ngọc bích hoặc dải lụa thướt tha / traditional ancient half-up ponytail with jade hairpin or silk ribbon), khí chất tiên phong đạo cốt, anh tuấn ngút ngàn như nam thần phim truyền hình cổ trang Trung Quốc.
+  * Phục trang cổ trang Trung Hoa sang trọng lộng lẫy, kết hợp hoa văn họa tiết input nhưng biến tấu thành cổ phục tà áo bay bổng chuẩn điện ảnh.
+
+- FEMALE CHARACTER (TUYỆT SẮC GIAI NHÂN CỔ TRANG TRUNG HOA):
+  * Breathtakingly gorgeous ancient Chinese fairy maiden (Tuyệt sắc giai nhân / mỹ nữ cổ trang Trung Quốc), 18-21 years old, slender and graceful dancer-like silhouette.
+  * Flawless radiant porcelain glass skin, delicate willow-leaf arched eyebrows, captivating enchanting eyes, soft gradient coral-red petal lips.
+  * Elaborate traditional ancient Chinese flowing long hairstyle (tóc dài mượt mà cài trâm ngọc, phụ kiện tóc cổ trang tinh xảo, dải lụa bay thướt tha trong gió).
+  * Váy áo lụa là thướt tha nhiều tầng nhiều lớp bay bổng, tôn vinh trọn vẹn nét đẹp hoa văn input trong hình hài cổ phục Trung Hoa diễm lệ.
+
+*** STRICT INPUT CLOTHING & TEXTILE CLONING PROTOCOL ***
+- Clone 100% patterns, embroidery, and colors from the input photos, creatively adapted into breathtaking Chinese historical period costume robes with flowing silk sleeves and exquisite details.
+`;
+
 // --- CHARACTER AESTHETIC DIRECTIVE HELPER ---
 export const getCharacterAestheticDirective = (style?: string): string => {
-    // Default and only character aesthetic: Korean K-Pop Idol / Ulzzang Hot Boy & Hot Girl wearing authentic H'Mông regalia
+    if (style === 'Phim Cổ trang Trung Hoa') {
+        return CHINESE_PERIOD_DRAMA_CHARACTER_AESTHETICS;
+    }
+    // Default character aesthetic: Korean K-Pop Idol / Ulzzang Hot Boy & Hot Girl wearing authentic H'Mông regalia
     return KOREAN_CHARACTER_DEFAULTS;
 };
 

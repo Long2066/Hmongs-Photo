@@ -25,7 +25,9 @@ const STORAGE_KEY_POSTER_BRANDING = 'imagetool_ai_poster_branding_v1';
 const STORAGE_KEY_POSTER_RATIO = 'imagetool_ai_poster_ratio_v1';
 
 const QUICK_TOPIC_PRESETS = [
+    // 1. Kỷ Yếu & Học Đường (10)
     {
+        category: 'ky_yeu',
         title: '🎓 Kỉ niệm sinh viên (Music Studio)',
         prompt: 'Poster kỷ yếu sinh viên đại học phong cách Music Studio 2026, cặp đôi rạng rỡ dưới tán hoa phượng vĩ đỏ mùa hè, dải ruy băng lụa đỏ uốn lượn chân trang, 2 ảnh Polaroid nghiêng nghệ thuật, ánh nắng vàng rực rỡ.',
         studio: 'Music Studio',
@@ -33,6 +35,163 @@ const QUICK_TOPIC_PRESETS = [
         year: 'Kỉ niệm 2026'
     },
     {
+        category: 'ky_yeu',
+        title: '🎞️ Dải phim 35mm hoài niệm',
+        prompt: 'Poster kỷ yếu dải phim nhựa 35mm uốn lượn 3D ôm quanh các khoảnh khắc tuổi học trò, sticker xé giấy màu đỏ và vàng, doodle tai nghe và máy bay giấy, tone màu retro hoài niệm.',
+        studio: 'Music Studio',
+        concept: 'Thanh Xuân',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '📻 Sổ tay giấy rách & Đĩa than',
+        prompt: 'Poster phong cách Vintage Scrapbook bìa Kraft xé viền cháy, đĩa than vinyl đen bóng, cuộn băng cassette, kẹp bướm vàng, ảnh Polaroid dán băng dính và nhành hoa phượng.',
+        studio: 'Music Studio',
+        concept: 'Sinh viên',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '📝 Bảng đen lớp học lưu bút',
+        prompt: 'Poster kỷ yếu nền bảng đen xanh học đường phủ bụi phấn trắng, nét vẽ phấn tay compa thước kẻ ngộ nghĩnh, kẹp gỗ treo ảnh kỷ niệm tuổi học trò và câu lưu bút nghẹn ngào.',
+        studio: 'Classmate Memories',
+        concept: 'Lưu Bút Tuổi Học Trò',
+        year: 'Niên Khóa 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '🌸 Áo dài trắng sân trường nắng hạ',
+        prompt: 'Poster kỷ yếu nữ sinh trong tà áo dài trắng thướt tha dưới hàng phượng vĩ đỏ rực, tia nắng hè xuyên qua kẽ lá lấp lánh, nụ cười thanh xuân rạng ngời.',
+        studio: 'Thanh Xuân Art',
+        concept: 'Tà Áo Trắng',
+        year: 'Hạ 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '⚽ Sân cỏ thể thao thanh xuân',
+        prompt: 'Poster năng động trên sân cỏ trường học, đồng phục thể thao rực rỡ, quả bóng và chai nước khoáng dưới ánh nắng rực rỡ của tuổi trẻ cuồng nhiệt.',
+        studio: 'Youth Energy',
+        concept: 'Năng Lượng Tuổi Trẻ',
+        year: 'Season 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '📚 Thư viện sách cổ & hoài niệm',
+        prompt: 'Poster góc thư viện trường học cổ điển với giá sách gỗ cao vút, ánh nắng chiếu qua ô cửa sổ kính, trang sách mở ra những ước mơ và khoảnh khắc lặng thầm.',
+        studio: 'Library Nostalgia',
+        concept: 'Trang Sách Thanh Xuân',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '⛺ Cắm trại dã ngoại cuối khóa',
+        prompt: 'Poster kỷ yếu dã ngoại lều trại giữa rừng thông đồi cỏ, đống lửa trại bập bùng, đàn guitar và ánh đèn fairy lights lung linh ấm áp đêm chia tay.',
+        studio: 'Campfire Nights',
+        concept: 'Chuyến Đi Cuối Cùng',
+        year: 'Camp 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '🎓 Lễ tốt nghiệp cử nhân',
+        prompt: 'Poster trang trọng ngày lễ tốt nghiệp cử nhân, áo thụng cử nhân đen viền xanh đỏ, mũ tốt nghiệp tung bay trên nền trời xanh, hoa hướng dương rực rỡ.',
+        studio: 'Graduation Day',
+        concept: 'Tốt Nghiệp Cử Nhân',
+        year: 'Class of 2026'
+    },
+    {
+        category: 'ky_yeu',
+        title: '🚲 Xe đạp giỏ hoa phố học trò',
+        prompt: 'Poster hoài niệm xe đạp giỏ chở đầy hoa cúc trắng trên con đường rợp bóng cây xanh, tà áo bay nhẹ nhàng trong làn gió sớm.',
+        studio: 'Old Days',
+        concept: 'Góc Phố Dịu Dàng',
+        year: 'Kỉ niệm 2026'
+    },
+
+    // 2. Phim Ảnh & Điện Ảnh (10)
+    {
+        category: 'phim_anh',
+        title: '🏮 Phim Cổ trang Trung Hoa kiếm hiệp',
+        prompt: 'Poster phim điện ảnh cổ trang Trung Hoa kinh điển, nhân vật kiếm hiệp tiên phong đạo cốt, tà áo lụa là thướt tha bay trong gió, tóc dài buộc cao cài trâm ngọc, bối cảnh cung đình đình đài lầu các sương mờ huyền ảo, ánh sáng điện ảnh chiaroscuro.',
+        studio: 'Xianxia Cinema',
+        concept: 'Thiên Cổ Quyết Trần',
+        year: 'Blockbuster 2026'
+    },
+    {
+        category: 'phim_anh',
+        title: '🎬 K-Drama ngược nắng hoàng hôn',
+        prompt: 'Poster phim truyền hình K-Drama lãng mạn ngược nắng hoàng hôn ven tóc (Rim light), vệt sáng Anamorphic Flare trải dài, ánh mắt đong đầy cảm xúc và tựa đề phim lồng chìm sau lưng.',
+        studio: 'Seoul Drama',
+        concept: 'Hẹn Ước Hoàng Hôn',
+        year: 'Series 2026'
+    },
+    {
+        category: 'phim_anh',
+        title: '🌃 Hồng Kông 90s Vương Gia Vệ',
+        prompt: 'Poster phim màu nhựa 35mm Hồng Kông thập niên 90 đạo diễn Vương Gia Vệ, ánh đèn neon đỏ rượu và ngọc lục bảo mờ ảo, hạt phim xước cổ điển, dấu mộc bưu điện và câu thoại song ngữ.',
+        studio: 'Wong Kar-Wai Tribute',
+        concept: 'Tâm Trạng Khi Yêu',
+        year: 'Hong Kong 1995'
+    },
+    {
+        category: 'phim_anh',
+        title: '🍿 Poster phim rạp OTT WeTV/VieON',
+        prompt: 'Poster phim chiếu rạp đỉnh cao chuẩn cụm rạp CGV/BHD, bokeh ánh đèn đêm lung linh, logo rạp phim và khối chữ Billing Block đạo diễn diễn viên dàn trang quốc tế tinh xảo.',
+        studio: 'Cinema Studio',
+        concept: 'Tình Yêu Anh Dành Cho Em',
+        year: 'Exclusive 2026'
+    },
+    {
+        category: 'phim_anh',
+        title: '🕶️ Điệp viên hành động Hollywood',
+        prompt: 'Poster phim hành động điệp viên bom tấn Hollywood, tông màu xanh xám lạnh thép, làn khói súng và tia lửa bay, thần thái sắc bén và góc nhìn điện ảnh gay cấn.',
+        studio: 'Apex Action',
+        concept: 'Nhiệm Vụ Tối Mật',
+        year: 'Blockbuster 2026'
+    },
+    {
+        category: 'phim_anh',
+        title: '⚡ Cyberpunk Neon tương lai 2077',
+        prompt: 'Poster phim Cyberpunk tương lai năm 2077, mưa đêm rơi trên đường phố ngập tràn ánh đèn neon xanh lục lam và hồng cánh sen, hologram phản chiếu và phong cách vị lai.',
+        studio: 'Neo Tokyo',
+        concept: 'Cyber Horizon',
+        year: 'Neo 2077'
+    },
+    {
+        category: 'phim_anh',
+        title: '🚀 Khoa học viễn tưởng Interstellar',
+        prompt: 'Poster phim khoa học viễn tưởng không gian vũ trụ bao la, dải ngân hà rực rỡ, tinh vân huyền ảo, ánh sáng sao lấp lánh và nhân vật hướng ánh nhìn về chân trời vô tận.',
+        studio: 'Cosmic Studio',
+        concept: 'Chân Trời Vũ Trụ',
+        year: 'Sci-Fi 2026'
+    },
+    {
+        category: 'phim_anh',
+        title: '🕵️ Trinh thám Noir kinh điển',
+        prompt: 'Poster phim trinh thám đen trắng Noir cổ điển thập niên 50, bóng đổ sắc nét qua rèm cửa sổ Venice, ánh đèn đường le lói trong màn mưa và chiếc áo măng tô bí ẩn.',
+        studio: 'Noir Detective',
+        concept: 'Bí Mật Đêm Thành Phố',
+        year: 'Classic Film'
+    },
+    {
+        category: 'phim_anh',
+        title: '🍃 Hoạt hình Ghibli đồi cỏ xanh',
+        prompt: 'Poster phong cách hoạt hình anime Hayao Miyazaki Ghibli, thảo nguyên xanh ngát mênh mông, những đám mây trắng bồng bềnh khổng lồ trên nền trời xanh ngọc bích.',
+        studio: 'Ghibli Fantasy',
+        concept: 'Lâu Đài Trên Đồi Cỏ',
+        year: 'Animation 2026'
+    },
+    {
+        category: 'phim_anh',
+        title: '☄️ Anime Makoto Shinkai rực rỡ',
+        prompt: 'Poster anime phong cách Makoto Shinkai, sao băng rực sáng xé toạc bầu trời chạng vạng hoàng hôn tím biếc, giọt nước phản chiếu ánh sáng kỳ ảo và cảm xúc nghẹn ngào.',
+        studio: 'Shinkai Magic',
+        concept: 'Khu Vườn Ngôn Từ',
+        year: 'Anime 2026'
+    },
+
+    // 3. Cưới & Tình Yêu (8)
+    {
+        category: 'cuoi',
         title: '💍 Ngày cưới (Wedding Save The Date)',
         prompt: 'Poster ảnh cưới lãng mạn phong cách K-Drama sang trọng, cặp đôi trong trang phục cưới thanh lịch, ánh hoàng hôn ngược nắng ven tóc vàng óng, hoa baby trắng, vệt sáng lóa điện ảnh và chữ Save The Date.',
         studio: 'Wedding Art',
@@ -40,27 +199,65 @@ const QUICK_TOPIC_PRESETS = [
         year: 'Happy Wedding 2026'
     },
     {
-        title: '🎞️ Dải phim 35mm hoài niệm',
-        prompt: 'Poster kỷ yếu dải phim nhựa 35mm uốn lượn 3D ôm quanh 4 khoảnh khắc tuổi học trò, sticker xé giấy màu đỏ và vàng, doodle tai nghe và máy bay giấy, tone màu retro hoài niệm.',
-        studio: 'Music Studio',
-        concept: 'Thanh Xuân',
-        year: 'Kỉ niệm 2026'
+        category: 'cuoi',
+        title: '🌅 Hoàng hôn bãi biển lãng mạn',
+        prompt: 'Poster ảnh cưới bờ biển lúc hoàng hôn buông xuống, sóng biển vỗ nhẹ bờ cát mịn màng, dải váy cưới trắng bay bổng trong gió và ánh nắng chiều nhuộm vàng đôi uyên ương.',
+        studio: 'Seaside Romance',
+        concept: 'Bản Tình Ca Biển',
+        year: 'Wedding 2026'
     },
     {
-        title: '📻 Sổ tay giấy rách & Đĩa than',
-        prompt: 'Poster phong cách Vintage Scrapbook bìa Kraft xé viền cháy, đĩa than vinyl đen bóng, cuộn băng cassette, kẹp bướm vàng, 4 ảnh Polaroid dán băng dính và nhành hoa phượng.',
-        studio: 'Music Studio',
-        concept: 'Sinh viên',
-        year: 'Kỉ niệm 2026'
+        category: 'cuoi',
+        title: '🏰 Lâu đài cổ tích châu Âu Paris',
+        prompt: 'Poster ảnh cưới tráng lệ trước kiến trúc lâu đài cổ điển phong cách Pháp, xe hoa vintage sang trọng, hoa hồng nhung đỏ và ánh đèn vàng quý phái.',
+        studio: 'Paris Wedding',
+        concept: 'Tình Yêu Paris',
+        year: 'Elegance 2026'
     },
     {
-        title: '🎸 Pop-Art năng động & Guitar',
-        prompt: 'Poster Pop-Art tuổi trẻ năng động với đàn guitar acoustic, tai nghe DJ, đĩa than vinyl, dải sóng âm thanh và đường lượn sóng vàng-xanh-đỏ rực rỡ.',
-        studio: 'Music Studio',
-        concept: 'Sinh viên',
-        year: 'Kỉ niệm 2026'
+        category: 'cuoi',
+        title: '🌿 Tiệc cưới tối giản Scandinavian',
+        prompt: 'Poster ngày cưới phong cách tối giản Bắc Âu, nền trắng ngà thanh khiết, cành lá khuynh diệp xanh mát, font chữ serif mảnh mai sang trọng vượt thời gian.',
+        studio: 'Nordic Minimal',
+        concept: 'Hôn Lễ Tinh Khôi',
+        year: 'Simple Love 2026'
     },
     {
+        category: 'cuoi',
+        title: '🌾 Hôn lễ Rustic đồng quê vintage',
+        prompt: 'Poster tiệc cưới phong cách Rustic đồng quê mộc mạc, rơm vàng, hoa cỏ dại, đèn dây tóc vàng giăng trên vòm gỗ và nụ cười rạng ngời hạnh phúc.',
+        studio: 'Rustic Romance',
+        concept: 'Mộc Mạc Yêu Thương',
+        year: 'Forever 2026'
+    },
+    {
+        category: 'cuoi',
+        title: '🌌 Lễ cưới dưới bầu trời sao',
+        prompt: 'Poster đôi lứa trao nhau lời thề nguyện dưới bầu trời đêm ngàn sao lấp lánh, pháo bông que lung linh trong tay và không gian cổ tích huyền ảo.',
+        studio: 'Starlight Wedding',
+        concept: 'Ngàn Sao Chứng Giám',
+        year: 'Love 2026'
+    },
+    {
+        category: 'cuoi',
+        title: '📸 Nhật ký tình yêu Polaroid',
+        prompt: 'Poster tập hợp những tấm ảnh Polaroid ghi lại hành trình tình yêu chân thật, băng keo trong suốt dán nhẹ, những dòng ghi chú viết tay ngọt ngào.',
+        studio: 'Love Diary',
+        concept: 'Nhật Ký Đôi Ta',
+        year: 'Story 2026'
+    },
+    {
+        category: 'cuoi',
+        title: '🧧 Hỷ sự cổ phong phượng hoàng',
+        prompt: 'Poster ngày hỷ phong cách cổ phong Trung Hoa, hỷ phục đỏ rực thêu rồng phượng kim tuyến lộng lẫy, trâm cài phượng hoàng ngọc bích và chữ Hỷ son đỏ truyền thống.',
+        studio: 'Heritage Wedding',
+        concept: 'Trăm Năm Hạnh Ngộ',
+        year: 'Cát Tường 2026'
+    },
+
+    // 4. Âm Nhạc, Nghệ Thuật & Tạp Chí (8)
+    {
+        category: 'am_nhac',
         title: '👑 Bìa tạp chí thời trang Vogue',
         prompt: 'Poster bìa tạp chí thời trang cao cấp Vogue High-Fashion, nhân vật chính tạo dáng thần thái cuốn hút, tiêu đề VOGUE in hoa sang trọng, mã vạch barcode và ảnh hậu trường.',
         studio: 'Vogue Studio',
@@ -68,6 +265,65 @@ const QUICK_TOPIC_PRESETS = [
         year: 'Special Edition'
     },
     {
+        category: 'am_nhac',
+        title: '🎸 Pop-Art năng động & Guitar',
+        prompt: 'Poster Pop-Art tuổi trẻ năng động với đàn guitar acoustic, tai nghe DJ, đĩa than vinyl, dải sóng âm thanh và đường lượn sóng vàng-xanh-đỏ rực rỡ.',
+        studio: 'Music Studio',
+        concept: 'Sinh viên',
+        year: 'Kỉ niệm 2026'
+    },
+    {
+        category: 'am_nhac',
+        title: '🎵 Đĩa than Vinyl Indie lãng mạn',
+        prompt: 'Poster bìa đĩa hát vinyl Indie lãng mạn, đĩa than quay trên bàn máy hát cổ điển, ánh sáng ấm áp của đèn neon phòng thu và giai điệu ký ức dịu êm.',
+        studio: 'Indie Records',
+        concept: 'Bản Tình Ca Mùa Hạ',
+        year: 'Vinyl 2026'
+    },
+    {
+        category: 'am_nhac',
+        title: '⚡ Rock & Roll bốc lửa sân khấu',
+        prompt: 'Poster liveshow Rock & Roll bốc lửa, khói sân khấu cuồn cuộn, ánh đèn laser đỏ rực xuyên qua bóng dáng ca sĩ cầm micro gào thét đam mê.',
+        studio: 'Rock Nation',
+        concept: 'Cháy Cùng Đam Mê',
+        year: 'Tour 2026'
+    },
+    {
+        category: 'am_nhac',
+        title: '🎨 Hip-hop Graffiti đường phố',
+        prompt: 'Poster phong cách Hip-hop đường phố với bức tường gạch phủ sơn graffiti sặc sỡ, trang phục áo hoodie oversized cực chất và thần thái Gen Z cá tính.',
+        studio: 'Street Vibe',
+        concept: 'Chất Riêng Đường Phố',
+        year: 'Underground 2026'
+    },
+    {
+        category: 'am_nhac',
+        title: '🎻 Hòa nhạc giao hưởng thính phòng',
+        prompt: 'Poster đêm hòa nhạc giao hưởng thính phòng tháp đèn chùm pha lê tráng lệ, đàn cello và vĩ cầm tỏa sáng quý phái trong nhà hát hoàng gia.',
+        studio: 'Philharmonic Hall',
+        concept: 'Bản Giao Hưởng Đêm',
+        year: 'Concert 2026'
+    },
+    {
+        category: 'am_nhac',
+        title: '☕ Acoustic Cafe hoàng hôn ấm áp',
+        prompt: 'Poster đêm nhạc acoustic mộc mạc bên khung cửa sổ quán cafe gỗ, tách trà nóng bốc khói nhẹ và những nốt nhạc guitar sưởi ấm tâm hồn.',
+        studio: 'Acoustic Corner',
+        concept: 'Giai Điệu Bình Yên',
+        year: 'Live Session'
+    },
+    {
+        category: 'am_nhac',
+        title: '🎆 Lễ hội âm nhạc EDM sôi động',
+        prompt: 'Poster đại nhạc hội EDM ngoài trời hàng chục ngàn khán giả cuồng nhiệt, pháo hoa rực sáng bầu trời đêm, ánh sáng laser 3D ma trận vĩ đại.',
+        studio: 'Music Festival',
+        concept: 'Đại Nhạc Hội Mùa Hè',
+        year: 'Festival 2026'
+    },
+
+    // 5. Du Lịch & 4 Mùa (7)
+    {
+        category: 'du_lich',
         title: '🍂 Mùa thu lá vàng Seoul',
         prompt: 'Poster lãng mạn mùa thu Hàn Quốc với lá phong đỏ và lá ngân hạnh vàng bay bồng bềnh trong gió, tone màu latte ấm áp, cặp đôi quàng khăn len nụ cười hạnh phúc.',
         studio: 'Autumn Romance',
@@ -75,11 +331,110 @@ const QUICK_TOPIC_PRESETS = [
         year: 'Seoul 2026'
     },
     {
-        title: '❄️ Mùa đông tuyết trắng cổ tích',
+        category: 'du_lich',
+        title: '❄️ Mùa đông tuyết trắng Sapporo',
         prompt: 'Poster mùa đông tuyết trắng cổ tích, những hạt tuyết li ti bay mờ ảo, ánh đèn dây tóc fairy lights vàng ấm áp xua tan giá lạnh, cặp đôi ấm áp bên nhau.',
         studio: 'Winter Tale',
         concept: 'Tuyết Đầu Mùa',
         year: 'Winter 2026'
+    },
+    {
+        category: 'du_lich',
+        title: '🌸 Mùa xuân hoa anh đào Kyoto',
+        prompt: 'Poster mùa xuân rực rỡ dưới hàng cây hoa anh đào sakura nở rộ hồng phấn, cánh hoa bay lượn phấp phới trong làn gió nhẹ bên dòng suối nhỏ trong vắt.',
+        studio: 'Kyoto Spring',
+        concept: 'Hương Hoa Đầu Mùa',
+        year: 'Spring 2026'
+    },
+    {
+        category: 'du_lich',
+        title: '🏖️ Mùa hè biển xanh Hawaii',
+        prompt: 'Poster du lịch mùa hè biển xanh cát trắng nắng vàng rực rỡ, rặng dừa nghiêng bóng, vỏ ốc sao biển và tấm ảnh Polaroid dán viền trong suốt tràn đầy sức sống.',
+        studio: 'Tropical Paradise',
+        concept: 'Kỳ Nghỉ Nhiệt Đới',
+        year: 'Summer 2026'
+    },
+    {
+        category: 'du_lich',
+        title: '🌾 Ruộng bậc thang Mù Cang Chải',
+        prompt: 'Poster hùng vĩ non nước Việt Nam trên sóng ruộng bậc thang mùa lúa chín vàng óng như dát vàng trên đồi núi, mây mù ôm ấp đỉnh đèo tráng lệ.',
+        studio: 'Vietnam Discovery',
+        concept: 'Mùa Vàng Tây Bắc',
+        year: 'Travel 2026'
+    },
+    {
+        category: 'du_lich',
+        title: '🐪 Sa mạc hoàng hôn huyền bí',
+        prompt: 'Poster hoàng hôn trên sa mạc cát vàng mênh mông, ánh mặt trời đỏ rực như hòn lửa từ từ buông xuống đường chân trời và phong cách phiêu lưu tự do.',
+        studio: 'Desert Adventure',
+        concept: 'Hành Trình Tự Do',
+        year: 'Safari 2026'
+    },
+    {
+        category: 'du_lich',
+        title: '🌌 Cực quang phương Bắc Iceland',
+        prompt: 'Poster kỳ quan cực quang phương Bắc (Aurora Borealis) rực rỡ ánh sáng xanh ngọc bích và tím dạ quang uốn lượn kỳ ảo trên đỉnh núi băng tuyết vĩnh cửu.',
+        studio: 'Nordic Lights',
+        concept: 'Dạ Vũ Phương Bắc',
+        year: 'Arctic 2026'
+    },
+
+    // 6. Doanh Nhân, Sự Kiện & Thương Hiệu (7)
+    {
+        category: 'doanh_nhan',
+        title: '💼 Doanh nhân thành đạt Forbes',
+        prompt: 'Poster chân dung doanh nhân thành đạt phong cách bìa tạp chí Forbes, vest tuxedo lịch lãm, thần thái tự tin kiên định, ánh sáng studio tạo khối quyền lực.',
+        studio: 'Business Leaders',
+        concept: 'Nhà Lãnh Đạo Tương Lai',
+        year: 'Edition 2026'
+    },
+    {
+        category: 'doanh_nhan',
+        title: '💻 Tech Summit hội thảo công nghệ',
+        prompt: 'Poster hội nghị thượng đỉnh công nghệ Tech Summit tương lai, mạng lưới vi mạch phát sáng, màn hình cong đa chiều và không gian sáng tạo đột phá.',
+        studio: 'Future Tech',
+        concept: 'Đột Phá Kỷ Nguyên Số',
+        year: 'Summit 2026'
+    },
+    {
+        category: 'doanh_nhan',
+        title: '🎖️ Vinh danh nhân vật xuất sắc của năm',
+        prompt: 'Poster lễ trao giải và vinh danh nhân vật cống hiến xuất sắc của năm, cúp pha lê mạ vàng lấp lánh, thảm đỏ trang trọng và dải ruy băng vinh quang.',
+        studio: 'Excellence Awards',
+        concept: 'Vinh Danh Cống Hiến',
+        year: 'Gala 2026'
+    },
+    {
+        category: 'doanh_nhan',
+        title: '🏆 Giải đấu thể thao vô địch',
+        prompt: 'Poster chung kết giải đấu vô địch thể thao đỉnh cao, chiếc cúp vô địch vàng rực dưới pháo sáng giấy bay rực rỡ khắp sân vận động khổng lồ.',
+        studio: 'Championship Art',
+        concept: 'Đỉnh Vinh Quang',
+        year: 'Champion 2026'
+    },
+    {
+        category: 'doanh_nhan',
+        title: '🖼️ Triển lãm nghệ thuật đương đại',
+        prompt: 'Poster triển lãm mỹ thuật và thiết kế đương đại, bố cục typography bất đối xứng táo bạo, mảng màu trừu tượng và không gian bảo tàng thanh lịch.',
+        studio: 'Modern Art Gallery',
+        concept: 'Triển Lãm Đương Đại',
+        year: 'Exhibition 2026'
+    },
+    {
+        category: 'doanh_nhan',
+        title: '💎 Khai trương thương hiệu Grand Opening',
+        prompt: 'Poster sự kiện khai trương hồng phát Grand Opening, chùm bóng bay vàng kim sang trọng, dải ruy băng đỏ cắt khánh thành và rượu champagne nổ mừng.',
+        studio: 'Grand Opening Art',
+        concept: 'Khai Trương Hồng Phát',
+        year: 'Welcome 2026'
+    },
+    {
+        category: 'doanh_nhan',
+        title: '🌍 Phim tài liệu National Geographic',
+        prompt: 'Poster phong cách phim tài liệu khám phá địa lý nhân văn National Geographic, khung viền vàng biểu tượng, màu sắc chân thực sâu sắc và chiều sâu văn hóa.',
+        studio: 'Geographic Studio',
+        concept: 'Khám Phá Thế Giới',
+        year: 'Documentary 2026'
     }
 ];
 
@@ -111,6 +466,9 @@ export const PosterStudioPanel: React.FC<PosterStudioPanelProps> = ({
             return '9:16';
         }
     });
+
+    // Category filter for 50 presets
+    const [presetCategory, setPresetCategory] = useState<string>('all');
 
     // 3. Branding text state
     const [branding, setBranding] = useState<{
@@ -277,20 +635,51 @@ export const PosterStudioPanel: React.FC<PosterStudioPanelProps> = ({
                 </div>
             )}
 
-            {/* 2. Chủ Đề & Prompt Thiết Kế Poster */}
+            {/* 2. Chủ Đề & Prompt Thiết Kế Poster (50 Chủ Đề Sắc Nét) */}
             <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                    2. Chủ Đề Poster (Prompt ngắn gọn)
-                </label>
+                <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                        2. 50+ Chủ Đề Poster Nghệ Thuật
+                    </label>
+                    <span className="text-[10px] font-bold text-violet-700 bg-violet-50 px-2 py-0.5 rounded-md border border-violet-200">
+                        50 Chủ đề sẵn có
+                    </span>
+                </div>
+
+                {/* Category Filter Pills */}
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none text-[10.5px]">
+                    {[
+                        { id: 'all', label: 'Tất cả (50)' },
+                        { id: 'ky_yeu', label: '🎓 Kỷ Yếu (10)' },
+                        { id: 'phim_anh', label: '🎬 Phim Ảnh (10)' },
+                        { id: 'cuoi', label: '💍 Cưới & Yêu (8)' },
+                        { id: 'am_nhac', label: '🎸 Âm Nhạc (8)' },
+                        { id: 'du_lich', label: '✈️ Du Lịch (7)' },
+                        { id: 'doanh_nhan', label: '💼 Doanh Nhân (7)' }
+                    ].map((cat) => (
+                        <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setPresetCategory(cat.id)}
+                            className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
+                                presetCategory === cat.id
+                                    ? 'bg-violet-600 text-white shadow-2xs'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                        >
+                            {cat.label}
+                        </button>
+                    ))}
+                </div>
 
                 {/* Quick Topic Presets */}
-                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1 scrollbar-thin">
-                    {QUICK_TOPIC_PRESETS.map((p, idx) => (
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1 scrollbar-thin p-1 bg-slate-50 rounded-xl border border-slate-200/60">
+                    {QUICK_TOPIC_PRESETS.filter(p => presetCategory === 'all' || p.category === presetCategory).map((p, idx) => (
                         <button
                             key={idx}
                             type="button"
                             onClick={() => handleSelectPreset(p)}
-                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-700 hover:text-violet-900 text-[11px] font-semibold transition-all cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-white hover:bg-violet-100 text-slate-700 hover:text-violet-900 text-[11px] font-semibold border border-slate-200/80 hover:border-violet-300 transition-all cursor-pointer shadow-2xs"
                         >
                             {p.title}
                         </button>

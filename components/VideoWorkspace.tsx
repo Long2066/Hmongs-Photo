@@ -57,6 +57,7 @@ export interface VideoEntry {
     modelUsed?: string;
     duration?: number;
     aspectRatio?: string;
+    title?: string;
 }
 
 interface VideoWorkspaceProps {
@@ -109,7 +110,11 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         setDownloadMessage('');
 
         try {
-            const filename = `ImageTool_OmniVideo_${active.createdAt}.mp4`;
+            const rawTitle = (active.title && active.title.trim())
+                ? active.title.trim()
+                : `ImageTool_Video_${active.createdAt}`;
+            const cleanTitle = rawTitle.replace(/[/\\?%*:|"<>]/g, '_');
+            const filename = cleanTitle.toLowerCase().endsWith('.mp4') ? cleanTitle : `${cleanTitle}.mp4`;
             let result;
 
             if (isNativePlatform() || isElectronPlatform()) {
@@ -295,6 +300,12 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                                 )}
 
                                 <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
+                                    {active.title && (
+                                        <div className="flex items-center justify-between text-slate-300">
+                                            <span>Tiêu đề video:</span>
+                                            <span className="font-bold text-amber-400 truncate max-w-[180px]">{active.title}</span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-slate-300">
                                         <span>Định dạng xuất:</span>
                                         <span className="font-mono font-bold text-white">MP4 (H.264)</span>
