@@ -79,6 +79,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     const [downloading, setDownloading] = useState(false);
     const [downloadMessage, setDownloadMessage] = useState('');
     const [renderTime, setRenderTime] = useState(0);
+    const [codecNotice, setCodecNotice] = useState<string | null>(null);
 
     // Live render stopwatch
     useEffect(() => {
@@ -257,7 +258,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)] gap-5 rounded-2xl bg-slate-900 p-4 sm:p-6 shadow-sm border border-slate-800 text-white mb-6">
                         {/* Video Player Main View */}
                         <div className="min-w-0 flex flex-col gap-3">
-                            <div className="relative overflow-hidden rounded-xl bg-black border border-slate-800 shadow-inner flex items-center justify-center">
+                            <div className="relative overflow-hidden rounded-xl bg-black border border-slate-800 shadow-inner flex flex-col items-center justify-center">
                                 <video
                                     key={active.url}
                                     src={active.url}
@@ -266,10 +267,26 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                                     autoPlay
                                     loop
                                     preload="metadata"
+                                    onLoadedMetadata={(e) => {
+                                        const v = e.currentTarget;
+                                        if (v.duration > 0 && v.videoWidth === 0) {
+                                            setCodecNotice('Trình duyệt webview hiện tại không hỗ trợ giải mã hình ảnh video này (chỉ phát tiếng). Vui lòng bấm "Tải video MP4 về máy" để mở trọn vẹn bằng ứng dụng video của máy.');
+                                        } else {
+                                            setCodecNotice(null);
+                                        }
+                                    }}
+                                    onError={() => {
+                                        setCodecNotice('Không thể phát video trực tiếp trong ứng dụng. Vui lòng bấm "Tải video MP4 về máy" bên dưới để mở.');
+                                    }}
                                     className="max-h-[520px] w-full object-contain bg-black"
                                 >
                                     Trình duyệt không hỗ trợ xem video này trực tiếp.
                                 </video>
+                                {codecNotice && (
+                                    <div className="w-full bg-amber-950/80 border-t border-amber-600/40 p-2.5 text-[11px] text-amber-200 text-center font-medium leading-relaxed">
+                                        ⚠️ {codecNotice}
+                                    </div>
+                                )}
                             </div>
                         </div>
 

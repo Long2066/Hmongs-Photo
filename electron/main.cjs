@@ -548,13 +548,15 @@ ipcMain.handle('save-file', async (event, { base64, filename, fileUrl }) => {
         }
 
         let buffer;
-        const targetUrl = fileUrl || (base64 && (base64.startsWith('http://') || base64.startsWith('https://')) ? base64 : null);
+        const targetUrl = fileUrl || (typeof base64 === 'string' && (base64.startsWith('http://') || base64.startsWith('https://')) ? base64 : null);
         if (targetUrl) {
             const resp = await fetch(targetUrl);
             const arrayBuffer = await resp.arrayBuffer();
             buffer = Buffer.from(arrayBuffer);
+        } else if (Buffer.isBuffer(base64) || base64 instanceof Uint8Array) {
+            buffer = Buffer.from(base64);
         } else {
-            const rawBase64 = (base64 && base64.includes(',')) ? base64.split(',')[1] : (base64 || '');
+            const rawBase64 = (typeof base64 === 'string' && base64.includes(',')) ? base64.split(',')[1] : (base64 || '');
             buffer = Buffer.from(rawBase64, 'base64');
         }
 

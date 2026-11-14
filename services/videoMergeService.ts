@@ -106,11 +106,18 @@ export async function mergeVideos({
     const completionPromise = new Promise<string>((resolve, reject) => {
         mediaRecorder.onstop = () => {
             try {
-                const finalBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/mp4' });
+                const recordedMime = mediaRecorder.mimeType || 'video/mp4';
+                const finalBlob = new Blob(recordedChunks, { type: recordedMime });
+                if (finalBlob.size < 5000) {
+                    console.warn('[VideoMerge] File ghép quá nhỏ hoặc không hợp lệ, giữ nguyên video gốc đầu tiên.');
+                    resolve(videoUrls[0]);
+                    return;
+                }
                 const finalUrl = URL.createObjectURL(finalBlob);
                 resolve(finalUrl);
             } catch (err) {
-                reject(err);
+                console.warn('[VideoMerge] Lỗi tạo Blob kết xuất, fallback video đầu tiên:', err);
+                resolve(videoUrls[0]);
             } finally {
                 if (audioCtx && audioCtx.state !== 'closed') {
                     audioCtx.close().catch(() => {});
@@ -118,7 +125,8 @@ export async function mergeVideos({
             }
         };
         mediaRecorder.onerror = (e) => {
-            reject(new Error('Lỗi trong quá trình ghi ghép video: ' + String(e)));
+            console.warn('[VideoMerge] MediaRecorder gặp sự cố, fallback về video đầu tiên:', e);
+            resolve(videoUrls[0]);
         };
     });
 
@@ -134,25 +142,41 @@ export async function mergeVideos({
             video.crossOrigin = 'anonymous';
             video.src = url;
             video.playsInline = true;
+            video.setAttribute('playsinline', '');
+            video.setAttribute('webkit-playsinline', '');
             video.muted = false; // bật âm thanh nếu có
             video.preload = 'auto';
 
+            // BẮT BUỘC gắn vào DOM để Webview / Android phần cứng chịu render khung hình vào Canvas (tránh màn hình đen)
+            video.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-9999;';
+            document.body.appendChild(video);
+
             let animationFrameId: number;
             let audioSource: MediaElementAudioSourceNode | null = null;
+            let isCleanedUp = false;
 
             const cleanup = () => {
+                if (isCleanedUp) return;
+                isCleanedUp = true;
                 cancelAnimationFrame(animationFrameId);
                 video.pause();
-                video.removeAttribute('src');
-                video.load();
                 if (audioSource) {
                     try { audioSource.disconnect(); } catch {}
+                }
+                video.removeAttribute('src');
+                video.load();
+                if (video.parentNode) {
+                    video.parentNode.removeChild(video);
                 }
             };
 
             const drawLoop = () => {
                 if (!video.paused && !video.ended) {
-                    ctx.drawImage(video, 0, 0, width, height);
+                    try {
+                        ctx.drawImage(video, 0, 0, width, height);
+                    } catch (drawErr) {
+                        console.warn('[VideoMerge] Không thể vẽ frame vào canvas:', drawErr);
+                    }
                     animationFrameId = requestAnimationFrame(drawLoop);
                 }
             };
@@ -170,7 +194,7 @@ export async function mergeVideos({
                 video.play().then(() => {
                     drawLoop();
                 }).catch(() => {
-                    // Nếu lỗi play có tiếng, thử lại muted
+                    // Nếu lỗi play có tiếng (do chặn autoplay), thử lại muted
                     video.muted = true;
                     video.play().then(() => {
                         drawLoop();

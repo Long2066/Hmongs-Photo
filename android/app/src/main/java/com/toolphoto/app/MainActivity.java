@@ -269,6 +269,7 @@ class ApkInstallerPlugin extends Plugin {
     public void saveMediaToGallery(PluginCall call) {
         String urlStr = call.getString("url");
         String base64Str = call.getString("base64");
+        String filePath = call.getString("filePath");
         String filename = call.getString("filename");
         String mimeType = call.getString("mimeType");
 
@@ -318,23 +319,75 @@ class ApkInstallerPlugin extends Plugin {
                     return;
                 }
 
-                if (urlStr != null && (urlStr.startsWith("http://") || urlStr.startsWith("https://"))) {
-                    URL u = new URL(urlStr);
-                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
-                    conn.setConnectTimeout(15000);
-                    conn.setReadTimeout(60000);
-                    conn.setInstanceFollowRedirects(true);
-                    conn.connect();
-
-                    try (InputStream in = new BufferedInputStream(conn.getInputStream())) {
-                        byte[] buffer = new byte[16384];
+                // 1. Nếu có đường dẫn file nội bộ (filePath từ Cache / App storage)
+                if (filePath != null && !filePath.trim().isEmpty()) {
+                    String cleanPath = filePath.trim();
+                    if (cleanPath.startsWith("file://")) {
+                        cleanPath = cleanPath.substring(7);
+                    }
+                    File srcFile = new File(cleanPath);
+                    if (!srcFile.exists()) {
+                        call.reject("Không tìm thấy file nguồn tạm: " + cleanPath);
+                        return;
+                    }
+                    try (InputStream in = new BufferedInputStream(new java.io.FileInputStream(srcFile))) {
+                        byte[] buffer = new byte[32768];
                         int len;
                         while ((len = in.read(buffer)) != -1) {
                             out.write(buffer, 0, len);
                         }
                         out.flush();
                     }
-                } else if (base64Str != null && !base64Str.isEmpty()) {
+                    // Dọn dẹp file tạm nếu nằm trong cache
+                    try {
+                        if (srcFile.getAbsolutePath().contains(ctx.getCacheDir().getAbsolutePath())) {
+                            srcFile.delete();
+                        }
+                    } catch (Exception ignored) {}
+                }
+                // 2. Nếu là URL mạng từ máy chủ (HTTP/HTTPS) -> stream trực tiếp với User-Agent & redirect
+                else if (urlStr != null && (urlStr.startsWith("http://") || urlStr.startsWith("https://"))) {
+                    URL currentUrl = new URL(urlStr);
+                    HttpURLConnection conn = null;
+                    int redirectCount = 0;
+
+                    while (redirectCount < 5) {
+                        conn = (HttpURLConnection) currentUrl.openConnection();
+                        conn.setConnectTimeout(20000);
+                        conn.setReadTimeout(120000);
+                        conn.setInstanceFollowRedirects(true);
+                        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                        conn.setRequestProperty("Accept", "*/*");
+                        conn.connect();
+
+                        int status = conn.getResponseCode();
+                        if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
+                            String newUrl = conn.getHeaderField("Location");
+                            if (newUrl != null && !newUrl.isEmpty()) {
+                                currentUrl = new URL(currentUrl, newUrl);
+                                redirectCount++;
+                                continue;
+                            }
+                        }
+                        break;
+                    }
+
+                    if (conn == null || (conn.getResponseCode() != HttpURLConnection.HTTP_OK && conn.getResponseCode() != 206)) {
+                        call.reject("Máy chủ tải video phản hồi lỗi: HTTP " + (conn != null ? conn.getResponseCode() : "Unknown"));
+                        return;
+                    }
+
+                    try (InputStream in = new BufferedInputStream(conn.getInputStream())) {
+                        byte[] buffer = new byte[32768];
+                        int len;
+                        while ((len = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, len);
+                        }
+                        out.flush();
+                    }
+                }
+                // 3. Nếu là dữ liệu Base64
+                else if (base64Str != null && !base64Str.isEmpty()) {
                     String clean = base64Str.contains(",") ? base64Str.substring(base64Str.indexOf(",") + 1) : base64Str;
                     byte[] bytes = Base64.decode(clean, Base64.DEFAULT);
                     out.write(bytes);

@@ -50,33 +50,125 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
         // 1. Try Native MediaStore downloader via ApkInstaller plugin
         try {
             const isUrl = /^https?:\/\//i.test(dataOrUrl);
-            let payloadBase64: string | undefined = !isUrl ? dataOrUrl : undefined;
-            if (!isUrl && dataOrUrl.startsWith('blob:')) {
+            
+            // Nếu là URL mạng từ xa (HTTP/HTTPS): để Java stream trực tiếp vào MediaStore, tránh ngốn RAM WebView
+            if (isUrl) {
+                const res = await ApkInstaller.saveMediaToGallery?.({
+                    url: dataOrUrl,
+                    filename,
+                    mimeType
+                });
+                if (res && res.success) {
+                    return {
+                        success: true,
+                        message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                        path: res.path
+                    };
+                }
+            } else if (dataOrUrl.startsWith('blob:')) {
+                // Nếu là Blob URL (ví dụ từ canvas hoặc video ghép nối)
                 const blobResp = await fetch(dataOrUrl);
                 const blob = await blobResp.blob();
-                payloadBase64 = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        const res = reader.result as string;
-                        resolve(res.includes(',') ? res.split(',')[1] : res);
-                    };
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                });
-            }
 
-            const res = await ApkInstaller.saveMediaToGallery?.({
-                url: isUrl ? dataOrUrl : undefined,
-                base64: payloadBase64,
-                filename,
-                mimeType
-            });
-            if (res && res.success) {
-                return {
-                    success: true,
-                    message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
-                    path: res.path
-                };
+                // Nếu blob lớn hơn 1MB (như file video): ghi file tạm theo từng chunk 512KB vào Cache rồi báo Java copy sang MediaStore
+                if (blob.size > 1_000_000) {
+                    const tempCacheName = `temp_save_${Date.now()}_${filename}`;
+                    const CHUNK_SIZE = 512 * 1024;
+                    let offset = 0;
+                    let isFirst = true;
+
+                    while (offset < blob.size) {
+                        const slice = blob.slice(offset, offset + CHUNK_SIZE);
+                        const chunkBase64 = await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const res = reader.result as string;
+                                resolve(res.includes(',') ? res.split(',')[1] : res);
+                            };
+                            reader.onerror = reject;
+                            reader.readAsDataURL(slice);
+                        });
+
+                        if (isFirst) {
+                            await Filesystem.writeFile({
+                                path: tempCacheName,
+                                data: chunkBase64,
+                                directory: Directory.Cache
+                            });
+                            isFirst = false;
+                        } else {
+                            await Filesystem.appendFile({
+                                path: tempCacheName,
+                                data: chunkBase64,
+                                directory: Directory.Cache
+                            });
+                        }
+                        offset += CHUNK_SIZE;
+                    }
+
+                    const tempUriObj = await Filesystem.getUri({
+                        path: tempCacheName,
+                        directory: Directory.Cache
+                    });
+
+                    const res = await ApkInstaller.saveMediaToGallery?.({
+                        filePath: tempUriObj.uri,
+                        filename,
+                        mimeType
+                    });
+
+                    // Dọn dẹp file tạm
+                    Filesystem.deleteFile({
+                        path: tempCacheName,
+                        directory: Directory.Cache
+                    }).catch(() => {});
+
+                    if (res && res.success) {
+                        return {
+                            success: true,
+                            message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                            path: res.path
+                        };
+                    }
+                } else {
+                    // Blob nhỏ (< 1MB như ảnh)
+                    const payloadBase64 = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const res = reader.result as string;
+                            resolve(res.includes(',') ? res.split(',')[1] : res);
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+
+                    const res = await ApkInstaller.saveMediaToGallery?.({
+                        base64: payloadBase64,
+                        filename,
+                        mimeType
+                    });
+                    if (res && res.success) {
+                        return {
+                            success: true,
+                            message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                            path: res.path
+                        };
+                    }
+                }
+            } else {
+                // Base64 trực tiếp
+                const res = await ApkInstaller.saveMediaToGallery?.({
+                    base64: dataOrUrl,
+                    filename,
+                    mimeType
+                });
+                if (res && res.success) {
+                    return {
+                        success: true,
+                        message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                        path: res.path
+                    };
+                }
             }
         } catch (nativeErr) {
             console.warn('[Download] Native saveMediaToGallery failed, falling back to Filesystem:', nativeErr);
@@ -98,19 +190,11 @@ async function downloadElectron(dataOrUrl: string, filename: string): Promise<Do
         if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
             result = await (window as any).electronAPI.saveFile('', filename, dataOrUrl);
         } else if (dataOrUrl.startsWith('blob:')) {
-            // Convert blob URL to Base64 so Node filesystem writes the real binary file
+            // Convert blob URL to ArrayBuffer/Uint8Array for fast zero-copy write
             const blobResp = await fetch(dataOrUrl);
             const blob = await blobResp.blob();
-            const base64Str = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const res = reader.result as string;
-                    resolve(res.includes(',') ? res.split(',')[1] : res);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
-            result = await (window as any).electronAPI.saveFile(base64Str, filename);
+            const arrayBuffer = await blob.arrayBuffer();
+            result = await (window as any).electronAPI.saveFile(new Uint8Array(arrayBuffer), filename);
         } else {
             const cleanBase64 = dataOrUrl.includes(',') ? dataOrUrl.split(',')[1] : dataOrUrl;
             result = await (window as any).electronAPI.saveFile(cleanBase64, filename);
@@ -138,18 +222,6 @@ async function downloadElectron(dataOrUrl: string, filename: string): Promise<Do
  */
 async function downloadNative(dataOrUrl: string, filename: string): Promise<DownloadResult> {
     try {
-        // Request permissions first (Android requires this)
-        const permResult = await Filesystem.checkPermissions();
-        if (permResult.publicStorage !== 'granted') {
-            const reqResult = await Filesystem.requestPermissions();
-            if (reqResult.publicStorage !== 'granted') {
-                return {
-                    success: false,
-                    message: 'Cần cấp quyền truy cập bộ nhớ để tải tệp'
-                };
-            }
-        }
-
         // If URL or blob, fetch and convert to base64 first
         let base64Data = dataOrUrl;
         if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://') || dataOrUrl.startsWith('blob:')) {
@@ -173,49 +245,26 @@ async function downloadNative(dataOrUrl: string, filename: string): Promise<Down
         const timestamp = Date.now();
         const uniqueFilename = `ToolPhoto_${timestamp}_${filename}`;
 
-        // Write file to Documents directory
+        // Lưu vào Cache directory nếu Scoped Storage trên Android 11+ hạn chế Documents
         const result = await Filesystem.writeFile({
             path: uniqueFilename,
             data: base64Data,
-            directory: Directory.Documents,
-            recursive: true
+            directory: Directory.Cache
         });
 
-        console.log('[Download] File saved to:', result.uri);
+        console.log('[Download] File saved to cache:', result.uri);
 
         return {
             success: true,
-            message: `✅ Đã lưu: ${uniqueFilename}`,
+            message: `✅ Đã lưu tệp: ${uniqueFilename}`,
             path: result.uri
         };
     } catch (error: any) {
         console.error('[Download] Native download failed:', error);
-
-        // Fallback: try saving to cache
-        try {
-            const timestamp = Date.now();
-            const uniqueFilename = `ToolPhoto_${timestamp}_${filename}`;
-
-            let fallbackData = dataOrUrl;
-            if (fallbackData.includes(',')) fallbackData = fallbackData.split(',')[1];
-
-            const result = await Filesystem.writeFile({
-                path: uniqueFilename,
-                data: fallbackData,
-                directory: Directory.Cache
-            });
-
-            return {
-                success: true,
-                message: `✅ Đã lưu vào cache: ${uniqueFilename}`,
-                path: result.uri
-            };
-        } catch (fallbackError) {
-            return {
-                success: false,
-                message: `Lỗi tải tệp: ${error.message || 'Unknown error'}`
-            };
-        }
+        return {
+            success: false,
+            message: `Lỗi tải tệp: ${error.message || 'Không thể ghi file'}`
+        };
     }
 }
 
