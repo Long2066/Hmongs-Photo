@@ -847,7 +847,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Helper for parallel execution with concurrency control and staggered start
-const parallelWithConcurrency = async <T>(
+export const parallelWithConcurrency = async <T>(
     tasks: (() => Promise<T>)[],
     concurrency: number,
     onProgress?: (completed: number, total: number) => void,
@@ -1393,8 +1393,8 @@ export const generateImagesFromPromptsList = async (
     const sessionSeed = Math.floor(Math.random() * 1000000);
 
     // Determine concurrency based on mode:
-    // NineRouter runs 2 parallel workers (supported by lightweight optimized payloads)
-    const concurrency = nineRouterConnected ? 2 : antigravityConnected ? 1 : useVipMode ? 2 : 2;
+    // NineRouter / CLIProxyAPI Gateway has an account pool with round-robin rotation, supporting up to 4 workers smoothly
+    const concurrency = nineRouterConnected ? Math.min(4, prompts.length) : antigravityConnected ? 2 : useVipMode ? Math.min(4, prompts.length) : 2;
     onStatusUpdate(`🚀 Đang tạo ${prompts.length} ảnh song song (x${concurrency})...`);
 
     // Create tasks for parallel execution
@@ -1909,12 +1909,13 @@ export const generateIdPhotos = async (
 
     console.log('[ID Photo] 9Router:', useNineRouterMode, 'Antigravity:', useAntigravityMode, 'VIP:', useVipMode, 'Clothing ref:', hasClothingRef);
 
-    // Generate ID photos SEQUENTIALLY to avoid rate limits
-    for (let index = 0; index < prompts.length; index++) {
+    // Concurrency based on multi-account pool
+    const idConcurrency = nineRouterConnected ? 4 : antigravityConnected ? 2 : useVipMode ? 4 : 2;
+    onStatusUpdate(`🚀 Đang xử lý ${prompts.length} biến thể ảnh thẻ song song (x${idConcurrency})${hasClothingRef ? ' 👔' : ''}...`);
+
+    const generateSingleIdPhoto = async (index: number): Promise<string | null> => {
         const prompt = prompts[index];
         try {
-            onStatusUpdate(`Đang xử lý ảnh thẻ ${index + 1}/${prompts.length}${useNineRouterMode ? ' (Cấu hình)' : useAntigravityMode ? ' (Antigravity)' : useVipMode ? ' (VIP)' : ''}${hasClothingRef ? ' 👔' : ''}...`);
-
             let base64Image: string | null = null;
 
             // PRIORITY -1: NineRouter mode
@@ -2020,20 +2021,18 @@ export const generateIdPhotos = async (
             }
 
             onImageGenerated(index, base64Image);
-
-            // Add delay between generations to avoid rate limits (except for last image)
-            if (index < prompts.length - 1) {
-                // REDUCED DELAY FOR SPEED
-                const delayTime = useVipMode ? 500 : 1000; // Drastically reduced from 3000/5000
-                // onStatusUpdate(`Chờ ${delayTime / 1000} giây trước ảnh thẻ tiếp theo...`);
-                await delay(delayTime);
-            }
-
+            return base64Image;
         } catch (e) {
             console.error(e);
             onImageGenerated(index, null);
+            return null;
         }
-    }
+    };
+
+    const tasks = prompts.map((_, index) => () => generateSingleIdPhoto(index));
+    await parallelWithConcurrency(tasks, idConcurrency, (completed, total) => {
+        onStatusUpdate(`✨ Hoàn tất ${completed}/${total} ảnh thẻ...`);
+    }, 200);
 
     return { prompts };
 };
@@ -3019,7 +3018,10 @@ export const generateProfilePics = async (
         'Premium luxury with soft golden lighting'
     ];
 
-    for (let i = 0; i < outputCount; i++) {
+    const profileConcurrency = nineRouterConnected ? Math.min(4, outputCount) : antigravityConnected ? 2 : useVipMode ? Math.min(4, outputCount) : 2;
+    onStatusUpdate(`🚀 Đang tạo ${outputCount} ảnh Profile song song (x${profileConcurrency})...`);
+
+    const generateSingleProfile = async (i: number): Promise<string | null> => {
         try {
             const variationHint = outputCount > 1 ? `\n\nVariation: ${styleVariations[i % styleVariations.length]}` : '';
 
@@ -3046,7 +3048,6 @@ export const generateProfilePics = async (
 
             // PRIORITY -1: NineRouter mode
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[Cấu hình] Đang tạo Profile (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
@@ -3056,13 +3057,11 @@ export const generateProfilePics = async (
                     });
                 } catch (err) {
                     console.error('9Router profile failed:', err);
-                    onStatusUpdate(`[Cấu hình] Lỗi tạo Profile...`);
                 }
             }
 
             // VIP Mode: Use Gemini system key
             if (!base64Image && useVipMode) {
-                onStatusUpdate(`[VIP] Đang tạo Profile (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await callWithRetry(
                         async () => generateImageWithSystemKey(systemApiKey!, prompt, [imagePart], '1:1'),
@@ -3072,13 +3071,11 @@ export const generateProfilePics = async (
                     );
                 } catch (err) {
                     console.error('VIP Gemini profile failed:', err);
-                    onStatusUpdate(`[VIP] Lỗi tạo Profile...`);
                 }
             }
 
             // FREE Mode or Fallback (not NineRouter)
             if (!base64Image && ai && !useNineRouterMode) {
-                onStatusUpdate(`Đang tạo Profile (${i + 1}/${outputCount})...`);
                 base64Image = await callWithRetry(
                     async () => {
                         const response = await ai.models.generateContent({
@@ -3117,16 +3114,18 @@ export const generateProfilePics = async (
             }
 
             onImageGenerated(i, base64Image);
-
-            // Giảm delay để tăng tốc độ (từ 2000ms -> 800ms)
-            if (i < outputCount - 1) {
-                await delay(800);
-            }
+            return base64Image;
         } catch (e) {
             console.error(`Error generating profile pic ${i}:`, e);
             onImageGenerated(i, null);
+            return null;
         }
-    }
+    };
+
+    const tasks = Array.from({ length: outputCount }).map((_, i) => () => generateSingleProfile(i));
+    await parallelWithConcurrency(tasks, profileConcurrency, (completed, total) => {
+        onStatusUpdate(`✨ Hoàn tất ${completed}/${total} ảnh Profile...`);
+    }, 200);
 };
 
 // --- DREAM JOB HELPER: CLEANUP & UPSCALE ---

@@ -6,6 +6,7 @@ import { A4PrintPreview } from './A4PrintPreview';
 interface ImagePreviewModalProps {
     base64: string;
     index: number;
+    titlePrefix?: string;
     onClose: () => void;
     onUpdateImage?: (newBase64: string, index: number) => void;
     onSendToVideo?: (base64: string) => void;
@@ -29,6 +30,7 @@ const CROP_RATIOS: AspectRatioOption[] = [
 export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
     base64,
     index,
+    titlePrefix,
     onClose,
     onUpdateImage,
     onSendToVideo
@@ -362,6 +364,10 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
         }
     };
 
+    const cleanPrefix = (titlePrefix && titlePrefix.trim())
+        ? titlePrefix.trim().replace(/[/\\?%*:|"<>]/g, '_')
+        : 'ImageTool';
+
     // Crop and immediately download
     const handleCropAndDownload = async () => {
         setIsDownloading(true);
@@ -372,7 +378,7 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                 if (onUpdateImage) {
                     onUpdateImage(result.base64, index);
                 }
-                const filename = `anh_the_${selectedRatio.id.replace(':', 'x')}_${index + 1}.png`;
+                const filename = `${cleanPrefix}_${selectedRatio.id.replace(':', 'x')}_${index + 1}.png`;
                 const dlResult = await downloadImage(result.base64, filename);
                 setDownloadStatus({
                     message: dlResult.success ? `✓ Đã tải ảnh cắt (${selectedRatio.label}) về máy!` : dlResult.message,
@@ -392,7 +398,8 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
     const handleDownloadCurrent = async () => {
         setIsDownloading(true);
         setDownloadStatus(null);
-        const result = await downloadImage(currentBase64, `anh_the_${index + 1}.png`);
+        const filename = `${cleanPrefix}_${index + 1}.png`;
+        const result = await downloadImage(currentBase64, filename);
         setDownloadStatus({
             message: result.message,
             success: result.success

@@ -11,6 +11,7 @@ interface OutputDisplayProps {
     error: string | null;
     onImageClick: (base64: string, index: number) => void;
     metadata?: { name: string, job: string }[];
+    titlePrefix?: string; // Tiêu đề / Tên file output nhập từ input
     onReplaySlideshow?: () => void;
     onDismissError?: () => void;
 }
@@ -20,15 +21,19 @@ const isVideoUrl = (url: string | null): boolean => {
     return url.endsWith('.mp4') || url.includes('/files/') || url.includes('filename=video.mp4') || (url.startsWith('http') && url.includes('vid_'));
 };
 
-const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({ url, index, prompt }) => {
+const OutputVideo: React.FC<{ url: string; index: number; prompt: string; title?: string }> = ({ url, index, prompt, title }) => {
     const [downloading, setDownloading] = useState(false);
     const [downloadMsg, setDownloadMsg] = useState<string | null>(null);
+
+    const videoTitle = (title && title.trim()) ? title.trim() : `Video_${index + 1}`;
+    const cleanFileName = videoTitle.replace(/[/\\?%*:|"<>]/g, '_');
+    const downloadFileName = cleanFileName.toLowerCase().endsWith('.mp4') ? cleanFileName : `${cleanFileName}.mp4`;
 
     const handleDownload = async (e: React.MouseEvent) => {
         e.preventDefault();
         setDownloading(true);
         try {
-            const res = await downloadImage(url, `veo_video_${index + 1}.mp4`);
+            const res = await downloadImage(url, downloadFileName);
             if (res.message) {
                 setDownloadMsg(res.message);
                 setTimeout(() => setDownloadMsg(null), 3500);
@@ -43,11 +48,13 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({
     return (
         <div className="bg-white p-3.5 rounded-2xl border border-indigo-100/90 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 animate-fade-in ring-1 ring-slate-900/5 col-span-full max-w-2xl mx-auto w-full">
             <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
-                    <span className="text-xs font-bold text-slate-800 tracking-tight uppercase">Veo AI Video #{index + 1}</span>
+                <div className="flex items-center gap-2 max-w-[65%]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0"></span>
+                    <span className="text-xs font-bold text-slate-900 tracking-tight uppercase truncate" title={videoTitle}>
+                        🎬 {videoTitle}
+                    </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                     {downloadMsg && (
                         <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80 animate-fade-in">
                             {downloadMsg}
@@ -82,31 +89,35 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string }> = ({
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
                 <p className="text-xs text-slate-700 leading-relaxed font-medium">
                     <strong className="text-slate-900 font-bold">Kịch bản: </strong>
-                    {prompt || 'Video được tạo từ Veo 3.1 AI'}
+                    {prompt || 'Video AI Studio'}
                 </p>
             </div>
         </div>
     );
 };
 
-const OutputImage: React.FC<{ base64: string; index: number, onClick: () => void }> = ({ base64, index, onClick }) => {
+const OutputImage: React.FC<{ base64: string; index: number; titlePrefix?: string; onClick: () => void }> = ({ base64, index, titlePrefix, onClick }) => {
     const imgSrc = base64.startsWith('data:') || base64.startsWith('http')
         ? base64
         : `data:image/png;base64,${base64}`;
+
+    const label = titlePrefix && titlePrefix.trim()
+        ? `${titlePrefix.trim()}_${index + 1}`
+        : `#${index + 1}`;
 
     return (
         <div className="group overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-shadow hover:shadow-md">
             <button
                 type="button"
                 onClick={onClick}
-                aria-label={`Xem chi tiết ảnh ${index + 1}`}
+                aria-label={`Xem chi tiết ảnh ${label}`}
                 className="relative flex aspect-square min-h-[44px] w-full cursor-pointer items-center justify-center overflow-hidden bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 active:scale-[0.99]"
             >
-                <img src={imgSrc} alt={`Ảnh được tạo ${index + 1}`} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
+                <img src={imgSrc} alt={label} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
 
-                {/* Number Badge */}
-                <span className="absolute left-2 top-2 z-10 flex h-7 min-w-7 items-center justify-center rounded-lg bg-white/95 px-1.5 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm border border-slate-200">
-                    #{index + 1}
+                {/* Title / Number Badge */}
+                <span className="absolute left-2 top-2 z-10 flex h-7 max-w-[85%] items-center justify-center rounded-lg bg-white/95 px-2 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm border border-slate-200 truncate" title={label}>
+                    {label}
                 </span>
 
                 <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-slate-900/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -160,7 +171,18 @@ const LoadingSlot: React.FC<{ index: number }> = ({ index }) => (
     </div>
 );
 
-export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prompts, isLoading, loadingStatus, error, onImageClick, metadata, onReplaySlideshow, onDismissError }) => {
+export const OutputDisplay: React.FC<OutputDisplayProps> = ({
+    outputImages,
+    prompts,
+    isLoading,
+    loadingStatus,
+    error,
+    onImageClick,
+    metadata,
+    titlePrefix,
+    onReplaySlideshow,
+    onDismissError
+}) => {
     const hasCompletedImages = outputImages.some(img => img !== null);
     const isActive = isLoading ? outputImages.length > 0 : hasCompletedImages;
 
@@ -197,7 +219,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
 
     return (
         <div className="flex flex-col gap-6 w-full animate-fade-in pb-8">
-            {/* Header / Status - More Compact */}
+            {/* Header / Status */}
             <div className="bg-white rounded-2xl shadow-xs border border-indigo-100/90 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative">
 
                 {/* REPLAY BUTTON (Top Right) */}
@@ -240,7 +262,9 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                             </svg>
                         </div>
                         <div className="text-left">
-                            <h3 className="text-base font-bold text-slate-900">Hoàn thành!</h3>
+                            <h3 className="text-base font-bold text-slate-900">
+                                Hoàn thành{titlePrefix ? `: ${titlePrefix}` : ''}!
+                            </h3>
                             <p className="text-slate-600 text-xs font-medium">
                                 Đã tạo thành công {outputImages.filter(i => i).length} {outputImages.some(i => i && isVideoUrl(i)) ? 'video điện ảnh' : 'ảnh chuẩn nét'}.
                             </p>
@@ -264,10 +288,10 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ outputImages, prom
                         if (image === null) {
                             return <LoadingSlot key={index} index={index} />;
                         } else if (isVideoUrl(image)) {
-                            const promptText = prompts && prompts[index] ? prompts[index] : "Video Veo AI";
-                            return <OutputVideo key={index} url={image} index={index} prompt={promptText} />;
+                            const promptText = prompts && prompts[index] ? prompts[index] : "Video AI Studio";
+                            return <OutputVideo key={index} url={image} index={index} prompt={promptText} title={titlePrefix} />;
                         } else {
-                            return <OutputImage key={index} base64={image} index={index} onClick={() => onImageClick(image, index)} />;
+                            return <OutputImage key={index} base64={image} index={index} titlePrefix={titlePrefix} onClick={() => onImageClick(image, index)} />;
                         }
                     })}
                 </div>

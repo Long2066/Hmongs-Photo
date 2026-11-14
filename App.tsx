@@ -16,7 +16,7 @@ import { renderStudioPoster, POSTER_TEMPLATES, type PosterOptions, type PosterTe
 import { FlowEmbeddedPage } from './components/FlowEmbeddedPage';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, generateAiPoster, getUsedSystemKey, resetUsedSystemKey } from './services/aiService';
+import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, generateAiPoster, getUsedSystemKey, resetUsedSystemKey, parallelWithConcurrency } from './services/aiService';
 import { generateOpenRouterVideo } from './services/openRouterVideoService';
 import { mergeVideos } from './services/videoMergeService';
 import { getVideoConfig, calculateVideoPriceVnd, getVideoModelMeta } from './services/videoConfigService';
@@ -155,6 +155,7 @@ const App: React.FC = () => {
     const [posterTemplateId, setPosterTemplateId] = useState<PosterTemplateId>('creative_thanh_xuan_hoa_phuong');
     const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('image_to_video');
     const [videoEntries, setVideoEntries] = useState<VideoEntry[]>([]);
+    const [currentOutputTitlePrefix, setCurrentOutputTitlePrefix] = useState<string>('ImageTool');
 
     // Persistent State for ALL Modes
     const [modeStates, setModeStates] = useState<Record<string, ModeData>>({
@@ -588,6 +589,7 @@ const App: React.FC = () => {
 
         if (!await validateSubscriptionBeforeGenerate(4)) return;
 
+        setCurrentOutputTitlePrefix('Anh_The');
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(4).fill(null), prompts: [] }));
 
@@ -605,7 +607,7 @@ const App: React.FC = () => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
                     localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `IDPhoto_${index + 1}.png`);
+                    if (autoDownload && base64) triggerDownload(base64, `Anh_The_${index + 1}.png`);
                 },
                 clothingRef // Pass the reference image from Firestore
             );
@@ -617,7 +619,7 @@ const App: React.FC = () => {
             if (successCount > 0) {
                 await deductBalanceForVIP(successCount, 'id_photo');
                 // Save to history
-                saveHistory('ID Photo', `Ảnh thẻ - ${clothing} - Nền ${bgColor}`, validImages, 'ID Photo');
+                saveHistory('ID Photo', `Ảnh thẻ - ${clothing} - Nền ${bgColor}`, validImages, 'Anh_The');
             } else {
                 updateModeState(() => ({ outputs: [] }));
             }
@@ -655,6 +657,9 @@ const App: React.FC = () => {
 
         if (!await validateSubscriptionBeforeGenerate(prompts.length)) return;
 
+        const cleanPrefix = (filenamePrefix && filenamePrefix.trim()) ? filenamePrefix.trim().replace(/[/\\?%*:|"<>]/g, '_') : 'ImageTool';
+        setCurrentOutputTitlePrefix(cleanPrefix);
+
         // Clamp resolution to FHD if user is not on Pro plan
         const effectivePlan = storage.isAdmin()
             ? 'pro'
@@ -691,7 +696,7 @@ const App: React.FC = () => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
                     localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `${filenamePrefix}_${index + 1}.png`);
+                    if (autoDownload && base64) triggerDownload(base64, `${cleanPrefix}_${index + 1}.png`);
                 },
                 style,
                 shotType,
@@ -704,7 +709,7 @@ const App: React.FC = () => {
             // Deduct credits for VIP users based on successful images
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'image_generation');
-                saveHistory('Creative Batch', prompts[0], validImages, outputMode);
+                saveHistory(cleanPrefix, prompts[0], validImages, outputMode);
             } else {
                 updateModeState(() => ({ outputs: [] }));
             }
@@ -746,6 +751,7 @@ const App: React.FC = () => {
         const actualCount = type === 'mix' ? 1 : inputs.length;
         if (!await validateSubscriptionBeforeGenerate(actualCount)) return;
 
+        setCurrentOutputTitlePrefix('Anh_Chinh_Sua');
         console.log(`[DEBUG] Starting 1-to-1 edit generation for ${actualCount} slots...`);
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(actualCount).fill(null) }));
@@ -765,62 +771,43 @@ const App: React.FC = () => {
                 localResults[0] = result;
                 updateModeState(() => ({ outputs: [result] }));
                 historyPrompt = "Outfit Mix & Match";
-                if (autoDownload && result) triggerDownload(result, 'mix_match.png');
+                if (autoDownload && result) triggerDownload(result, 'Anh_Chinh_Sua_mix_match.png');
             } else {
-                // Strict 1-to-1 Mapping: input slot i -> output slot i
-                for (let i = 0; i < inputs.length; i++) {
-                    const inputPart = { data: inputs[i].base64, mimeType: inputs[i].mimeType };
-
-                    if (type === 'general') {
-                        setLoadingStatus(`Đang chỉnh sửa ảnh Slot ${i + 1}/${inputs.length}...`);
-                        try {
-                            const result = await editImage(apiKey, inputPart, prompt);
+                // Parallel execution for batch slots
+                const editTasks = inputs.map((input, i) => async () => {
+                    const inputPart = { data: input.base64, mimeType: input.mimeType };
+                    try {
+                        let result: string | null = null;
+                        if (type === 'general') {
+                            setLoadingStatus(`Đang chỉnh sửa ảnh Slot ${i + 1}/${inputs.length}...`);
+                            result = await editImage(apiKey, inputPart, prompt);
+                        } else if (type === 'relight') {
+                            const styleLabel = extraData?.lighting || 'studio';
+                            setLoadingStatus(`Đang đổi ánh sáng ảnh Slot ${i + 1}/${inputs.length}...`);
+                            result = await relightImage(apiKey, inputPart, styleLabel);
+                        } else if (type === 'extract') {
+                            setLoadingStatus(`Đang tách trang phục ảnh Slot ${i + 1}/${inputs.length}...`);
+                            result = await extractClothing(apiKey, inputPart);
+                        }
+                        if (result) {
                             localResults[i] = result;
                             updateModeState((prev) => {
                                 const n = [...prev.outputs];
                                 n[i] = result;
                                 return { outputs: n };
                             });
-                            if (autoDownload && result) triggerDownload(result, `edited_slot_${i + 1}.png`);
-                        } catch (err) {
-                            console.error(`[Edit] Failed slot ${i + 1}:`, err);
+                            if (autoDownload) triggerDownload(result, `Anh_Chinh_Sua_${i + 1}.png`);
                         }
-                    } else if (type === 'relight') {
-                        const styleLabel = extraData?.lighting || 'studio';
-                        setLoadingStatus(`Đang đổi ánh sáng ảnh Slot ${i + 1}/${inputs.length}...`);
-                        try {
-                            const result = await relightImage(apiKey, inputPart, styleLabel);
-                            localResults[i] = result;
-                            updateModeState((prev) => {
-                                const n = [...prev.outputs];
-                                n[i] = result;
-                                return { outputs: n };
-                            });
-                            if (autoDownload && result) triggerDownload(result, `relighted_slot_${i + 1}.png`);
-                        } catch (err) {
-                            console.error(`[Relight] Failed slot ${i + 1}:`, err);
-                        }
-                    } else if (type === 'extract') {
-                        setLoadingStatus(`Đang tách trang phục ảnh Slot ${i + 1}/${inputs.length}...`);
-                        try {
-                            const result = await extractClothing(apiKey, inputPart);
-                            localResults[i] = result;
-                            updateModeState((prev) => {
-                                const n = [...prev.outputs];
-                                n[i] = result;
-                                return { outputs: n };
-                            });
-                            if (autoDownload && result) triggerDownload(result, `extracted_slot_${i + 1}.png`);
-                        } catch (err) {
-                            console.error(`[Extract] Failed slot ${i + 1}:`, err);
-                        }
+                        return result;
+                    } catch (err) {
+                        console.error(`[Edit] Failed slot ${i + 1}:`, err);
+                        return null;
                     }
+                });
 
-                    // Small polite delay between multiple requests to respect rate limits
-                    if (i < inputs.length - 1) {
-                        await new Promise(r => setTimeout(r, 1000));
-                    }
-                }
+                const editConcurrency = Math.min(4, inputs.length);
+                setLoadingStatus(`Đang xử lý song song ${inputs.length} ảnh (${editConcurrency} luồng)...`);
+                await parallelWithConcurrency(editTasks, editConcurrency);
 
                 historyPrompt = type === 'general' ? prompt : type === 'relight' ? `Relighting: ${extraData?.lighting}` : "Clothing Extraction";
             }
@@ -830,7 +817,7 @@ const App: React.FC = () => {
             // Deduct credits for VIP users for valid generated images
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'edit');
-                saveHistory('Edit Tool', historyPrompt, validImages, type);
+                saveHistory('Anh_Chinh_Sua', historyPrompt, validImages, type);
             } else {
                 updateModeState(() => ({ outputs: [] }));
             }
@@ -846,6 +833,7 @@ const App: React.FC = () => {
 
         if (!await validateSubscriptionBeforeGenerate(outputCount)) return;
 
+        setCurrentOutputTitlePrefix(`Upscale_${resolution}`);
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
 
@@ -865,7 +853,7 @@ const App: React.FC = () => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
                     localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `upscale_${resolution}_${index + 1}.png`);
+                    if (autoDownload && base64) triggerDownload(base64, `Upscale_${resolution}_${index + 1}.png`);
                 }
             );
 
@@ -874,7 +862,7 @@ const App: React.FC = () => {
             // Deduct credits for VIP users
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'upscale');
-                saveHistory('Upscale', `Upscaled to ${resolution}`, validImages, 'High Quality');
+                saveHistory(`Upscale_${resolution}`, `Upscaled to ${resolution}`, validImages, 'High Quality');
             } else {
                 updateModeState(() => ({ outputs: [] }));
             }
@@ -890,6 +878,7 @@ const App: React.FC = () => {
 
         if (!await validateSubscriptionBeforeGenerate(outputCount)) return;
 
+        setCurrentOutputTitlePrefix(`Profile_${platform}`);
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: Array(outputCount).fill(null) }));
 
@@ -911,7 +900,7 @@ const App: React.FC = () => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
                     localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `profile_${platform}_${index + 1}.png`);
+                    if (autoDownload && base64) triggerDownload(base64, `Profile_${platform}_${index + 1}.png`);
                 }
             );
 
@@ -920,7 +909,7 @@ const App: React.FC = () => {
             // Deduct credits for VIP users
             if (validImages.length > 0) {
                 await deductBalanceForVIP(validImages.length, 'profile_pro');
-                saveHistory('Profile Pro', `Profile: ${style} for ${platform}`, validImages, style);
+                saveHistory(`Profile_${platform}`, `Profile: ${style} for ${platform}`, validImages, style);
             } else {
                 updateModeState(() => ({ outputs: [] }));
             }
@@ -943,6 +932,7 @@ const App: React.FC = () => {
 
         if (!await validateSubscriptionBeforeGenerate(1)) return;
 
+        setCurrentOutputTitlePrefix('Phuc_Hoi_Anh');
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         updateModeState(() => ({ outputs: [null] }));
 
@@ -964,7 +954,7 @@ const App: React.FC = () => {
 
             if (result) {
                 updateModeState(() => ({ outputs: [result], prompts: ['Phục hồi ảnh cũ'] }));
-                if (autoDownload) triggerDownload(result, 'restored_photo.png');
+                if (autoDownload) triggerDownload(result, 'Phuc_Hoi_Anh.png');
                 // Store comparison data for slider
                 setComparisonData({
                     before: inputs[0].base64,
@@ -974,7 +964,7 @@ const App: React.FC = () => {
 
                 // Deduct credits for VIP users
                 await deductBalanceForVIP(1, 'restore');
-                saveHistory('Phục Hồi Ảnh', 'Phục hồi ảnh cũ', [result], 'Restoration');
+                saveHistory('Phuc_Hoi_Anh', 'Phục hồi ảnh cũ', [result], 'Restoration');
             } else {
                 updateModeState(() => ({ outputs: [] }));
             }
@@ -1034,6 +1024,7 @@ const App: React.FC = () => {
         setError(null);
         setIsMenuOpen(false);
         const cleanTitle = (title && title.trim()) ? title.trim().replace(/[/\\?%*:|"<>]/g, '_') : `Video_Series_${Date.now()}`;
+        setCurrentOutputTitlePrefix(cleanTitle);
         setLoadingStatus(`Đang chuẩn bị sản xuất ${sceneCount} phân cảnh (${duration}s/cảnh) qua ${modelMeta.shortName}...`);
         setVideoEntries([]);
         updateModeState(() => ({
@@ -1042,16 +1033,25 @@ const App: React.FC = () => {
         }));
 
         try {
-            const clipUrls: string[] = [];
+            const clipUrls: (string | null)[] = Array(sceneCount).fill(null);
             const mandatoryPrefix = 'Giữ tuyệt đối khuôn mặt và nhân vật gốc.';
+            const sceneStatuses: string[] = Array(sceneCount).fill('Đang chờ...');
 
-            for (let i = 0; i < sceneCount; i++) {
+            const updateSceneProgress = (sceneIdx: number, status: string) => {
+                sceneStatuses[sceneIdx] = status;
+                const activeSummaries = sceneStatuses
+                    .map((st, idx) => `[Cảnh ${idx + 1}: ${st}]`)
+                    .slice(0, 3)
+                    .join(' ');
+                setLoadingStatus(`Render song song (${sceneCount} cảnh): ${activeSummaries}`);
+            };
+
+            const sceneTasks = Array.from({ length: sceneCount }, (_, i) => async () => {
                 const scenePrompt = subMode === 'image_to_video'
                     ? `${mandatoryPrefix} ${prompt.replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/g, '')} - Cảnh ${i + 1}/${sceneCount}`
                     : prompt;
 
-                setLoadingStatus(`Đang render phân cảnh ${i + 1}/${sceneCount} (${duration}s • ${aspectRatio})...`);
-
+                updateSceneProgress(i, 'Khởi tạo...');
                 const inputImageBase64 = subMode === 'image_to_video' && inputs[i]
                     ? inputs[i].base64
                     : undefined;
@@ -1063,7 +1063,7 @@ const App: React.FC = () => {
                     modelOverride: model === 'auto' ? undefined : model,
                     outputCount: 1,
                     inputImageBase64,
-                    onProgress: (status) => setLoadingStatus(`[Cảnh ${i + 1}/${sceneCount}] ${status}`),
+                    onProgress: (status) => updateSceneProgress(i, status),
                 });
 
                 const returnedUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
@@ -1071,27 +1071,38 @@ const App: React.FC = () => {
                 if (returnedUrls.length === 0) {
                     throw new Error(`Phân cảnh ${i + 1} chưa nhận được video từ AI.`);
                 }
-                clipUrls.push(returnedUrls[0]);
+                clipUrls[i] = returnedUrls[0];
+                updateSceneProgress(i, 'Hoàn thành');
+                return returnedUrls[0];
+            });
+
+            const videoConcurrency = Math.min(2, sceneCount);
+            setLoadingStatus(`Đang tạo song song ${sceneCount} phân cảnh (${videoConcurrency} luồng song song)...`);
+            await parallelWithConcurrency(sceneTasks, videoConcurrency);
+
+            const successfulClips = clipUrls.filter((u): u is string => typeof u === 'string' && u.length > 0);
+            if (successfulClips.length === 0) {
+                throw new Error('Không thể tạo phân cảnh video nào. Vui lòng thử lại.');
             }
 
             // Tự động ghép nối tuần tự Cảnh 1 -> Cảnh N thành 1 video duy nhất
-            let finalVideoUrl = clipUrls[0];
-            if (clipUrls.length > 1) {
-                setLoadingStatus(`Đang tự động ghép nối ${clipUrls.length} phân cảnh thành video hoàn chỉnh [${cleanTitle}.mp4]...`);
+            let finalVideoUrl = successfulClips[0];
+            if (successfulClips.length > 1) {
+                setLoadingStatus(`Đang tự động ghép nối ${successfulClips.length} phân cảnh thành video hoàn chỉnh [${cleanTitle}.mp4]...`);
                 try {
                     finalVideoUrl = await mergeVideos({
-                        videoUrls: clipUrls,
+                        videoUrls: successfulClips,
                         aspectRatio,
                         onProgress: (mergeStatus) => setLoadingStatus(mergeStatus)
                     });
                 } catch (mergeErr) {
                     console.warn('[VideoMerge] Không thể ghép nối client, sử dụng video đầu tiên:', mergeErr);
-                    finalVideoUrl = clipUrls[0];
+                    finalVideoUrl = successfulClips[0];
                 }
             }
 
             // Trừ số giây tạo video thực tế đã tạo thành công
-            const consumedSeconds = duration * sceneCount;
+            const consumedSeconds = duration * successfulClips.length;
             if (!storage.isAdmin() && currentUser && consumedSeconds > 0) {
                 try {
                     const updatedEntitlement = await consumeSubscriptionVideoSeconds(consumedSeconds);
@@ -1116,7 +1127,7 @@ const App: React.FC = () => {
                 createdAt,
                 prompt,
                 modelUsed: model,
-                duration: totalSecondsNeeded,
+                duration: consumedSeconds,
                 aspectRatio,
                 title: cleanTitle
             }]);
@@ -1126,7 +1137,7 @@ const App: React.FC = () => {
                 prompts: [prompt],
             }));
 
-            saveHistory('Video Omni AI', prompt, [finalVideoUrl], subMode === 'image_to_video' ? `Image-to-Video Series (${sceneCount} cảnh)` : 'Text-to-Video');
+            saveHistory(cleanTitle, prompt, [finalVideoUrl], subMode === 'image_to_video' ? `Image-to-Video Series (${successfulClips.length} cảnh)` : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
             const msg = e instanceof Error ? e.message : 'Lỗi tạo video AI.';
@@ -1676,6 +1687,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                                         error={error}
                                         onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
                                         onDismissError={() => setError(null)}
+                                        titlePrefix={currentOutputTitlePrefix}
                                     />
                                 )}
                             </div>
@@ -1733,6 +1745,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                     onClose={() => setSelectedImage(null)}
                     onUpdateImage={handleUpdateOutputImage}
                     onSendToVideo={handleSendToVideo}
+                    titlePrefix={currentOutputTitlePrefix}
                 />
             )}
             {isDownloadHelpOpen && <DownloadHelpModal onClose={() => setDownloadHelpOpen(false)} />}
