@@ -1096,6 +1096,36 @@ export const optimizePrompt = async (apiKey: string, rawInput: string): Promise<
 };
 
 // --- BATCH PROMPT GENERATION (TEXT) ---
+export interface BatchPromptOptions {
+    globalContext?: string;
+    sceneLines?: string[];
+}
+
+const parseChunkPrompts = (text: string): string[] => {
+    if (!text || !text.trim()) return [];
+    const listItems = text
+        .split(/(?:\r?\n|^)\s*(?=(?:(?:\d+[\.\)]|Prompt\s*\d+[:\.]|\#+\s*Prompt\s*\d+)\s+))/i)
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+
+    let prompts: string[] = [];
+    if (listItems.length > 1) {
+        prompts = listItems;
+    } else {
+        prompts = text.split(/\r?\n\s*\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
+        if (prompts.length <= 1) {
+            const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+            if (lines.length > 1) {
+                prompts = lines;
+            }
+        }
+    }
+
+    return prompts
+        .map(p => p.replace(/^(?:[-*•]|\d+[\.\)]|Prompt\s*\d+[:\.])\s*/i, '').trim())
+        .filter(p => p.length > 0);
+};
+
 export const generateBatchPromptsText = async (
     apiKey: string,
     topic: string,
@@ -1104,8 +1134,59 @@ export const generateBatchPromptsText = async (
     style: string,
     outputMode: 'single' | 'couple',
     inputCounts: { male: number, female: number, maleAcc: number, femaleAcc: number },
-    refImages?: CreativeRefImages
+    refImages?: CreativeRefImages,
+    options?: BatchPromptOptions
 ): Promise<string> => {
+    const safeTotalCount = Math.max(1, Math.min(40, count));
+    const globalContext = options?.globalContext?.trim() || '';
+    const sceneLines = (options?.sceneLines || []).map(l => l.trim()).filter(Boolean).slice(0, 40);
+
+    // Split >10 prompts (up to 40) into chunks of 10 so Text AI never truncates or drops scenes
+    if (safeTotalCount > 10) {
+        const CHUNK_SIZE = 10;
+        const allPrompts: string[] = [];
+
+        for (let start = 0; start < safeTotalCount; start += CHUNK_SIZE) {
+            const chunkCount = Math.min(CHUNK_SIZE, safeTotalCount - start);
+            const chunkScenes = sceneLines.length > 0
+                ? sceneLines.slice(start, start + chunkCount)
+                : [];
+            const chunkTopic = chunkScenes.length > 0
+                ? chunkScenes.join('\n')
+                : `${topic} (Continuous story progression: scenes ${start + 1} to ${start + chunkCount} out of ${safeTotalCount} total sequential scenes)`;
+
+            const chunkText = await generateBatchPromptsText(
+                apiKey,
+                chunkTopic,
+                chunkCount,
+                shotType,
+                style,
+                outputMode,
+                inputCounts,
+                refImages,
+                {
+                    globalContext,
+                    sceneLines: chunkScenes
+                }
+            );
+
+            const parsed = parseChunkPrompts(chunkText);
+            for (let j = 0; j < chunkCount; j++) {
+                const candidate = parsed[j];
+                if (candidate && candidate.length > 0) {
+                    allPrompts.push(candidate);
+                } else {
+                    const fallbackScene = chunkScenes[j] || topic;
+                    allPrompts.push(
+                        `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${fallbackScene}. Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
+                    );
+                }
+            }
+        }
+
+        return allPrompts.map((p, idx) => `${idx + 1}. ${p}`).join('\n\n');
+    }
+
     // Check VIP mode first
     const systemApiKey = getVIPApiKey();
     const useVip = systemApiKey !== null;
@@ -1119,7 +1200,7 @@ export const generateBatchPromptsText = async (
 
         *** MANDATORY SPATIAL & POSING DIVERSITY (POSITION ALTERNATION MATRIX) ***
         DO NOT keep the male always on the left and the female always on the right across the prompts!
-        Across the ${count} prompts, you MUST systematically rotate and vary:
+        Across the ${safeTotalCount} prompts, you MUST systematically rotate and vary:
         1. SCREEN POSITIONS (LEFT / RIGHT / FOREGROUND / BACKGROUND):
            - In some prompts: The Female idol is on the LEFT side of the frame, and the Male idol is on the RIGHT side.
            - In other prompts: The Male idol is on the LEFT side of the frame, and the Female idol is on the RIGHT side.
@@ -1127,7 +1208,7 @@ export const generateBatchPromptsText = async (
         2. DYNAMIC CANDID INTERACTION BASED ON TOPIC: "${topic}":
            - Poses must be fluid, candid, and naturally inspired by the Topic: "${topic}".
            - NEVER depict both models standing straight and stiff like mannequins in a bridal shop.
-           - Generate completely varied, authentic ways of taking the photo across all ${count} images: walking, turning around, sitting, subtle natural leans, candid expressions, looking toward the landscape or exchanging a warm glance.
+           - Generate completely varied, authentic ways of taking the photo across all ${safeTotalCount} images: walking, turning around, sitting, subtle natural leans, candid expressions, looking toward the landscape or exchanging a warm glance.
 
         *** POSITION-INDEPENDENT OUTFIT BINDING IN EVERY PROMPT ***
         Regardless of whether the character is on the left, right, foreground, background, standing, or sitting:
@@ -1140,24 +1221,20 @@ export const generateBatchPromptsText = async (
         const hasFemaleInput = inputCounts.female > 0;
 
         if (hasMaleInput && !hasFemaleInput) {
-            // ONLY MALE INPUT → ALL prompts must be MALE
             modeInstruction = `OUTPUT MODE: SINGLE (MALE ONLY). 
-            ALL ${count} prompts MUST feature ONLY handsome male characters.
+            ALL ${safeTotalCount} prompts MUST feature ONLY handsome male characters.
             DO NOT generate ANY female characters in ANY prompt.
             Every single prompt must describe a MALE person wearing the male outfit reference.
-            This is NON-NEGOTIABLE - all ${count} images will be of MALE characters only.`;
+            This is NON-NEGOTIABLE - all ${safeTotalCount} images will be of MALE characters only.`;
         } else if (hasFemaleInput && !hasMaleInput) {
-            // ONLY FEMALE INPUT → ALL prompts must be FEMALE
             modeInstruction = `OUTPUT MODE: SINGLE (FEMALE ONLY). 
-            ALL ${count} prompts MUST feature ONLY beautiful female characters.
+            ALL ${safeTotalCount} prompts MUST feature ONLY beautiful female characters.
             DO NOT generate ANY male characters in ANY prompt.
             Every single prompt must describe a FEMALE person wearing the female outfit reference.
-            This is NON-NEGOTIABLE - all ${count} images will be of FEMALE characters only.`;
+            This is NON-NEGOTIABLE - all ${safeTotalCount} images will be of FEMALE characters only.`;
         } else if (hasMaleInput && hasFemaleInput) {
-            // BOTH INPUTS → Alternate between genders
             modeInstruction = "OUTPUT MODE: SINGLE (SEPARATE). You MUST generate prompts for SOLO portraits (1 person per image). Since BOTH Male and Female inputs are present, ALTERNATE prompts between genders (Male, Female, Male...).";
         } else {
-            // NO INPUTS (fallback) → Default to alternating
             modeInstruction = "OUTPUT MODE: SINGLE (SEPARATE). You MUST generate prompts for SOLO portraits (1 person per image). ALTERNATE prompts between genders (Male, Female, Male...).";
         }
     }
@@ -1173,10 +1250,19 @@ export const generateBatchPromptsText = async (
         ...(refImages.femaleAccessories || []).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` }))
     ] : [];
 
+    const globalContextDirective = globalContext
+        ? `\n    *** MANDATORY GLOBAL SETTING & VISUAL CONTINUITY ANCHOR (APPLY TO ALL ${safeTotalCount} PROMPTS) ***\n    Global World / Setting / Style Anchor: "${globalContext}"\n    - EVERY single prompt (from 1 to ${safeTotalCount}) MUST stay strictly inside this EXACT world, architecture, cultural aesthetic, lighting tone, and color palette so all generated images look like sequential scenes from the SAME movie!\n    - Do NOT randomly jump to an unrelated setting or architectural style.\n    `
+        : '';
+
+    const orderedScenesDirective = sceneLines.length > 0
+        ? `\n    *** STRICT 1-TO-1 ORDERED SCENE SCRIPT (NON-NEGOTIABLE) ***\n    The user provided exact sequential scenes. Map Prompt 1 to Scene 1, Prompt 2 to Scene 2, ..., Prompt ${safeTotalCount} to Scene ${safeTotalCount} in EXACT order:\n${sceneLines.slice(0, safeTotalCount).map((line, idx) => `    - Scene ${idx + 1}: ${line}`).join('\n')}\n    - Do NOT reorder, merge, or skip any scene.\n    - If any scene line mentions audio/voice keywords (like "no voice" or spoken dialogue), translate ONLY the visual action & expression into the image prompt and NEVER draw text, captions, or speech bubbles on the image.\n    `
+        : '';
+
     const systemInstruction = `
     You are an AI Art Director for a professional Photography Studio.
-    Task: Generate exactly ${count} distinct but thematically linked English prompts based on the Topic: "${topic}".
-    
+    Task: Generate exactly ${safeTotalCount} distinct but thematically linked English prompts based on the Topic: "${topic}".
+    ${globalContextDirective}
+    ${orderedScenesDirective}
     *** CRITICAL OUTPUT FORMAT ***
     Every prompt MUST describe a COMPLETE SCENE with REAL PERSON(S) wearing the clothing.
     - NEVER create prompts for: just clothing without people, mannequins, flat-lay displays, or product photography
@@ -1196,7 +1282,7 @@ export const generateBatchPromptsText = async (
        - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing directly from the input photo(s).
        - CRITICAL: DO NOT invent specific colors or clothing items (e.g. NEVER write "indigo skirt", "silver collar", etc.).
        ${outputMode === 'couple' ?
-         `- COUPLE REQUIREMENT: Every prompt MUST explicitly describe BOTH the Male idol wearing the MALE Reference Outfit (100% original colors, cuts, and embroidery) AND the Female idol wearing the FEMALE Reference Outfit (100% original colors, bodice, flared skirt, and headdress).` :
+         `- COUPLE REQUIREMENT: Every prompt MUST explicitly describe BOTH the Male idol wearing the MALE Reference Outfit (100% original colors, cuts, and embroidery) AND the Female idol wearing the FEMALE Reference Outfit (100% original colors, bodice, flared skirt, and matching headdress).` :
          `- Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures"`
        }
     2. ACCESSORIES & PROPS RULES (STRICT & PRECISE):
@@ -1205,7 +1291,7 @@ export const generateBatchPromptsText = async (
          * Female Accessory: The female MUST hold/use the EXACT item shown in the Female Accessory reference image.
        - STRICTLY FORBIDDEN TO INVENT RANDOM PROPS: DO NOT arbitrarily add random props (such as flowers, umbrellas, fans, baskets, or musical instruments) UNLESS:
          a) An accessory reference image is explicitly provided in the input slots, OR
-         b) The user's Topic ("${topic}") explicitly describes a specific practical activity that inherently uses an item (e.g., "lấy củi" -> carrying a bundle of firewood, "bẻ ngô" -> holding freshly harvested corn, "hái rau" -> holding a vegetable harvesting basket, "gùi đồ" -> carrying a traditional back basket).
+         b) The user's Topic ("${topic}") explicitly describes a specific practical activity that inherently uses an item (e.g., "lấy củi" -> carrying a bundle of firewood, "bẻ ngô" -> holding freshly harvested corn, "hái rau" -> holding a vegetable harvesting basket, "gùi đồ" -> carrying a traditional back basket, "cho gà ăn" -> holding a bowl/basket of grain feeding chickens).
        - If no accessory reference is provided and the Topic does not explicitly request an object-using activity, BOTH characters MUST have NATURAL EMPTY HANDS (e.g., walking with hands at side, relaxed natural gestures, holding hands, or resting hands naturally).
     3. MANDATORY ANTI-STIFFNESS & NATURAL CANDID POSTURE:
        - ❌ CẤM TUYỆT ĐỐI: Đứng nghiêm thẳng đơ như ma-nơ-canh trong tiệm áo cưới hoặc chụp ảnh thẻ đôi.
@@ -1226,13 +1312,17 @@ export const generateBatchPromptsText = async (
     Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"`
     }
 
-    Output format: STRICT numbered list from 1 to ${count}. Format exactly as:
+    Output format: STRICT numbered list from 1 to ${safeTotalCount}. Format exactly as:
     1. [First complete prompt]
     2. [Second complete prompt]
     ...
-    ${count}. [Last complete prompt]
-    Separate each numbered prompt by a blank line. Do not skip any numbers. You MUST output EXACTLY ${count} numbered prompts from 1 to ${count}. No introduction, no other text.
+    ${safeTotalCount}. [Last complete prompt]
+    Separate each numbered prompt by a blank line. Do not skip any numbers. You MUST output EXACTLY ${safeTotalCount} numbered prompts from 1 to ${safeTotalCount}. No introduction, no other text.
     `;
+
+    const userTaskPrompt = sceneLines.length > 0
+        ? `${globalContext ? `Global Setting: ${globalContext}\n` : ''}Generate exactly ${safeTotalCount} prompts matching these ordered scenes:\n${sceneLines.slice(0, safeTotalCount).map((s, idx) => `${idx + 1}. ${s}`).join('\n')}`
+        : `${globalContext ? `Global Setting: ${globalContext}\n` : ''}Generate ${safeTotalCount} sequential prompts for topic: ${topic}`;
 
     // PRIORITY -1: NineRouter mode (isolated; never fall back to billable providers)
     if (nineRouterService.isNineRouterEnabled()) {
@@ -1245,7 +1335,7 @@ export const generateBatchPromptsText = async (
         const textModel = nineRouterService.getNineRouterTextModel();
         console.log(`[9Router] Using 9Router for prompt generation with text model: ${textModel}`);
         const result = await nineRouterService.generateTextViaNineRouter(
-            `Generate ${count} prompts for topic: ${topic}`,
+            userTaskPrompt,
             textModel,
             systemInstruction,
             labeledReferences
@@ -1264,7 +1354,7 @@ export const generateBatchPromptsText = async (
             console.log('[Antigravity] Using Antigravity for prompt generation');
             try {
                 const result = await antigravityService.generateTextViaAntigravity(
-                    `Generate ${count} prompts for topic: ${topic}`,
+                    userTaskPrompt,
                     'claude-opus-5-5-high',
                     systemInstruction,
                 );
@@ -1274,7 +1364,6 @@ export const generateBatchPromptsText = async (
                 console.error('[Antigravity] Prompt generation failed:', err);
             }
         } else {
-            // NOT CONNECTED - Log warning but continue to fallback
             console.warn('[Antigravity] Not connected - falling back to VIP/User key');
         }
     }
@@ -1284,22 +1373,20 @@ export const generateBatchPromptsText = async (
         try {
             const aiSystem = getGeminiClient(systemApiKey);
             const response = await aiSystem.models.generateContent({
-                model: GEMINI_TEXT_MODEL, // Use text model for prompt generation
+                model: GEMINI_TEXT_MODEL,
                 contents: [
-                    { role: 'user', parts: [{ text: systemInstruction + "\n\nTask: Generate " + count + " prompts for topic: " + topic }] }
+                    { role: 'user', parts: [{ text: systemInstruction + "\n\n" + userTaskPrompt }] }
                 ]
             });
             if (response.text) return response.text;
         } catch (err) {
             console.error('VIP prompt generation failed:', err);
-            // Will fall through to Gemini fallback
         }
     }
 
     // PRIORITY 2 (Fallback): Use Gemini (GEMINI_TEXT_MODEL for text-only generation)
     const geminiApiKey = getStoredApiKey('gemini');
     if (!geminiApiKey) {
-        // IMPROVED ERROR: More helpful message
         const reason = antigravityService.isAntigravityEnabled()
             ? 'Antigravity không kết nối được (hãy bật app Antigravity hoặc tắt chế độ này)'
             : 'Không có API key Gemini';
@@ -1308,8 +1395,8 @@ export const generateBatchPromptsText = async (
 
     const ai = getGeminiClient(geminiApiKey);
     const response = await ai.models.generateContent({
-        model: GEMINI_TEXT_MODEL,  // Text-only model for prompt generation
-        contents: `Generate ${count} prompts for topic: ${topic}`,
+        model: GEMINI_TEXT_MODEL,
+        contents: userTaskPrompt,
         config: {
             systemInstruction: systemInstruction,
         }

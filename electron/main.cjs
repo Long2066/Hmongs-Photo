@@ -655,6 +655,7 @@ function getFfmpegPath() {
 
 // Native lossless ffmpeg video concatenation for Desktop (Instant, 0 quality loss, 100% genuine MP4)
 ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
+    let tempDir = null;
     try {
         if (!videoUrls || videoUrls.length === 0) {
             return { success: false, error: 'No video URLs to merge' };
@@ -663,7 +664,7 @@ ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
             return { success: true, url: videoUrls[0] };
         }
 
-        const tempDir = path.join(app.getPath('temp'), `imagetool_merge_${Date.now()}`);
+        tempDir = path.join(app.getPath('temp'), `imagetool_merge_${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
         const localClips = [];
@@ -672,8 +673,18 @@ ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
             const clipPath = path.join(tempDir, `clip_${i}.mp4`);
             if (clipUrl.startsWith('http://') || clipUrl.startsWith('https://')) {
                 const resp = await fetch(clipUrl);
+                if (!resp.ok) {
+                    throw new Error(`HTTP ${resp.status} while downloading clip ${i + 1}`);
+                }
                 const buffer = Buffer.from(await resp.arrayBuffer());
                 fs.writeFileSync(clipPath, buffer);
+            } else if (clipUrl.startsWith('data:')) {
+                const commaIdx = clipUrl.indexOf(',');
+                if (commaIdx === -1) {
+                    throw new Error(`Invalid data URL for clip ${i + 1}`);
+                }
+                const b64 = clipUrl.slice(commaIdx + 1);
+                fs.writeFileSync(clipPath, Buffer.from(b64, 'base64'));
             } else if (clipUrl.startsWith('file://')) {
                 const src = decodeURIComponent(clipUrl.replace(/^file:\/\/\/?/, ''));
                 fs.copyFileSync(src, clipPath);
@@ -695,7 +706,7 @@ ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
         const tempOutputPath = path.join(tempDir, safeName);
 
         const ffmpegCmd = getFfmpegPath();
-        console.log(`[merge-videos] Running ffmpeg concat: ${ffmpegCmd}`);
+        console.log(`[merge-videos] Running ffmpeg concat (${localClips.length} clips): ${ffmpegCmd}`);
 
         await new Promise((resolve, reject) => {
             const proc = spawn(ffmpegCmd, [
@@ -723,11 +734,14 @@ ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
                         '-c:a', 'aac',
                         tempOutputPath
                     ]);
+                    let reencodeStderr = '';
+                    procReencode.stderr.on('data', d => { reencodeStderr += d.toString(); });
+                    procReencode.on('error', reject);
                     procReencode.on('close', code2 => {
                         if (code2 === 0 && fs.existsSync(tempOutputPath)) {
                             resolve(true);
                         } else {
-                            reject(new Error(`ffmpeg merge failed: ${stderr}`));
+                            reject(new Error(`ffmpeg merge failed: ${reencodeStderr || stderr}`));
                         }
                     });
                 }
@@ -759,6 +773,10 @@ ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
     } catch (err) {
         console.error('[merge-videos] Error:', err);
         return { success: false, error: err.message };
+    } finally {
+        if (tempDir) {
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+        }
     }
 });
 

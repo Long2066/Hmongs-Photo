@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { MagicWandIcon } from './Icons';
 import { generateBatchPromptsText, optimizePrompt } from '../services/aiService';
+import { extractSceneLines, MAX_STORY_SCENES } from '../services/scenePromptUtils';
 import type { CreativeRefImages } from '../services/aiService';
 import * as storage from '../services/storageService';
 import { getSystemApiKey, getSelectedResolution } from '../services/geminiCoreService';
@@ -105,7 +106,11 @@ export const parsePromptsFromText = (text: string): string[] => {
         .filter(p => p.length > 0);
 };
 
+const MAX_CREATIVE_IMAGES = MAX_STORY_SCENES;
+const QUICK_QUANTITIES = [4, 10, 20, 30, 40];
+
 export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 }, refImages }) => {
+    const [globalContext, setGlobalContext] = useState('');
     const [topic, setTopic] = useState('');
     const [quantity, setQuantity] = useState(2);
     const [aspectRatio, setAspectRatio] = useState('1:1');
@@ -119,21 +124,28 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     const [promptError, setPromptError] = useState('');
     const [isOptimizing, setIsOptimizing] = useState(false);
 
+    const parsedSceneLines = extractSceneLines(topic);
+    const isLineByLineMode = parsedSceneLines.length >= 2;
+    const effectiveQuantity = isLineByLineMode
+        ? Math.min(MAX_CREATIVE_IMAGES, parsedSceneLines.length)
+        : quantity;
+    const hasOverflowLines = parsedSceneLines.length > MAX_CREATIVE_IMAGES;
+
     // Direct connection to CLIProxyAPI (AI Gateway)
     const getApiKeyForPrompts = (): string => {
         return 'NINEROUTER_MODE';
     };
 
-    const hasAnyApiKey = (): boolean => true;
-
     const handleOptimizeTopic = async () => {
         if (!topic.trim()) return;
         const apiKey = getApiKeyForPrompts();
 
-
         setIsOptimizing(true);
         try {
-            const optimized = await optimizePrompt(apiKey, topic);
+            const inputToOptimize = globalContext.trim()
+                ? `Bối cảnh xuyên suốt: ${globalContext.trim()}\n${topic}`
+                : topic;
+            const optimized = await optimizePrompt(apiKey, inputToOptimize);
             setTopic(optimized);
         } catch (e: any) {
             const message = e?.message || 'Lỗi không xác định';
@@ -144,7 +156,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     };
 
     const handleGeneratePrompts = async () => {
-        if (generatingRef.current || isLoading || isDisabled || !topic.trim()) return;
+        if (generatingRef.current || isLoading || isDisabled || (!topic.trim() && !globalContext.trim())) return;
 
         const apiKey = getApiKeyForPrompts();
         if (!apiKey) return;
@@ -153,19 +165,33 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
         setPromptError('');
         setIsGeneratingPrompts(true);
         try {
-            const text = await generateBatchPromptsText(apiKey, topic, quantity, shotType, style, outputMode, inputCounts, refImages);
+            const activeTopic = topic.trim() || globalContext.trim();
+            const text = await generateBatchPromptsText(
+                apiKey,
+                activeTopic,
+                effectiveQuantity,
+                shotType,
+                style,
+                outputMode,
+                inputCounts,
+                refImages,
+                {
+                    globalContext: globalContext.trim(),
+                    sceneLines: isLineByLineMode ? parsedSceneLines.slice(0, MAX_CREATIVE_IMAGES) : undefined
+                }
+            );
             let prompts = parsePromptsFromText(text);
             if (prompts.length === 0) {
                 setPromptError('AI chưa tạo được prompt. Vui lòng thử lại.');
                 return;
             }
-            // Enforce exact prompt count strictly matching user-selected quantity (e.g. 10 outputs = exactly 10 prompts)
-            if (prompts.length < quantity && prompts.length > 0) {
-                while (prompts.length < quantity) {
-                    prompts.push(prompts[prompts.length % prompts.length]);
+            if (prompts.length < effectiveQuantity && prompts.length > 0) {
+                const basePrompts = [...prompts];
+                while (prompts.length < effectiveQuantity) {
+                    prompts.push(basePrompts[prompts.length % basePrompts.length]);
                 }
-            } else if (prompts.length > quantity) {
-                prompts = prompts.slice(0, quantity);
+            } else if (prompts.length > effectiveQuantity) {
+                prompts = prompts.slice(0, effectiveQuantity);
             }
             const selectedResolution = getSelectedResolution();
             onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType);
@@ -179,27 +205,64 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
 
     return (
         <div className="flex flex-col gap-3.5">
-            {/* Topic Input */}
+            {/* Global Context / Visual Anchor */}
             <div className="group">
-                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex justify-between items-center">
-                    <span>Chủ đề (AI PROMPT WRITER)</span>
+                <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+                        <span>Bối cảnh xuyên suốt</span>
+                    </label>
+                    <span className="text-[10.5px] font-semibold text-slate-500">
+                        Đồng bộ cả bộ ảnh
+                    </span>
+                </div>
+                <textarea
+                    value={globalContext}
+                    onChange={(e) => setGlobalContext(e.target.value)}
+                    placeholder="VD: Vùng quê miền núi nhà gỗ/tre, nắng sớm sương nhẹ, phong cách điện ảnh Trung Hoa..."
+                    rows={2}
+                    className="w-full bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl p-2.5 text-slate-900 text-xs sm:text-[13px] font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none transition-all placeholder:text-slate-400 placeholder:font-normal shadow-xs disabled:opacity-60 disabled:bg-slate-50 leading-relaxed"
+                    disabled={isGeneratingPrompts || isLoading}
+                />
+            </div>
+
+            {/* Scene Script / Topic Input */}
+            <div className="group">
+                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex justify-between items-center gap-2">
+                    <span>Kịch bản / Chủ đề (1 dòng = 1 cảnh)</span>
                     <button
+                        type="button"
                         onClick={handleOptimizeTopic}
                         disabled={isOptimizing || isGeneratingPrompts || isLoading || !topic.trim()}
-                        className="text-indigo-600 hover:text-white hover:bg-indigo-600 font-bold text-[11px] bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1.5 transition-all disabled:opacity-50 shadow-xs"
+                        className="text-indigo-600 hover:text-white hover:bg-indigo-600 font-bold text-[11px] bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1.5 transition-all disabled:opacity-50 shadow-xs shrink-0"
                     >
                         {isOptimizing ? <span className="animate-spin">✨</span> : <MagicWandIcon className="w-3 h-3" />}
-                        {isOptimizing ? 'Đang tối ưu...' : 'Auto Optimize Prompt'}
+                        {isOptimizing ? 'Đang tối ưu...' : 'Tối ưu'}
                     </button>
                 </label>
                 <textarea
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
-                    placeholder="Mô tả ý tưởng... (Ví dụ: Cô gái H'Mông mặc trang phục truyền thống thêu hoa văn Paj Ntaub bên hiên nhà gỗ...)"
-                    rows={2}
+                    placeholder={"Nhập mỗi dòng 1 cảnh (tối đa 40 dòng):\nCảnh thức dậy bên cửa sổ gỗ\nCảnh ra sân cho gà ăn\nĐi lên nương..."}
+                    rows={4}
                     className="w-full bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl p-3 text-slate-900 text-xs sm:text-[13px] font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 outline-none transition-all placeholder:text-slate-400 placeholder:font-normal shadow-xs disabled:opacity-60 disabled:bg-slate-50 leading-relaxed"
                     disabled={isGeneratingPrompts || isLoading}
                 />
+                {isLineByLineMode && (
+                    <div className="mt-1.5 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-violet-50 border border-violet-200/80 text-[11px]">
+                        <span className="font-semibold text-violet-900">
+                            Đang tạo theo từng dòng kịch bản
+                        </span>
+                        <span className="font-mono font-bold tabular-nums text-violet-700">
+                            {effectiveQuantity}/{MAX_CREATIVE_IMAGES} cảnh
+                        </span>
+                    </div>
+                )}
+                {hasOverflowLines && (
+                    <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                        Bạn đã nhập {parsedSceneLines.length} dòng; hệ thống sẽ tạo tối đa {MAX_CREATIVE_IMAGES} cảnh đầu tiên.
+                    </p>
+                )}
             </div>
 
             {/* Config Grid */}
@@ -211,12 +274,14 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                         </label>
                         <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/90 ring-1 ring-slate-900/5 gap-1">
                             <button
+                                type="button"
                                 onClick={() => setOutputMode('single')}
                                 className={`flex-1 py-2 text-xs sm:text-[13px] rounded-lg transition-all ${outputMode === 'single' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
                             >
                                 Ảnh đơn (Riêng)
                             </button>
                             <button
+                                type="button"
                                 onClick={() => setOutputMode('couple')}
                                 className={`flex-1 py-2 text-xs sm:text-[13px] rounded-lg transition-all ${outputMode === 'couple' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
                             >
@@ -227,24 +292,43 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
 
                     {/* Model Selector */}
                     <div className="col-span-2">
-                        <ModelSelector className="" imageCount={quantity} />
+                        <ModelSelector className="" imageCount={effectiveQuantity} />
                     </div>
 
                     {/* Quantity */}
                     <div className="col-span-2">
                         <div className="flex justify-between items-center mb-1.5">
                             <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                                Số lượng ảnh: <span className="text-indigo-600 font-mono font-bold text-sm ml-1 tabular-nums">{quantity}</span>
+                                Số lượng ảnh: <span className="text-indigo-600 font-mono font-bold text-sm ml-1 tabular-nums">{effectiveQuantity}</span>
                             </label>
+                            <span className="text-[10.5px] font-mono font-semibold text-slate-500 tabular-nums">
+                                Tối đa {MAX_CREATIVE_IMAGES}
+                            </span>
                         </div>
-                        <input
-                            type="range"
-                            min="1"
-                            max="10"
-                            value={quantity}
-                            onChange={(e) => setQuantity(parseInt(e.target.value))}
-                            className="w-full h-2.5 bg-slate-200 border border-slate-300/80 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-700 transition-all"
-                        />
+                        {!isLineByLineMode && (
+                            <>
+                                <input
+                                    type="range"
+                                    min="1"
+                                    max={MAX_CREATIVE_IMAGES}
+                                    value={quantity}
+                                    onChange={(e) => setQuantity(parseInt(e.target.value, 10))}
+                                    className="w-full h-2.5 bg-slate-200 border border-slate-300/80 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-700 transition-all"
+                                />
+                                <div className="grid grid-cols-5 gap-1.5 mt-2">
+                                    {QUICK_QUANTITIES.map((q) => (
+                                        <button
+                                            key={q}
+                                            type="button"
+                                            onClick={() => setQuantity(q)}
+                                            className={`py-1.5 rounded-lg font-mono text-[11px] font-bold tabular-nums border transition-all cursor-pointer ${quantity === q ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'}`}
+                                        >
+                                            {q}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
                         {selectedImageCount > 0 && (
                             <div className="flex items-center gap-2 mt-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-xs font-medium shadow-xs">
                                 <svg className="w-4 h-4 text-indigo-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -352,12 +436,14 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                 ) : (
                     <button
                         onClick={handleGeneratePrompts}
-                        disabled={isGeneratingPrompts || isDisabled || !topic.trim()}
+                        disabled={isGeneratingPrompts || isDisabled || (!topic.trim() && !globalContext.trim())}
                         aria-busy={isGeneratingPrompts}
                         className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-bold text-white shadow-sm transition-all hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none sm:text-sm"
                     >
                         {isGeneratingPrompts ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" aria-hidden="true" /> : <MagicWandIcon className="h-4 w-4" />}
-                        <span role={isGeneratingPrompts ? 'status' : undefined}>{isGeneratingPrompts ? 'Đang chuẩn bị tạo ảnh...' : 'Bắt đầu tạo ảnh'}</span>
+                        <span role={isGeneratingPrompts ? 'status' : undefined}>
+                            {isGeneratingPrompts ? `Đang viết ${effectiveQuantity} kịch bản ảnh...` : `Bắt đầu tạo ${effectiveQuantity} ảnh`}
+                        </span>
                     </button>
                 )}
             </div>

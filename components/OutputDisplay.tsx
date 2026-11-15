@@ -250,7 +250,8 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
         try {
             for (let i = 0; i < completedImages.length; i++) {
                 setBatchProgress(`${i + 1}/${completedImages.length}`);
-                const rawName = titlePrefix && titlePrefix.trim() ? `${titlePrefix.trim()}_${i + 1}.png` : `Image_${i + 1}.png`;
+                const paddedIdx = String(i + 1).padStart(2, '0');
+                const rawName = titlePrefix && titlePrefix.trim() ? `${titlePrefix.trim()}_${paddedIdx}.png` : `Image_${paddedIdx}.png`;
                 await downloadImage(completedImages[i], rawName);
                 await new Promise(r => setTimeout(r, 350));
             }

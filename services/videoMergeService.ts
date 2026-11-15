@@ -130,9 +130,23 @@ export async function mergeVideos({
         onProgress?.(`Đang ghép nối siêu tốc ${videoUrls.length} phân cảnh bằng Electron Native Engine...`);
         try {
             const cleanTitle = (title || 'Video_Series').replace(/[/\\?%*:|"<>]/g, '_');
-            const res = await (window as any).electronAPI.mergeVideos(videoUrls, `${cleanTitle}.mp4`);
+            const electronUrls = await Promise.all(
+                videoUrls.map(async (u) => {
+                    if (u.startsWith('blob:')) {
+                        const resp = await fetch(u);
+                        const blob = await resp.blob();
+                        const b64 = await blobToBase64(blob);
+                        return `data:${blob.type || 'video/mp4'};base64,${b64}`;
+                    }
+                    return u;
+                })
+            );
+            const res = await (window as any).electronAPI.mergeVideos(electronUrls, `${cleanTitle}.mp4`);
             if (res && res.success && (res.url || res.path)) {
                 return res.url || `file:///${res.path.replace(/\\/g, '/')}`;
+            }
+            if (res && !res.success && res.error) {
+                console.warn('[VideoMerge] Electron native merge error:', res.error);
             }
         } catch (e) {
             console.warn('[VideoMerge] Electron native merge failed, falling back to client canvas engine:', e);

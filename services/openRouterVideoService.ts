@@ -5,6 +5,7 @@ import {
     OPENROUTER_VIDEO_MODELS,
     OpenRouterVideoConfig
 } from './videoConfigService';
+import { analyzeVoiceDirective } from './scenePromptUtils';
 
 export interface GenerateOpenRouterVideoOptions {
     prompt: string;
@@ -172,36 +173,59 @@ export const prepareVideoReferenceFrame = async (
 };
 
 /**
- * Xây dựng Prompt Face-Lock chuyên sâu cho mô hình Video AI
- * Đảm bảo khóa cứng 100% nhận diện khuôn mặt và nhân vật gốc xuyên suốt các góc quay
+ * Xây dựng Prompt Face-Lock & Audio/Voice Control chuyên sâu cho mô hình Video AI
+ * - Khóa cứng 100% nhận diện khuôn mặt & nhân vật gốc xuyên suốt các góc quay
+ * - Tự động nhận diện từ khóa "no voice" để giữ nhân vật im lặng trong khi giữ nguyên âm thanh môi trường tự nhiên
  */
 export const buildFaceLockPrompt = (
     userPrompt: string,
     isImageToVideo: boolean
-): { prompt: string; negativePrompt: string } => {
-    const clean = userPrompt
+): { prompt: string; negativePrompt: string; isNoVoice: boolean } => {
+    const rawWithoutLegacy = (userPrompt || '')
         .replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/gi, '')
         .replace(/- Cảnh\s*\d+\/\d+/gi, '')
         .trim();
 
-    const negativePrompt = 'face morphing, changing face, different person, shifting facial features, altered facial structure, mutated eyes, deformed nose, inconsistent identity, ugly, bad anatomy, deformed face during camera movement, duplicate faces, floating facial features, unnatural head movement, distorted jawline';
+    const voice = analyzeVoiceDirective(rawWithoutLegacy);
+    const clean = voice.cleanPrompt;
+
+    let negativePrompt = 'face morphing, changing face, different person, shifting facial features, altered facial structure, mutated eyes, deformed nose, inconsistent identity, ugly, bad anatomy, deformed face during camera movement, duplicate faces, floating facial features, unnatural head movement, distorted jawline';
+
+    if (voice.isNoVoice) {
+        negativePrompt += ', human speech, talking, speaking, dialogue, monologue, voiceover, narration, moving lips, open mouth speaking, lipsync, singing, whispering, shouting, subtitles, captions';
+    } else if (voice.hasExplicitDialogue) {
+        negativePrompt += ', burned-in subtitles, captions, on-screen text';
+    }
+
+    const voiceDirective = voice.isNoVoice
+        ? "SILENT CHARACTER AUDIO RULE: Keep the character's mouth naturally closed without talking, speaking, or moving lips. Preserve normal realistic environmental ambient and foley sounds matching the scene (wind, footsteps, animals, nature, background ambience) with zero human dialogue or voiceover."
+        : voice.hasExplicitDialogue
+        ? 'NATURAL CHARACTER DIALOGUE: Animate natural lifelike speech, accurate lip expression, and clear character voice matching the dialogue alongside authentic environmental ambience.'
+        : '';
 
     if (!isImageToVideo) {
+        const baseAction = clean || 'Smooth cinematic camera motion, natural movement, high quality photorealistic';
         return {
-            prompt: clean || 'Smooth cinematic camera motion, natural movement, high quality photorealistic',
-            negativePrompt
+            prompt: voiceDirective ? `${baseAction}. ${voiceDirective}` : baseAction,
+            negativePrompt,
+            isNoVoice: voice.isNoVoice
         };
     }
 
     const faceLockDirectives = 'CRITICAL IDENTITY LOCK: Animate the exact person from the reference image. Strictly maintain 100% identical facial features, facial bone structure, eyes, nose, lips, hair, skin tone, and clothing. Zero face drift, zero face morphing, zero identity alteration even during camera motion, camera pan, or perspective angle change. Perfect likeness and consistent character fidelity throughout the entire clip.';
 
-    const combinedPrompt = clean
-        ? `${faceLockDirectives} Action and motion: ${clean}. Ultra-realistic, 4k cinematic photography.`
-        : `${faceLockDirectives} Natural subtle cinematic breathing, gentle lifelike movement and lighting. Ultra-realistic, 4k cinematic photography.`;
+    const actionSegment = clean
+        ? `Action and motion: ${clean}. Ultra-realistic, 4k cinematic photography.`
+        : `Natural subtle cinematic breathing, gentle lifelike movement and lighting matching the scene. Ultra-realistic, 4k cinematic photography.`;
+
+    const combinedPrompt = voiceDirective
+        ? `${faceLockDirectives} ${actionSegment} ${voiceDirective}`
+        : `${faceLockDirectives} ${actionSegment}`;
 
     return {
         prompt: combinedPrompt,
-        negativePrompt
+        negativePrompt,
+        isNoVoice: voice.isNoVoice
     };
 };
 

@@ -20,6 +20,7 @@ import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages,
 import { generateOpenRouterVideo } from './services/openRouterVideoService';
 import { mergeVideos } from './services/videoMergeService';
 import { getVideoConfig, calculateVideoPriceVnd, getVideoModelMeta } from './services/videoConfigService';
+import { MAX_STORY_SCENES, parseVideoScenePrompts } from './services/scenePromptUtils';
 import type { RestoreOptions } from './services/aiService';
 import { AuthModal } from './components/AuthModal';
 import { ProfilePage } from './components/ProfilePage';
@@ -696,7 +697,10 @@ const App: React.FC = () => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
                     localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `${cleanPrefix}_${index + 1}.png`);
+                    if (autoDownload && base64) {
+                        const paddedIdx = String(index + 1).padStart(2, '0');
+                        triggerDownload(base64, `${cleanPrefix}_${paddedIdx}.png`);
+                    }
                 },
                 style,
                 shotType,
@@ -976,7 +980,7 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
-    // 8. Video Generation (Hỗ trợ 1-10 ảnh phân cảnh, auto ghép nối tuần tự Cảnh 1 -> Cảnh N thành 1 video hoàn chỉnh)
+    // 8. Video Generation (Hỗ trợ 1-40 ảnh phân cảnh, 1 dòng prompt = 1 cảnh, auto ghép nối tuần tự Cảnh 1 -> Cảnh N)
     const handleVideoGenerate = useCallback(async (
         prompt: string,
         aspectRatio: '16:9' | '9:16' | '1:1',
@@ -988,11 +992,12 @@ const App: React.FC = () => {
     ) => {
         const inputs = modeStates['video'].inputs;
         if (subMode === 'image_to_video' && inputs.length === 0) {
-            setError('Vui lòng tải lên từ 1 đến 10 ảnh để tạo các phân cảnh video.');
+            setError(`Vui lòng tải lên từ 1 đến ${MAX_STORY_SCENES} ảnh để tạo các phân cảnh video.`);
             return;
         }
 
-        const sceneCount = subMode === 'image_to_video' ? Math.max(1, Math.min(10, inputs.length)) : 1;
+        const sceneCount = subMode === 'image_to_video' ? Math.max(1, Math.min(MAX_STORY_SCENES, inputs.length)) : 1;
+        const scenePrompts = parseVideoScenePrompts(prompt, sceneCount);
         const modelMeta = getVideoModelMeta(model);
         const totalSecondsNeeded = duration * sceneCount;
 
@@ -1039,15 +1044,19 @@ const App: React.FC = () => {
 
             const updateSceneProgress = (sceneIdx: number, status: string) => {
                 sceneStatuses[sceneIdx] = status;
+                const doneCount = sceneStatuses.filter(st => st === 'Hoàn thành').length;
                 const activeSummaries = sceneStatuses
-                    .map((st, idx) => `[Cảnh ${idx + 1}: ${st}]`)
-                    .slice(0, 3)
+                    .map((st, idx) => ({ st, idx }))
+                    .filter(item => item.st !== 'Đang chờ...' && item.st !== 'Hoàn thành')
+                    .slice(0, 2)
+                    .map(item => `[Cảnh ${item.idx + 1}: ${item.st}]`)
                     .join(' ');
-                setLoadingStatus(`Render song song (${sceneCount} cảnh): ${activeSummaries}`);
+                setLoadingStatus(`Render song song (${doneCount}/${sceneCount} cảnh xong)${activeSummaries ? `: ${activeSummaries}` : ''}`);
             };
 
             const sceneTasks = Array.from({ length: sceneCount }, (_, i) => async () => {
-                const cleanScenePrompt = prompt
+                const rawLinePrompt = scenePrompts[i] ?? '';
+                const cleanScenePrompt = rawLinePrompt
                     .replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/gi, '')
                     .replace(/- Cảnh\s*\d+\/\d+/gi, '')
                     .trim();
@@ -1384,9 +1393,9 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
             return (
                 <div className="p-3">
                     <ImageUploader
-                        label="Ảnh các phân cảnh tạo phim (Tối đa 10 ảnh • Mỗi ảnh 1 cảnh)"
+                        label={`Ảnh các phân cảnh tạo phim (Tối đa ${MAX_STORY_SCENES} ảnh • Mỗi ảnh 1 cảnh)`}
                         onImagesChange={handleImagesChange}
-                        maxImages={10}
+                        maxImages={MAX_STORY_SCENES}
                     />
                 </div>
             );

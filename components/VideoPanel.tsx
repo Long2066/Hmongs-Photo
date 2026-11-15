@@ -8,6 +8,7 @@ import {
     getVideoModelMeta,
     isVideoModelProviderEnabled
 } from '../services/videoConfigService';
+import { MAX_STORY_SCENES, summarizeVideoPromptLines } from '../services/scenePromptUtils';
 import type { SubscriptionPlan } from '../services/firebaseService';
 
 // Vector SVG Icons
@@ -173,10 +174,13 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         img.src = src;
     }, [inputImagePreview, activeModelMeta]);
 
-    // Tự động tính số phân cảnh dựa trên số ảnh đầu vào (1 đến 10 ảnh)
+    // Tự động tính số phân cảnh dựa trên số ảnh đầu vào (1 đến 40 ảnh)
     const effectiveScenes = subMode === 'image_to_video'
-        ? Math.max(1, Math.min(10, inputImageCount || (hasInputImage ? 1 : 1)))
+        ? Math.max(1, Math.min(MAX_STORY_SCENES, inputImageCount || (hasInputImage ? 1 : 1)))
         : 1;
+
+    const promptSummary = summarizeVideoPromptLines(prompt, effectiveScenes);
+    const wanModelEnabled = isVideoModelProviderEnabled('alibaba/wan-3.0', videoConfig);
 
     // Calculate video seconds needed based on duration & effectiveScenes
     const totalSecondsNeeded = duration * effectiveScenes;
@@ -187,7 +191,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         if (isDisabled || isLoading || !anyProviderEnabled || !isCurrentModelEnabled) return;
 
         if (subMode === 'image_to_video' && !hasInputImage) {
-            alert('Vui lòng tải lên từ 1 đến 10 ảnh nguồn ở khung tải ảnh phía trên để tạo video.');
+            alert(`Vui lòng tải lên từ 1 đến ${MAX_STORY_SCENES} ảnh nguồn ở khung tải ảnh phía trên để tạo video.`);
             return;
         }
 
@@ -207,17 +211,24 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     return (
         <div className="flex flex-col gap-4 select-none animate-fade-in">
             {/* 1. COMPACT MODEL SELECTION (Vivix W1 / Grok video / Wan 3.0) */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 transition-all">
+            <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-900/5 transition-all">
                 <div className="flex items-center justify-between mb-2.5">
                     <div className="flex items-center gap-2">
                         <span className="text-indigo-600"><LayersIcon /></span>
-                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                             Mô Hình Video AI
                         </span>
                     </div>
-                    <span className="text-[11px] font-bold text-indigo-600">
-                        {activeModelMeta.name}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                        {activeModelMeta.supportsAudio && (
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md ring-1 ring-emerald-200">
+                                🔊 Có Audio
+                            </span>
+                        )}
+                        <span className="text-[11px] font-bold text-indigo-600">
+                            {activeModelMeta.name}
+                        </span>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -232,19 +243,24 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                                 onClick={() => isProviderEnabled && setSelectedModel(model.id)}
                                 title={
                                     isProviderEnabled
-                                        ? model.name
+                                        ? `${model.name}${model.supportsAudio ? ' (Hỗ trợ giọng nói & âm thanh)' : ''}`
                                         : `Mô hình ${model.name} hiện đang tạm tắt trên Admin`
                                 }
-                                className={`min-h-[44px] px-2 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border ${
+                                className={`min-h-[44px] px-2 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-[0.98] ${
                                     !isProviderEnabled
-                                        ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-60 cursor-not-allowed select-none'
+                                        ? 'bg-slate-100 ring-1 ring-slate-200 text-slate-400 opacity-60 cursor-not-allowed select-none'
                                         : isSelected
-                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs cursor-pointer'
-                                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer'
+                                        ? 'bg-indigo-600 text-white ring-1 ring-indigo-600 shadow-xs'
+                                        : 'bg-slate-50 ring-1 ring-slate-200/80 text-slate-700 hover:bg-slate-100'
                                 }`}
                             >
                                 {!isProviderEnabled && <LockClosedIcon />}
                                 <span className="truncate">{model.name}</span>
+                                {model.supportsAudio && isProviderEnabled && (
+                                    <span className={`text-[10px] ${isSelected ? 'text-indigo-100' : 'text-emerald-600'}`} aria-hidden="true">
+                                        🔊
+                                    </span>
+                                )}
                             </button>
                         );
                     })}
@@ -252,13 +268,13 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             </div>
 
             {/* 2. TIÊU ĐỀ VIDEO & OUTPUT TITLE (Khớp 100% khi xuất file) */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-2">
+            <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-900/5 space-y-2">
                 <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                         <span className="text-indigo-600">🎬</span>
                         <span>Tiêu đề Video / Tên tập phim</span>
                     </label>
-                    <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md ring-1 ring-emerald-200">
                         Khớp output 100%
                     </span>
                 </div>
@@ -267,27 +283,27 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     value={videoTitle}
                     onChange={(e) => setVideoTitle(e.target.value)}
                     placeholder="Nhập tiêu đề video / tên phim (ví dụ: Phim_Tap_1, Ky_Yeu_Thanh_Xuan...)"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50"
+                    className="w-full px-3 py-2.5 rounded-xl ring-1 ring-slate-200 text-xs font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/60"
                 />
-                <p className="text-[10.5px] text-slate-500 leading-tight">
+                <p className="text-[11px] text-slate-500 leading-tight">
                     File video hoàn chỉnh xuất ra sẽ được đặt tên chính xác là <strong className="text-slate-800 font-mono">{(videoTitle.trim() || 'Video_Series').replace(/[/\\?%*:|"<>]/g, '_')}.mp4</strong>.
                 </p>
             </div>
 
-            {/* 3. MOTION PROMPT */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
-                <div className="flex items-center justify-between mb-2">
+            {/* 3. MOTION PROMPT (1 DÒNG = 1 CẢNH + HỖ TRỢ "no voice") */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-900/5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <span className="text-amber-500"><SparklesIcon /></span>
-                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                            Mô tả chuyển động (Motion Prompt)
+                        <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                            Kịch bản chuyển động &amp; Lời thoại
                         </span>
                     </div>
                     {prompt && (
                         <button
                             type="button"
                             onClick={() => setPrompt('')}
-                            className="text-[11px] text-slate-500 hover:text-slate-800 font-medium flex items-center gap-1 cursor-pointer"
+                            className="text-[11px] text-slate-600 hover:text-slate-900 font-semibold flex items-center gap-1 cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors"
                         >
                             <RotateCcwIcon />
                             Xóa prompt
@@ -295,13 +311,63 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     )}
                 </div>
 
+                {/* Live Line-to-Scene & Voice Alignment Badges */}
+                {(effectiveScenes > 1 || promptSummary.lineCount > 0) && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        {promptSummary.effectiveMode === 'matched' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 text-[10.5px] font-semibold font-mono tabular-nums">
+                                ✓ Khớp {promptSummary.lineCount}/{effectiveScenes} cảnh
+                            </span>
+                        )}
+                        {promptSummary.effectiveMode === 'shared' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 text-[10.5px] font-semibold tabular-nums">
+                                1 mô tả chung cho {effectiveScenes} cảnh
+                            </span>
+                        )}
+                        {promptSummary.effectiveMode === 'partial' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 ring-1 ring-amber-200 text-[10.5px] font-semibold tabular-nums">
+                                Khớp {promptSummary.lineCount}/{effectiveScenes} cảnh (cảnh sau chuyển động tự nhiên)
+                            </span>
+                        )}
+                        {promptSummary.effectiveMode === 'overflow' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 ring-1 ring-amber-200 text-[10.5px] font-semibold tabular-nums">
+                                Dư {promptSummary.lineCount - effectiveScenes} dòng (chỉ dùng {effectiveScenes} dòng đầu)
+                            </span>
+                        )}
+                        {promptSummary.noVoiceCount > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 ring-1 ring-slate-200 text-[10.5px] font-semibold font-mono tabular-nums">
+                                🔇 {promptSummary.noVoiceCount} cảnh no voice
+                            </span>
+                        )}
+                    </div>
+                )}
+
                 <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Nhập mô tả hành động, góc lia máy hoặc chuyển động (ví dụ: Làn tóc khẽ bay trong gió, mỉm cười nhìn ống kính, camera lia chậm tạo chiều sâu cinematic...)"
-                    rows={3}
-                    className="w-full p-3 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none bg-slate-50/50 leading-relaxed"
+                    placeholder={"Mỗi dòng = 1 cảnh theo đúng thứ tự ảnh (#1, #2, #3...):\nThức dậy vươn vai bên nhà gỗ, nói \"Chào buổi sáng\"\nRa sân cho gà ăn giữa tiếng gà kêu, no voice\nĐi bộ lên nương rẫy giữa sương sớm, no voice"}
+                    rows={5}
+                    className="w-full p-3 rounded-xl ring-1 ring-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-y min-h-[110px] max-h-[320px] bg-slate-50/60 leading-relaxed"
                 />
+
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Mỗi dòng tương ứng <strong className="font-mono text-slate-800">1 cảnh</strong> (<span className="font-mono">Dòng 1 → Ảnh #1</span>). Cảnh nào không muốn nhân vật nói chuyện, hãy thêm từ khóa <code className="px-1.5 py-0.5 rounded bg-slate-100 text-indigo-700 font-mono font-bold">no voice</code> (vẫn giữ nguyên âm thanh môi trường tự nhiên).
+                </p>
+
+                {!activeModelMeta.supportsAudio && wanModelEnabled && (
+                    <div className="flex items-center justify-between gap-2 rounded-xl bg-amber-50/90 ring-1 ring-amber-200 px-2.5 py-2 text-[11px] text-amber-900">
+                        <span className="leading-snug">
+                            💡 Muốn video có lời thoại &amp; âm thanh môi trường thật, hãy dùng <strong>Wan 3.0</strong>.
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedModel('alibaba/wan-3.0')}
+                            className="shrink-0 min-h-[36px] px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] cursor-pointer transition-colors active:scale-[0.98]"
+                        >
+                            Chọn Wan 3.0
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* 3. ASPECT RATIO & DURATION (Khóa tự động các mục model không hỗ trợ) */}
