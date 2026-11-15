@@ -60,7 +60,43 @@ function fixWebmDuration(blob: Blob, durationMs: number): Promise<Blob> {
                     }
                 }
 
-                resolve(blob);
+                // If Duration element is NOT present, actively inject it directly into the Info element
+                const lengthOffset = infoOffset + 4;
+                const firstLengthByte = bytes[lengthOffset];
+                let infoLength = 0;
+                let lengthVintSize = 1;
+
+                if ((firstLengthByte & 0x80) !== 0) {
+                    infoLength = firstLengthByte & 0x7F;
+                    lengthVintSize = 1;
+                } else if ((firstLengthByte & 0x40) !== 0) {
+                    infoLength = ((firstLengthByte & 0x3F) << 8) | bytes[lengthOffset + 1];
+                    lengthVintSize = 2;
+                }
+
+                const insertOffset = lengthOffset + lengthVintSize;
+
+                // Duration element: [0x44, 0x89] (ID) + [0x84] (size 4) + 4 bytes float32
+                const durationElem = new Uint8Array(7);
+                durationElem[0] = 0x44;
+                durationElem[1] = 0x89;
+                durationElem[2] = 0x84;
+                const durView = new DataView(durationElem.buffer);
+                durView.setFloat32(3, durationMs, false); // Big endian float32
+
+                // Create new buffer with 7 bytes inserted
+                const newBytes = new Uint8Array(bytes.length + 7);
+                newBytes.set(bytes.subarray(0, insertOffset), 0);
+                newBytes.set(durationElem, insertOffset);
+                newBytes.set(bytes.subarray(insertOffset), insertOffset + 7);
+
+                // Update Info element length VINT
+                const newInfoLength = infoLength + 7;
+                if (lengthVintSize === 1 && newInfoLength < 128) {
+                    newBytes[lengthOffset] = 0x80 | newInfoLength;
+                }
+
+                resolve(new Blob([newBytes.buffer], { type: blob.type }));
             } catch (err) {
                 console.warn('[VideoMerge] Failed to patch WebM duration:', err);
                 resolve(blob);
@@ -110,8 +146,16 @@ export async function mergeVideos({
                 videoUrls,
                 filename: `${cleanTitle}.mp4`
             });
-            if (res && res.success && (res.url || res.path)) {
-                return res.url || `file://${res.path}`;
+            if (res && res.success && (res.path || res.url)) {
+                const rawPath = res.path || (res.url?.startsWith('file://') ? res.url.substring(7) : res.url);
+                if (rawPath) {
+                    try {
+                        return Capacitor.convertFileSrc(rawPath);
+                    } catch {
+                        return res.url || `file://${rawPath}`;
+                    }
+                }
+                return res.url || '';
             }
         } catch (e) {
             console.warn('[VideoMerge] Android native merge failed, falling back to client canvas engine:', e);

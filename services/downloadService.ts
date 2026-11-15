@@ -232,6 +232,26 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
         const mimeType = isVideo ? 'video/mp4' : 'image/png';
         const isUrl = /^https?:\/\//i.test(dataOrUrl);
 
+        // Case 0: Local file path or file:// URL
+        if (dataOrUrl.startsWith('file://') || (dataOrUrl.startsWith('/') && !dataOrUrl.startsWith('/v1/'))) {
+            try {
+                const res = await ApkInstaller.saveMediaToGallery?.({
+                    filePath: dataOrUrl,
+                    filename,
+                    mimeType
+                });
+                if (res && res.success) {
+                    return {
+                        success: true,
+                        message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                        path: res.path
+                    };
+                }
+            } catch (err) {
+                console.warn('[Download] Native filePath direct save failed:', err);
+            }
+        }
+
         // Case 1: Remote HTTP/HTTPS URL
         if (isUrl) {
             try {
