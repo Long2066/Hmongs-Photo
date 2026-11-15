@@ -1093,6 +1093,7 @@ const App: React.FC = () => {
                     finalVideoUrl = await mergeVideos({
                         videoUrls: successfulClips,
                         aspectRatio,
+                        title: cleanTitle,
                         onProgress: (mergeStatus) => setLoadingStatus(mergeStatus)
                     });
                 } catch (mergeErr) {
@@ -1121,7 +1122,7 @@ const App: React.FC = () => {
                 : undefined;
             const createdAt = Date.now();
 
-            setVideoEntries([{
+            const mergedEntry: VideoEntry = {
                 url: finalVideoUrl,
                 firstFrame,
                 createdAt,
@@ -1130,7 +1131,30 @@ const App: React.FC = () => {
                 duration: consumedSeconds,
                 aspectRatio,
                 title: cleanTitle
-            }]);
+            };
+
+            const sceneEntries: VideoEntry[] = successfulClips.length > 1
+                ? successfulClips.map((clipUrl, idx) => {
+                    const sceneInput = subMode === 'image_to_video' && inputs[idx] ? inputs[idx] : undefined;
+                    const frame = sceneInput
+                        ? sceneInput.base64.startsWith('data:') || /^https?:\/\//i.test(sceneInput.base64)
+                            ? sceneInput.base64
+                            : `data:${sceneInput.mimeType};base64,${sceneInput.base64}`
+                        : firstFrame;
+                    return {
+                        url: clipUrl,
+                        firstFrame: frame,
+                        createdAt: createdAt + idx + 1,
+                        prompt: `[Cảnh ${idx + 1}/${successfulClips.length}] ${prompt}`,
+                        modelUsed: model,
+                        duration,
+                        aspectRatio,
+                        title: `${cleanTitle}_Canh_${idx + 1}`
+                    };
+                })
+                : [];
+
+            setVideoEntries([mergedEntry, ...sceneEntries]);
 
             updateModeState(() => ({
                 outputs: [finalVideoUrl],

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getDownloadPath: () => ipcRenderer.invoke('get-download-path'),
     openDownloadFolder: () => ipcRenderer.invoke('open-download-folder'),
     saveFile: (base64, filename, fileUrl) => ipcRenderer.invoke('save-file', { base64, filename, fileUrl }),
+    mergeVideos: (videoUrls, filename) => ipcRenderer.invoke('merge-videos', { videoUrls, filename }),
 
     // ============ BROWSER UTILS ============
     openIncognito: (url) => ipcRenderer.invoke('open-incognito', url),

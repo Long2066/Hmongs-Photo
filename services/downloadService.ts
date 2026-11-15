@@ -65,20 +65,23 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
                         path: res.path
                     };
                 }
-            } else if (dataOrUrl.startsWith('blob:')) {
-                // Nếu là Blob URL (ví dụ từ canvas hoặc video ghép nối)
-                const blobResp = await fetch(dataOrUrl);
-                const blob = await blobResp.blob();
+            } else if (dataOrUrl.startsWith('blob:') || dataOrUrl.startsWith('data:')) {
+                // Nếu là Blob hoặc Data URL: Stream thẳng vào MediaStore Gallery qua native chunk writer
+                const blob = dataOrUrl.startsWith('blob:')
+                    ? await (await fetch(dataOrUrl)).blob()
+                    : await (await fetch(dataOrUrl)).blob();
 
-                // Nếu blob lớn hơn 1MB (như file video): ghi file tạm theo từng chunk 512KB vào Cache rồi báo Java copy sang MediaStore
-                if (blob.size > 1_000_000) {
-                    const tempCacheName = `temp_save_${Date.now()}_${filename}`;
-                    const CHUNK_SIZE = 512 * 1024;
+                if (ApkInstaller.saveMediaChunk) {
+                    const CHUNK_SIZE = 256 * 1024;
                     let offset = 0;
-                    let isFirst = true;
+                    let lastRes: any = null;
 
                     while (offset < blob.size) {
-                        const slice = blob.slice(offset, offset + CHUNK_SIZE);
+                        const nextOffset = Math.min(offset + CHUNK_SIZE, blob.size);
+                        const slice = blob.slice(offset, nextOffset);
+                        const isFirst = offset === 0;
+                        const isLast = nextOffset >= blob.size;
+
                         const chunkBase64 = await new Promise<string>((resolve, reject) => {
                             const reader = new FileReader();
                             reader.onloadend = () => {
@@ -89,49 +92,26 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
                             reader.readAsDataURL(slice);
                         });
 
-                        if (isFirst) {
-                            await Filesystem.writeFile({
-                                path: tempCacheName,
-                                data: chunkBase64,
-                                directory: Directory.Cache
-                            });
-                            isFirst = false;
-                        } else {
-                            await Filesystem.appendFile({
-                                path: tempCacheName,
-                                data: chunkBase64,
-                                directory: Directory.Cache
-                            });
-                        }
-                        offset += CHUNK_SIZE;
+                        lastRes = await ApkInstaller.saveMediaChunk({
+                            chunk: chunkBase64,
+                            isFirst,
+                            isLast,
+                            filename,
+                            mimeType
+                        });
+
+                        offset = nextOffset;
                     }
 
-                    const tempUriObj = await Filesystem.getUri({
-                        path: tempCacheName,
-                        directory: Directory.Cache
-                    });
-
-                    const res = await ApkInstaller.saveMediaToGallery?.({
-                        filePath: tempUriObj.uri,
-                        filename,
-                        mimeType
-                    });
-
-                    // Dọn dẹp file tạm
-                    Filesystem.deleteFile({
-                        path: tempCacheName,
-                        directory: Directory.Cache
-                    }).catch(() => {});
-
-                    if (res && res.success) {
+                    if (lastRes && lastRes.success) {
                         return {
                             success: true,
-                            message: res.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
-                            path: res.path
+                            message: lastRes.message || `✅ Đã lưu ${isVideo ? 'video' : 'ảnh'} vào Bộ sưu tập`,
+                            path: lastRes.path
                         };
                     }
                 } else {
-                    // Blob nhỏ (< 1MB như ảnh)
+                    // Fallback nếu native app chưa có saveMediaChunk (bản cũ)
                     const payloadBase64 = await new Promise<string>((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onloadend = () => {
@@ -246,19 +226,25 @@ async function downloadNative(dataOrUrl: string, filename: string): Promise<Down
         const uniqueFilename = `ToolPhoto_${timestamp}_${filename}`;
 
         // Lưu vào Cache directory nếu Scoped Storage trên Android 11+ hạn chế Documents
-        const result = await Filesystem.writeFile({
-            path: uniqueFilename,
-            data: base64Data,
-            directory: Directory.Cache
-        });
+        try {
+            const result = await Filesystem.writeFile({
+                path: uniqueFilename,
+                data: base64Data,
+                directory: Directory.Cache,
+                recursive: true
+            });
 
-        console.log('[Download] File saved to cache:', result.uri);
+            console.log('[Download] File saved to cache:', result.uri);
 
-        return {
-            success: true,
-            message: `✅ Đã lưu tệp: ${uniqueFilename}`,
-            path: result.uri
-        };
+            return {
+                success: true,
+                message: `✅ Đã lưu tệp: ${uniqueFilename}`,
+                path: result.uri
+            };
+        } catch (fsErr) {
+            console.warn('[Download] Filesystem.writeFile fallback to web download:', fsErr);
+            return downloadWeb(dataOrUrl, filename);
+        }
     } catch (error: any) {
         console.error('[Download] Native download failed:', error);
         return {

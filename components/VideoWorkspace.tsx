@@ -396,11 +396,24 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                                                 <PlayIcon />
                                             </div>
                                         </div>
-                                        <div className="p-2 text-xs text-white flex items-center justify-between">
-                                            <span className="font-semibold truncate">Video #{videos.length - idx}</span>
-                                            <span className="text-[10px] text-slate-400 font-mono">
-                                                {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                                        <div className="p-2 text-xs text-white flex flex-col gap-1">
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-semibold truncate text-[11px] text-amber-300">
+                                                    {item.title || `Video #${videos.length - idx}`}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-mono">
+                                                    {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                            {idx === 0 && videos.length > 1 ? (
+                                                <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                                    🎬 Bản ghép hoàn chỉnh
+                                                </span>
+                                            ) : videos.length > 1 ? (
+                                                <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-800 text-slate-300">
+                                                    Phân cảnh {idx}
+                                                </span>
+                                            ) : null}
                                         </div>
                                     </button>
                                 ))}

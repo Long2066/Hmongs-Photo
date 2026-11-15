@@ -424,6 +424,114 @@ class ApkInstallerPlugin extends Plugin {
             }
         }).start();
     }
+
+    private OutputStream chunkOutputStream = null;
+    private Uri chunkMediaUri = null;
+    private File chunkLegacyFile = null;
+    private String chunkFinalMime = null;
+    private boolean chunkIsVideo = false;
+
+    /**
+     * Chunked media writer for large blobs and videos to avoid WebView bridge memory limits
+     */
+    @PluginMethod
+    public void saveMediaChunk(PluginCall call) {
+        String chunkBase64 = call.getString("chunk");
+        Boolean isFirst = call.getBoolean("isFirst", false);
+        Boolean isLast = call.getBoolean("isLast", false);
+        String rawFilename = call.getString("filename");
+        String rawMimeType = call.getString("mimeType");
+
+        if (rawFilename == null || rawFilename.trim().isEmpty()) {
+            rawFilename = "ImageTool_" + System.currentTimeMillis() + ".mp4";
+        }
+        if (rawMimeType == null || rawMimeType.trim().isEmpty()) {
+            rawMimeType = rawFilename.endsWith(".mp4") ? "video/mp4" : "image/png";
+        }
+
+        final String finalFilename = rawFilename;
+        final String finalMimeType = rawMimeType;
+
+        new Thread(() -> {
+            try {
+                Context ctx = getContext();
+                if (Boolean.TRUE.equals(isFirst) || chunkOutputStream == null) {
+                    if (chunkOutputStream != null) {
+                        try { chunkOutputStream.close(); } catch (Exception ignored) {}
+                        chunkOutputStream = null;
+                    }
+                    chunkIsVideo = finalMimeType.startsWith("video/") || finalFilename.endsWith(".mp4");
+                    chunkFinalMime = finalMimeType;
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        ContentValues values = new ContentValues();
+                        values.put(chunkIsVideo ? MediaStore.Video.Media.DISPLAY_NAME : MediaStore.Images.Media.DISPLAY_NAME, finalFilename);
+                        values.put(chunkIsVideo ? MediaStore.Video.Media.MIME_TYPE : MediaStore.Images.Media.MIME_TYPE, chunkFinalMime);
+                        values.put(chunkIsVideo ? MediaStore.Video.Media.RELATIVE_PATH : MediaStore.Images.Media.RELATIVE_PATH,
+                                (chunkIsVideo ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) + "/ImageTool");
+                        values.put(chunkIsVideo ? MediaStore.Video.Media.IS_PENDING : MediaStore.Images.Media.IS_PENDING, 1);
+
+                        Uri collection = chunkIsVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                        chunkMediaUri = ctx.getContentResolver().insert(collection, values);
+                        if (chunkMediaUri == null) {
+                            call.reject("Không thể tạo MediaStore URI");
+                            return;
+                        }
+                        chunkOutputStream = ctx.getContentResolver().openOutputStream(chunkMediaUri);
+                    } else {
+                        File targetDir = Environment.getExternalStoragePublicDirectory(
+                                chunkIsVideo ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES);
+                        File appDir = new File(targetDir, "ImageTool");
+                        if (!appDir.exists()) appDir.mkdirs();
+                        chunkLegacyFile = new File(appDir, finalFilename);
+                        chunkOutputStream = new FileOutputStream(chunkLegacyFile);
+                    }
+                }
+
+                if (chunkOutputStream == null) {
+                    call.reject("Luồng ghi MediaStore chưa được khởi tạo");
+                    return;
+                }
+
+                if (chunkBase64 != null && !chunkBase64.isEmpty()) {
+                    String clean = chunkBase64.contains(",") ? chunkBase64.substring(chunkBase64.indexOf(",") + 1) : chunkBase64;
+                    byte[] bytes = Base64.decode(clean, Base64.DEFAULT);
+                    chunkOutputStream.write(bytes);
+                    chunkOutputStream.flush();
+                }
+
+                if (Boolean.TRUE.equals(isLast)) {
+                    chunkOutputStream.close();
+                    chunkOutputStream = null;
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && chunkMediaUri != null) {
+                        ContentValues values = new ContentValues();
+                        values.put(chunkIsVideo ? MediaStore.Video.Media.IS_PENDING : MediaStore.Images.Media.IS_PENDING, 0);
+                        ctx.getContentResolver().update(chunkMediaUri, values, null, null);
+                    } else if (chunkLegacyFile != null) {
+                        MediaScannerConnection.scanFile(ctx, new String[]{chunkLegacyFile.getAbsolutePath()}, new String[]{chunkFinalMime}, null);
+                    }
+
+                    JSObject res = new JSObject();
+                    res.put("success", true);
+                    res.put("message", "✅ Đã lưu vào Bộ sưu tập (" + (chunkIsVideo ? "Movies/ImageTool" : "Pictures/ImageTool") + ")");
+                    res.put("path", chunkMediaUri != null ? chunkMediaUri.toString() : (chunkLegacyFile != null ? chunkLegacyFile.getAbsolutePath() : ""));
+                    call.resolve(res);
+                } else {
+                    JSObject res = new JSObject();
+                    res.put("success", true);
+                    res.put("chunkSaved", true);
+                    call.resolve(res);
+                }
+            } catch (Exception e) {
+                if (chunkOutputStream != null) {
+                    try { chunkOutputStream.close(); } catch (Exception ignored) {}
+                    chunkOutputStream = null;
+                }
+                call.reject("Lỗi khi ghi chunk media: " + e.getMessage());
+            }
+        }).start();
+    }
 }
 
 public class MainActivity extends BridgeActivity {
