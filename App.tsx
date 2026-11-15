@@ -1161,6 +1161,10 @@ const App: React.FC = () => {
                 prompts: [prompt],
             }));
 
+            if (autoDownload && finalVideoUrl) {
+                triggerDownload(finalVideoUrl, `${cleanTitle}.mp4`);
+            }
+
             saveHistory(cleanTitle, prompt, [finalVideoUrl], subMode === 'image_to_video' ? `Image-to-Video Series (${successfulClips.length} cảnh)` : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
@@ -1172,7 +1176,7 @@ const App: React.FC = () => {
             setIsLoading(false);
             setLoadingStatus('');
         }
-    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser]);
+    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser, autoDownload]);
 
     // 9. Poster Studio Generation (Client-Side High-DPI Canvas Engine - 0 API cost)
     const handleSwapPosterInputs = useCallback((i: number, j: number) => {

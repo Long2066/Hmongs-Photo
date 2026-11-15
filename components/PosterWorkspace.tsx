@@ -191,9 +191,34 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
 }) => {
     const [downloadingIdx, setDownloadingIdx] = useState<number | null>(null);
     const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+    const [batchDownloading, setBatchDownloading] = useState(false);
+    const [batchProgress, setBatchProgress] = useState<string | null>(null);
 
     const validImages = outputImages.filter((img): img is string => img !== null);
     const hasOutputs = validImages.length > 0;
+
+    const handleDownloadAll = async () => {
+        if (batchDownloading || validImages.length === 0) return;
+        setBatchDownloading(true);
+        try {
+            for (let i = 0; i < validImages.length; i++) {
+                setBatchProgress(`${i + 1}/${validImages.length}`);
+                const rawLabel = prompts[i] || `Poster_Studio_${i + 1}`;
+                const cleanLabel = rawLabel.trim().replace(/[/\\?%*:|"<>]/g, '_');
+                const safeName = cleanLabel.toLowerCase().endsWith('.png') || cleanLabel.toLowerCase().endsWith('.jpg')
+                    ? cleanLabel
+                    : `${cleanLabel}.png`;
+                await downloadImage(validImages[i], safeName);
+                await new Promise(r => setTimeout(r, 400));
+            }
+            setBatchProgress('✓ Xong');
+            setTimeout(() => setBatchProgress(null), 3000);
+        } catch (err) {
+            console.error('Batch download poster error:', err);
+        } finally {
+            setBatchDownloading(false);
+        }
+    };
 
     const handleDownload = async (url: string, index: number, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -354,11 +379,24 @@ export const PosterWorkspace: React.FC<PosterWorkspaceProps> = ({
                     </div>
                 </div>
 
-                {/* Batch Action Help */}
+                {/* Batch Action Help & Download All */}
                 <div className="flex items-center gap-2">
                     <span className="text-[11px] font-semibold text-slate-500 hidden sm:inline">
                         Định dạng: PNG HD/2K
                     </span>
+                    {validImages.length > 1 && !isLoading && (
+                        <button
+                            type="button"
+                            onClick={handleDownloadAll}
+                            disabled={batchDownloading}
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-xs font-bold shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            <span>{batchDownloading ? `Đang lưu (${batchProgress})...` : `Tải tất cả Poster (${validImages.length})`}</span>
+                        </button>
+                    )}
                 </div>
             </div>
 

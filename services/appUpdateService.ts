@@ -28,6 +28,7 @@ export interface ApkInstallerPlugin {
     install(options: { filePath: string }): Promise<{ success: boolean }>;
     saveMediaToGallery?(options: { url?: string; base64?: string; filePath?: string; filename: string; mimeType?: string }): Promise<{ success: boolean; path?: string; message?: string }>;
     saveMediaChunk?(options: { chunk: string; isFirst: boolean; isLast: boolean; filename: string; mimeType?: string }): Promise<{ success: boolean; chunkSaved?: boolean; path?: string; message?: string }>;
+    mergeVideos?(options: { videoUrls: string[]; filename: string }): Promise<{ success: boolean; path?: string; url?: string; galleryUri?: string; error?: string }>;
 }
 
 export const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller');

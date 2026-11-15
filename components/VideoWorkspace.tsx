@@ -77,7 +77,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
 }) => {
     const [selectedUrl, setSelectedUrl] = useState('');
     const [downloading, setDownloading] = useState(false);
-    const [downloadMessage, setDownloadMessage] = useState('');
+    const [downloadingAll, setDownloadingAll] = useState(false);
+    const [downloadStatus, setDownloadStatus] = useState<{ text: string; success: boolean } | null>(null);
     const [renderTime, setRenderTime] = useState(0);
     const [codecNotice, setCodecNotice] = useState<string | null>(null);
 
@@ -108,7 +109,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     const handleDownload = async () => {
         if (!active || downloading) return;
         setDownloading(true);
-        setDownloadMessage('');
+        setDownloadStatus(null);
 
         try {
             const rawTitle = (active.title && active.title.trim())
@@ -116,37 +117,50 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                 : `ImageTool_Video_${active.createdAt}`;
             const cleanTitle = rawTitle.replace(/[/\\?%*:|"<>]/g, '_');
             const filename = cleanTitle.toLowerCase().endsWith('.mp4') ? cleanTitle : `${cleanTitle}.mp4`;
-            let result;
-
-            if (isNativePlatform() || isElectronPlatform()) {
-                // Native Mobile (MediaStore Gallery) & Electron Desktop (custom folder)
-                result = await downloadImage(active.url, filename);
-            } else if (/^https?:\/\//i.test(active.url)) {
-                // Web Browser (fetch blob -> <a download>)
-                const response = await fetch(active.url);
-                if (!response.ok) throw new Error(`Không tải được video (HTTP ${response.status}).`);
-                const blob = await response.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                try {
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    link.remove();
-                    result = { success: true, message: 'Đã tải video MP4 về máy.' };
-                } finally {
-                    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-                }
-            } else {
-                result = await downloadImage(active.url, filename);
-            }
-
-            setDownloadMessage(result.success ? (result.message || 'Đã lưu video thành công.') : (result.message || 'Không thể lưu video.'));
+            
+            const result = await downloadImage(active.url, filename);
+            setDownloadStatus({
+                text: result.message || (result.success ? 'Đã lưu video thành công.' : 'Không thể lưu video.'),
+                success: result.success
+            });
         } catch (err: any) {
-            setDownloadMessage(err?.message || 'Không thể tải video.');
+            setDownloadStatus({
+                text: err?.message || 'Không thể tải video.',
+                success: false
+            });
         } finally {
             setDownloading(false);
+        }
+    };
+
+    const handleDownloadAll = async () => {
+        if (videos.length === 0 || downloadingAll) return;
+        setDownloadingAll(true);
+        setDownloadStatus(null);
+
+        try {
+            let successCount = 0;
+            for (let i = 0; i < videos.length; i++) {
+                const item = videos[i];
+                const rawTitle = (item.title && item.title.trim())
+                    ? item.title.trim()
+                    : `Video_${i === 0 ? 'Ban_Ghep' : `Canh_${i}`}`;
+                const cleanTitle = rawTitle.replace(/[/\\?%*:|"<>]/g, '_');
+                const filename = cleanTitle.toLowerCase().endsWith('.mp4') ? cleanTitle : `${cleanTitle}.mp4`;
+                const res = await downloadImage(item.url, filename);
+                if (res.success) successCount++;
+            }
+            setDownloadStatus({
+                text: `✅ Đã lưu ${successCount}/${videos.length} video về máy!`,
+                success: true
+            });
+        } catch (err: any) {
+            setDownloadStatus({
+                text: err?.message || 'Lỗi khi tải hàng loạt video.',
+                success: false
+            });
+        } finally {
+            setDownloadingAll(false);
         }
     };
 
@@ -352,13 +366,30 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                                     className="min-h-[46px] w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                     <DownloadIcon />
-                                    <span>{downloading ? 'Đang tải MP4...' : 'Tải video MP4 về máy'}</span>
+                                    <span>{downloading ? 'Đang lưu video...' : 'Tải video MP4 về máy'}</span>
                                 </button>
 
-                                {downloadMessage && (
-                                    <p role="status" className="text-xs text-center text-emerald-400 font-medium">
-                                        {downloadMessage}
-                                    </p>
+                                {isElectronPlatform() && (
+                                    <button
+                                        type="button"
+                                        onClick={() => (window as any).electronAPI?.openDownloadFolder()}
+                                        className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                                    >
+                                        <span>📁 Mở thư mục lưu video</span>
+                                    </button>
+                                )}
+
+                                {downloadStatus && (
+                                    <div
+                                        role="status"
+                                        className={`text-xs text-center font-medium p-2.5 rounded-xl border animate-fade-in ${
+                                            downloadStatus.success
+                                                ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
+                                                : 'bg-rose-950/70 border-rose-500/40 text-rose-300'
+                                        }`}
+                                    >
+                                        {downloadStatus.text}
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -367,9 +398,20 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                     {/* Gallery of Session Videos */}
                     {videos.length > 1 && (
                         <div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
-                                Bộ sưu tập video trong phiên này ({videos.length})
-                            </h3>
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                                    Bộ sưu tập video trong phiên này ({videos.length})
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={handleDownloadAll}
+                                    disabled={downloadingAll}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                                >
+                                    <DownloadIcon />
+                                    <span>{downloadingAll ? 'Đang tải...' : `Tải tất cả (${videos.length})`}</span>
+                                </button>
+                            </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                                 {videos.map((item, idx) => (
                                     <button

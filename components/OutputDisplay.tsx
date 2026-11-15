@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { downloadImage } from '../services/downloadService';
+import { downloadImage, isElectronPlatform } from '../services/downloadService';
 import { ErrorIcon } from './Icons';
 import { StudioHeroStage } from './StudioHeroStage';
 
@@ -23,7 +23,7 @@ const isVideoUrl = (url: string | null): boolean => {
 
 const OutputVideo: React.FC<{ url: string; index: number; prompt: string; title?: string }> = ({ url, index, prompt, title }) => {
     const [downloading, setDownloading] = useState(false);
-    const [downloadMsg, setDownloadMsg] = useState<string | null>(null);
+    const [downloadStatus, setDownloadStatus] = useState<{ text: string; success: boolean } | null>(null);
 
     const videoTitle = (title && title.trim()) ? title.trim() : `Video_${index + 1}`;
     const cleanFileName = videoTitle.replace(/[/\\?%*:|"<>]/g, '_');
@@ -34,12 +34,16 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string; title?
         setDownloading(true);
         try {
             const res = await downloadImage(url, downloadFileName);
-            if (res.message) {
-                setDownloadMsg(res.message);
-                setTimeout(() => setDownloadMsg(null), 3500);
-            }
+            setDownloadStatus({
+                text: res.message || (res.success ? 'Đã lưu video thành công.' : 'Không thể lưu video.'),
+                success: res.success
+            });
+            setTimeout(() => setDownloadStatus(null), 3500);
         } catch (err: any) {
-            console.error('Download video error:', err);
+            setDownloadStatus({
+                text: err?.message || 'Không thể tải video.',
+                success: false
+            });
         } finally {
             setDownloading(false);
         }
@@ -55,9 +59,13 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string; title?
                     </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    {downloadMsg && (
-                        <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80 animate-fade-in">
-                            {downloadMsg}
+                    {downloadStatus && (
+                        <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border animate-fade-in ${
+                            downloadStatus.success
+                                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                : 'text-rose-700 bg-rose-50 border-rose-200'
+                        }`}>
+                            {downloadStatus.text}
                         </span>
                     )}
                     <button
@@ -97,6 +105,9 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string; title?
 };
 
 const OutputImage: React.FC<{ base64: string; index: number; titlePrefix?: string; onClick: () => void }> = ({ base64, index, titlePrefix, onClick }) => {
+    const [downloading, setDownloading] = useState(false);
+    const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
+
     const imgSrc = base64.startsWith('data:') || base64.startsWith('http')
         ? base64
         : `data:image/png;base64,${base64}`;
@@ -105,8 +116,26 @@ const OutputImage: React.FC<{ base64: string; index: number; titlePrefix?: strin
         ? `${titlePrefix.trim()}_${index + 1}`
         : `#${index + 1}`;
 
+    const handleQuickDownload = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (downloading) return;
+        setDownloading(true);
+        try {
+            const filename = `${label.replace(/[/\\?%*:|"<>]/g, '_')}.png`;
+            const res = await downloadImage(base64, filename);
+            setDownloadStatus(res.success ? '✓' : '✕');
+            setTimeout(() => setDownloadStatus(null), 2500);
+        } catch (err) {
+            console.error('Quick download image error:', err);
+            setDownloadStatus('✕');
+            setTimeout(() => setDownloadStatus(null), 2500);
+        } finally {
+            setDownloading(false);
+        }
+    };
+
     return (
-        <div className="group overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-shadow hover:shadow-md">
+        <div className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-shadow hover:shadow-md">
             <button
                 type="button"
                 onClick={onClick}
@@ -116,13 +145,38 @@ const OutputImage: React.FC<{ base64: string; index: number; titlePrefix?: strin
                 <img src={imgSrc} alt={label} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
 
                 {/* Title / Number Badge */}
-                <span className="absolute left-2 top-2 z-10 flex h-7 max-w-[85%] items-center justify-center rounded-lg bg-white/95 px-2 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm border border-slate-200 truncate" title={label}>
+                <span className="absolute left-2 top-2 z-10 flex h-7 max-w-[65%] items-center justify-center rounded-lg bg-white/95 px-2 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm border border-slate-200 truncate" title={label}>
                     {label}
                 </span>
 
                 <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-slate-900/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <span className="rounded-xl bg-white px-4 py-3 text-xs font-bold text-slate-900 shadow-sm">Xem chi tiết</span>
                 </span>
+            </button>
+
+            {/* Quick Download Button (Top Right) */}
+            <button
+                type="button"
+                onClick={handleQuickDownload}
+                disabled={downloading}
+                aria-label={`Tải ảnh ${label}`}
+                title={`Tải ảnh ${label} về máy`}
+                className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg bg-white/95 text-slate-700 shadow-sm border border-slate-200 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 active:scale-95 transition-all cursor-pointer"
+            >
+                {downloadStatus ? (
+                    <span className={`text-xs font-bold ${downloadStatus === '✓' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {downloadStatus}
+                    </span>
+                ) : downloading ? (
+                    <svg className="w-3.5 h-3.5 animate-spin text-violet-600" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                )}
             </button>
         </div>
     );
@@ -183,8 +237,31 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
     onReplaySlideshow,
     onDismissError
 }) => {
+    const [batchDownloading, setBatchDownloading] = useState(false);
+    const [batchProgress, setBatchProgress] = useState<string | null>(null);
+
     const hasCompletedImages = outputImages.some(img => img !== null);
+    const completedImages = outputImages.filter((img): img is string => img !== null && !isVideoUrl(img));
     const isActive = isLoading ? outputImages.length > 0 : hasCompletedImages;
+
+    const handleBatchDownloadAll = async () => {
+        if (batchDownloading || completedImages.length === 0) return;
+        setBatchDownloading(true);
+        try {
+            for (let i = 0; i < completedImages.length; i++) {
+                setBatchProgress(`${i + 1}/${completedImages.length}`);
+                const rawName = titlePrefix && titlePrefix.trim() ? `${titlePrefix.trim()}_${i + 1}.png` : `Image_${i + 1}.png`;
+                await downloadImage(completedImages[i], rawName);
+                await new Promise(r => setTimeout(r, 350));
+            }
+            setBatchProgress('✓ Xong');
+            setTimeout(() => setBatchProgress(null), 3000);
+        } catch (e) {
+            console.error('Batch download error:', e);
+        } finally {
+            setBatchDownloading(false);
+        }
+    };
 
     if (!isLoading && !isActive) {
         return (
@@ -222,17 +299,47 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             {/* Header / Status */}
             <div className="bg-white rounded-2xl shadow-xs border border-indigo-100/90 ring-1 ring-slate-900/5 p-6 flex flex-col items-center justify-center text-center transition-all duration-300 relative">
 
-                {/* REPLAY BUTTON (Top Right) */}
-                {isActive && !isLoading && onReplaySlideshow && (
-                    <button
-                        onClick={onReplaySlideshow}
-                        className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-violet-600 text-white font-bold rounded-xl shadow-xs hover:bg-violet-700 transition-all text-xs z-20"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                        </svg>
-                        TRÌNH CHIẾU
-                    </button>
+                {/* Header Action Buttons */}
+                {isActive && !isLoading && (
+                    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 w-full sm:w-auto mt-3 sm:mt-0 sm:absolute sm:top-4 sm:right-4 z-20">
+                        {isElectronPlatform() && (
+                            <button
+                                type="button"
+                                onClick={() => (window as any).electronAPI?.openDirectory?.()}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl shadow-xs transition-all text-xs cursor-pointer border border-slate-200 active:scale-95"
+                                title="Mở thư mục lưu trên máy tính"
+                            >
+                                📁 Mở thư mục lưu
+                            </button>
+                        )}
+
+                        {completedImages.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={handleBatchDownloadAll}
+                                disabled={batchDownloading}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-xs transition-all text-xs cursor-pointer active:scale-95"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                <span>{batchDownloading ? `Đang lưu (${batchProgress})...` : `Tải tất cả ảnh (${completedImages.length})`}</span>
+                            </button>
+                        )}
+
+                        {onReplaySlideshow && (
+                            <button
+                                type="button"
+                                onClick={onReplaySlideshow}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-violet-600 text-white font-bold rounded-xl shadow-xs hover:bg-violet-700 transition-all text-xs cursor-pointer active:scale-95"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                                </svg>
+                                TRÌNH CHIẾU
+                            </button>
+                        )}
+                    </div>
                 )}
 
                 {isLoading ? (
