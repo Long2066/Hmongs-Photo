@@ -6,6 +6,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import { ApkInstaller } from './appUpdateService';
 
 export interface DownloadResult {
@@ -47,21 +48,57 @@ export function sanitizeMediaFilename(name: string): string {
 }
 
 /**
- * Convert raw or data base64 into a Blob safely
+ * Convert binary Blob into clean Base64 string without data: header
+ */
+export async function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const res = (reader.result as string) || '';
+            const clean = res.includes(',') ? res.split(',')[1] : res;
+            resolve(clean);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+/**
+ * Convert raw or data base64 into a Blob safely, sanitizing padding and whitespace
  */
 export function base64ToBlob(base64: string, defaultMime = 'image/png'): Blob {
-    const clean = base64.includes(',') ? base64.split(',')[1] : base64;
+    if (!base64 || typeof base64 !== 'string') {
+        return new Blob([], { type: defaultMime });
+    }
     let mime = defaultMime;
+    let clean = base64;
     if (base64.startsWith('data:')) {
-        const mimeMatch = base64.match(/^data:([^;]+);/);
-        if (mimeMatch) mime = mimeMatch[1];
+        const commaIdx = base64.indexOf(',');
+        if (commaIdx !== -1) {
+            const header = base64.substring(0, commaIdx);
+            clean = base64.substring(commaIdx + 1);
+            const mimeMatch = header.match(/^data:([^;]+);/);
+            if (mimeMatch) mime = mimeMatch[1];
+        }
     }
-    const byteCharacters = atob(clean);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+
+    // Clean whitespace and normalize URL-safe base64 chars
+    clean = clean.replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    while (clean.length % 4 !== 0) {
+        clean += '=';
     }
-    return new Blob([new Uint8Array(byteNumbers)], { type: mime });
+
+    try {
+        const byteCharacters = atob(clean);
+        const byteNumbers = new Uint8Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        return new Blob([byteNumbers], { type: mime });
+    } catch (e) {
+        console.warn('[base64ToBlob] atob decode error, returning fallback blob:', e);
+        return new Blob([], { type: mime });
+    }
 }
 
 /**
@@ -82,15 +119,7 @@ async function streamBlobViaNativeChunks(blob: Blob, filename: string, mimeType:
         const isFirst = offset === 0;
         const isLast = nextOffset >= blob.size;
 
-        const chunkBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const res = reader.result as string;
-                resolve(res.includes(',') ? res.split(',')[1] : res);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(slice);
-        });
+        const chunkBase64 = await blobToBase64(slice);
 
         lastRes = await ApkInstaller.saveMediaChunk({
             chunk: chunkBase64,
@@ -114,6 +143,47 @@ async function streamBlobViaNativeChunks(blob: Blob, filename: string, mimeType:
 }
 
 /**
+ * Fallback saving via Capacitor Filesystem (for legacy native APK containers)
+ */
+async function saveViaFilesystemFallback(blob: Blob, filename: string): Promise<DownloadResult> {
+    const cleanBase64 = await blobToBase64(blob);
+    if (!cleanBase64) {
+        throw new Error('Dữ liệu tệp rỗng');
+    }
+
+    // Try Documents first
+    try {
+        const result = await Filesystem.writeFile({
+            path: filename,
+            data: cleanBase64,
+            directory: Directory.Documents,
+            recursive: true
+        });
+        return {
+            success: true,
+            message: `✅ Đã lưu vào Documents: ${filename}`,
+            path: result.uri
+        };
+    } catch (docErr) {
+        console.warn('[Download] Filesystem.Documents failed, trying Cache:', docErr);
+    }
+
+    // Fallback to Cache
+    const cacheResult = await Filesystem.writeFile({
+        path: filename,
+        data: cleanBase64,
+        directory: Directory.Cache,
+        recursive: true
+    });
+
+    return {
+        success: true,
+        message: `✅ Đã lưu vào bộ nhớ máy: ${filename}`,
+        path: cacheResult.uri
+    };
+}
+
+/**
  * Download base64 image or media URL to device
  * - On Native Android/iOS: Uses MediaStore (Movies/ImageTool or Pictures/ImageTool)
  * - On Electron Desktop: Saves directly to configured custom folder using electronAPI.saveFile
@@ -133,7 +203,7 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
         const mimeType = isVideo ? 'video/mp4' : 'image/png';
         const isUrl = /^https?:\/\//i.test(dataOrUrl);
 
-        // Case 1: Remote HTTP/HTTPS URL (Muse, Vivix, OpenRouter, Cloudflare R2)
+        // Case 1: Remote HTTP/HTTPS URL
         if (isUrl) {
             try {
                 const res = await ApkInstaller.saveMediaToGallery?.({
@@ -151,48 +221,44 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
             } catch (err) {
                 console.warn('[Download] Native direct URL download failed, trying WebView fetch stream:', err);
             }
+        }
 
-            // Fallback: Fetch in WebView and stream via native chunks
-            try {
+        // Prepare binary Blob for streaming or filesystem fallback
+        let mediaBlob: Blob | null = null;
+        try {
+            if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://') || dataOrUrl.startsWith('blob:')) {
                 const resp = await fetch(dataOrUrl);
                 if (resp.ok) {
-                    const blob = await resp.blob();
-                    const actualMime = blob.type || mimeType;
-                    return await streamBlobViaNativeChunks(blob, filename, actualMime);
+                    mediaBlob = await resp.blob();
                 }
-            } catch (fetchErr) {
-                console.warn('[Download] WebView fetch stream failed:', fetchErr);
+            } else {
+                mediaBlob = base64ToBlob(dataOrUrl, mimeType);
             }
-
-            return downloadWeb(dataOrUrl, filename);
+        } catch (fetchErr) {
+            console.warn('[Download] Failed to convert input to Blob:', fetchErr);
         }
 
-        // Case 2: blob: URL or data: URL
-        if (dataOrUrl.startsWith('blob:') || dataOrUrl.startsWith('data:')) {
+        // If we have a blob, stream to MediaStore
+        if (mediaBlob && mediaBlob.size > 0) {
+            const actualMime = mediaBlob.type || mimeType;
+
+            // Priority 1: MediaStore chunk streaming (high-speed, directly in Gallery)
             try {
-                let blob: Blob;
-                if (dataOrUrl.startsWith('blob:')) {
-                    const resp = await fetch(dataOrUrl);
-                    blob = await resp.blob();
-                } else {
-                    blob = base64ToBlob(dataOrUrl, mimeType);
-                }
-                const actualMime = blob.type || mimeType;
-                return await streamBlobViaNativeChunks(blob, filename, actualMime);
-            } catch (blobErr) {
-                console.warn('[Download] Native chunk stream failed, falling back to web download:', blobErr);
-                return downloadWeb(dataOrUrl, filename);
+                return await streamBlobViaNativeChunks(mediaBlob, filename, actualMime);
+            } catch (chunkErr) {
+                console.warn('[Download] Native chunk stream failed, trying Filesystem fallback:', chunkErr);
+            }
+
+            // Priority 2: Capacitor Filesystem fallback (works on any older APK container)
+            try {
+                return await saveViaFilesystemFallback(mediaBlob, filename);
+            } catch (fsErr) {
+                console.warn('[Download] Filesystem fallback failed, falling back to web download:', fsErr);
             }
         }
 
-        // Case 3: Raw base64 string
-        try {
-            const blob = base64ToBlob(dataOrUrl, mimeType);
-            return await streamBlobViaNativeChunks(blob, filename, mimeType);
-        } catch (rawErr) {
-            console.warn('[Download] Raw base64 chunk stream failed, falling back to web download:', rawErr);
-            return downloadWeb(dataOrUrl, filename);
-        }
+        // Priority 3: Fallback web download
+        return downloadWeb(dataOrUrl, filename);
     } else {
         return downloadWeb(dataOrUrl, filename);
     }
@@ -239,6 +305,21 @@ async function downloadElectron(dataOrUrl: string, filename: string): Promise<Do
  */
 function downloadWeb(dataOrUrl: string, filename: string): DownloadResult {
     try {
+        // Case A: blob: URL directly trigger anchor click
+        if (dataOrUrl.startsWith('blob:')) {
+            const link = document.createElement('a');
+            link.href = dataOrUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return {
+                success: true,
+                message: `✅ Đang tải: ${filename}`
+            };
+        }
+
+        // Case B: http / https remote URL
         if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
             fetch(dataOrUrl)
                 .then(r => r.blob())
@@ -269,15 +350,12 @@ function downloadWeb(dataOrUrl: string, filename: string): DownloadResult {
             };
         }
 
-        const cleanBase64 = dataOrUrl.includes(',') ? dataOrUrl.split(',')[1] : dataOrUrl;
-        const byteCharacters = atob(cleanBase64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
+        // Case C: Base64 string
         const isVideo = filename.toLowerCase().endsWith('.mp4') || filename.toLowerCase().endsWith('.webm');
-        const blob = new Blob([byteArray], { type: isVideo ? 'video/mp4' : 'image/png' });
+        const blob = base64ToBlob(dataOrUrl, isVideo ? 'video/mp4' : 'image/png');
+        if (blob.size === 0) {
+            throw new Error('Dữ liệu tệp không hợp lệ');
+        }
 
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');

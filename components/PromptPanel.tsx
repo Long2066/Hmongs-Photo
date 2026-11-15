@@ -77,26 +77,32 @@ const styles = [
 export const parsePromptsFromText = (text: string): string[] => {
     if (!text || !text.trim()) return [];
 
-    // 1. Try splitting by blank lines
-    let prompts = text.split(/\r?\n\s*\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
+    // 1. First priority: Check if text contains numbered or Prompt-tagged items (e.g. "1.", "2.", "Prompt 1:")
+    const listItems = text
+        .split(/(?:\r?\n|^)\s*(?=(?:(?:\d+[\.\)]|Prompt\s*\d+[:\.]|\#+\s*Prompt\s*\d+)\s+))/i)
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
 
-    // 2. If only 1 block is found, check if it's formatted as a numbered or bulleted list
-    if (prompts.length <= 1) {
-        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-        const listItems = text
-            .split(/(?:\r?\n)+(?=(?:(?:\d+[\.\)]|Prompt\s*\d+[:\.]|\#+\s*Prompt\s*\d+)\s+))/i)
-            .map(p => p.trim())
-            .filter(p => p.length > 0);
+    let prompts: string[] = [];
+    if (listItems.length > 1) {
+        prompts = listItems;
+    } else {
+        // 2. Try splitting by blank lines
+        prompts = text.split(/\r?\n\s*\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
 
-        if (listItems.length > 1) {
-            prompts = listItems;
-        } else if (lines.length > 1 && lines.every(l => /^(?:[-*•]|\d+[\.\)])/.test(l))) {
-            prompts = lines;
+        // 3. Fallback: single lines with bullets
+        if (prompts.length <= 1) {
+            const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+            if (lines.length > 1 && lines.every(l => /^(?:[-*•]|\d+[\.\)])/.test(l))) {
+                prompts = lines;
+            }
         }
     }
 
-    // 3. Clean up prefixes (e.g. "1. ", "Prompt 1: ", "- ")
-    return prompts.map(p => p.replace(/^(?:[-*•]|\d+[\.\)]|Prompt\s*\d+[:\.])\s*/i, '').trim()).filter(p => p.length > 0);
+    // 4. Clean up prefixes (e.g. "1. ", "Prompt 1: ", "- ")
+    return prompts
+        .map(p => p.replace(/^(?:[-*•]|\d+[\.\)]|Prompt\s*\d+[:\.])\s*/i, '').trim())
+        .filter(p => p.length > 0);
 };
 
 export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, isLoading, isDisabled, hasApiKey, selectedImageCount, inputCounts = { male: 0, female: 0, maleAcc: 0, femaleAcc: 0 }, refImages }) => {
@@ -153,9 +159,13 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                 setPromptError('AI chưa tạo được prompt. Vui lòng thử lại.');
                 return;
             }
-            // Preserve the existing batch rule and image-generation handler.
-            if (prompts.length === 1 && quantity > 1) {
-                prompts = Array.from({ length: quantity }, () => prompts[0]);
+            // Enforce exact prompt count strictly matching user-selected quantity (e.g. 10 outputs = exactly 10 prompts)
+            if (prompts.length < quantity && prompts.length > 0) {
+                while (prompts.length < quantity) {
+                    prompts.push(prompts[prompts.length % prompts.length]);
+                }
+            } else if (prompts.length > quantity) {
+                prompts = prompts.slice(0, quantity);
             }
             const selectedResolution = getSelectedResolution();
             onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType);

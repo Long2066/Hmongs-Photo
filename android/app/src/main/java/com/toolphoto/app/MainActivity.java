@@ -443,7 +443,12 @@ class ApkInstallerPlugin extends Plugin {
                     Uri collection = isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
                     mediaUri = ctx.getContentResolver().insert(collection, values);
                     if (mediaUri == null) {
-                        call.reject("Không thể tạo bản ghi MediaStore (Có thể trùng tên tệp)");
+                        String altName = System.currentTimeMillis() + "_" + finalFilename;
+                        values.put(isVideo ? MediaStore.Video.Media.DISPLAY_NAME : MediaStore.Images.Media.DISPLAY_NAME, altName);
+                        mediaUri = ctx.getContentResolver().insert(collection, values);
+                    }
+                    if (mediaUri == null) {
+                        call.reject("Không thể tạo bản ghi MediaStore (Bộ nhớ đầy hoặc không hỗ trợ)");
                         return;
                     }
                     out = ctx.getContentResolver().openOutputStream(mediaUri);
@@ -594,7 +599,12 @@ class ApkInstallerPlugin extends Plugin {
                         Uri collection = chunkIsVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
                         chunkMediaUri = ctx.getContentResolver().insert(collection, values);
                         if (chunkMediaUri == null) {
-                            call.reject("Không thể tạo MediaStore URI (Có thể trùng tên tệp)");
+                            String altName = System.currentTimeMillis() + "_" + filename;
+                            values.put(chunkIsVideo ? MediaStore.Video.Media.DISPLAY_NAME : MediaStore.Images.Media.DISPLAY_NAME, altName);
+                            chunkMediaUri = ctx.getContentResolver().insert(collection, values);
+                        }
+                        if (chunkMediaUri == null) {
+                            call.reject("Không thể tạo MediaStore URI (Bộ nhớ đầy hoặc không hỗ trợ)");
                             return;
                         }
                         chunkOutputStream = ctx.getContentResolver().openOutputStream(chunkMediaUri);

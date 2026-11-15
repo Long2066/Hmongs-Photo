@@ -1226,7 +1226,12 @@ export const generateBatchPromptsText = async (
     Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"`
     }
 
-    Output format: Just the prompts, separated by double newlines. No numbering, no introduction.
+    Output format: STRICT numbered list from 1 to ${count}. Format exactly as:
+    1. [First complete prompt]
+    2. [Second complete prompt]
+    ...
+    ${count}. [Last complete prompt]
+    Separate each numbered prompt by a blank line. Do not skip any numbers. You MUST output EXACTLY ${count} numbered prompts from 1 to ${count}. No introduction, no other text.
     `;
 
     // PRIORITY -1: NineRouter mode (isolated; never fall back to billable providers)

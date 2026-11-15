@@ -302,13 +302,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                     rows={3}
                     className="w-full p-3 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none bg-slate-50/50 leading-relaxed"
                 />
-
-                <div className="mt-2.5 p-2.5 rounded-xl bg-indigo-50/80 border border-indigo-200/60 flex items-start gap-2">
-                    <span className="text-indigo-600 text-sm">🔒</span>
-                    <p className="text-[11px] text-indigo-900 leading-relaxed font-medium">
-                        <strong>Quy chuẩn bảo toàn:</strong> Hệ thống tự động gắn kèm chỉ dẫn <span className="underline decoration-indigo-400 font-semibold">"Giữ tuyệt đối khuôn mặt và nhân vật gốc"</span> vào từng phân cảnh để đồng nhất nhân vật.
-                    </p>
-                </div>
             </div>
 
             {/* 3. ASPECT RATIO & DURATION (Khóa tự động các mục model không hỗ trợ) */}
