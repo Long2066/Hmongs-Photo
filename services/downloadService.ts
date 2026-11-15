@@ -230,13 +230,21 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
         return downloadElectron(dataOrUrl, filename);
     } else if (isNativePlatform()) {
         const mimeType = isVideo ? 'video/mp4' : 'image/png';
-        const isUrl = /^https?:\/\//i.test(dataOrUrl);
 
-        // Case 0: Local file path or file:// URL
-        if (dataOrUrl.startsWith('file://') || (dataOrUrl.startsWith('/') && !dataOrUrl.startsWith('/v1/'))) {
+        // 1. Nếu là file nội bộ trên thiết bị (chứa /_capacitor_file_/, file://, hoặc đường dẫn tuyệt đối /data/...)
+        let localPath = '';
+        if (dataOrUrl.includes('/_capacitor_file_/')) {
+            localPath = dataOrUrl.substring(dataOrUrl.indexOf('/_capacitor_file_/') + '/_capacitor_file_'.length);
+        } else if (dataOrUrl.startsWith('file://')) {
+            localPath = dataOrUrl.substring(7);
+        } else if (dataOrUrl.startsWith('/') && !dataOrUrl.startsWith('/v1/')) {
+            localPath = dataOrUrl;
+        }
+
+        if (localPath) {
             try {
                 const res = await ApkInstaller.saveMediaToGallery?.({
-                    filePath: dataOrUrl,
+                    filePath: localPath,
                     filename,
                     mimeType
                 });
@@ -252,8 +260,30 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
             }
         }
 
-        // Case 1: Remote HTTP/HTTPS URL
-        if (isUrl) {
+        // 2. Nếu là URL mạng từ máy chủ (HTTP/HTTPS)
+        if (/^https?:\/\//i.test(dataOrUrl) && !dataOrUrl.includes('localhost')) {
+            // ƯU TIÊN 1 (PHƯƠNG ÁN B): Android DownloadManager chính chủ
+            // Tải ngầm hệ thống, hiển thị thanh tiến trình notification, tự động quét MediaStore chuẩn 100%
+            if (ApkInstaller.downloadFileWithSystemManager) {
+                try {
+                    const dlRes = await ApkInstaller.downloadFileWithSystemManager({
+                        url: dataOrUrl,
+                        filename,
+                        mimeType
+                    });
+                    if (dlRes && dlRes.success) {
+                        return {
+                            success: true,
+                            message: dlRes.message || `🚀 Đang tải về máy qua Android Download Manager (Xem thanh thông báo hệ thống)`,
+                            path: filename
+                        };
+                    }
+                } catch (dmErr) {
+                    console.warn('[Download] DownloadManager call failed, trying saveMediaToGallery:', dmErr);
+                }
+            }
+
+            // ƯU TIÊN 2: Java Http direct stream to MediaStore
             try {
                 const res = await ApkInstaller.saveMediaToGallery?.({
                     url: dataOrUrl,

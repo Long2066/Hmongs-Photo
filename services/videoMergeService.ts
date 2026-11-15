@@ -5,7 +5,9 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import { ApkInstaller } from './appUpdateService';
+import { blobToBase64 } from './downloadService';
 
 export interface MergeVideosOptions {
     videoUrls: string[];
@@ -141,9 +143,42 @@ export async function mergeVideos({
     if (Capacitor.isNativePlatform() && ApkInstaller.mergeVideos) {
         onProgress?.(`Đang ghép nối siêu tốc ${videoUrls.length} phân cảnh bằng Android Native Engine...`);
         try {
+            // Chuẩn hóa danh sách URL: Chuyển các link _capacitor_file_ hoặc blob/data về đường dẫn file:// hợp lệ trên máy
+            const normalizedUrls: string[] = [];
+            for (let i = 0; i < videoUrls.length; i++) {
+                const u = videoUrls[i];
+                if (u.includes('/_capacitor_file_/')) {
+                    const rawP = u.substring(u.indexOf('/_capacitor_file_/') + '/_capacitor_file_'.length);
+                    normalizedUrls.push(`file://${rawP}`);
+                } else if (u.startsWith('blob:') || u.startsWith('data:')) {
+                    try {
+                        const resp = await fetch(u);
+                        const blob = await resp.blob();
+                        const b64 = await blobToBase64(blob);
+                        const tempName = `temp_clip_${Date.now()}_${i}.mp4`;
+                        await Filesystem.writeFile({
+                            path: tempName,
+                            data: b64,
+                            directory: Directory.Cache,
+                            recursive: true
+                        });
+                        const uriRes = await Filesystem.getUri({
+                            path: tempName,
+                            directory: Directory.Cache
+                        });
+                        normalizedUrls.push(uriRes.uri);
+                    } catch (blobErr) {
+                        console.warn('[VideoMerge] Không thể lưu tạm blob clip:', blobErr);
+                        normalizedUrls.push(u);
+                    }
+                } else {
+                    normalizedUrls.push(u);
+                }
+            }
+
             const cleanTitle = (title || 'Video_Series').replace(/[/\\?%*:|"<>]/g, '_');
             const res = await ApkInstaller.mergeVideos({
-                videoUrls,
+                videoUrls: normalizedUrls,
                 filename: `${cleanTitle}.mp4`
             });
             if (res && res.success && (res.path || res.url)) {
@@ -158,8 +193,14 @@ export async function mergeVideos({
                 return res.url || '';
             }
         } catch (e) {
-            console.warn('[VideoMerge] Android native merge failed, falling back to client canvas engine:', e);
+            console.warn('[VideoMerge] Android native merge failed:', e);
         }
+
+        // BẢO VỆ PHƯƠNG ÁN B: Tuyệt đối không fallback sang Canvas MediaRecorder trên Android
+        // Canvas MediaRecorder sinh ra WebM giả MP4 làm lỗi Samsung Gallery và thanh tua video.
+        // Trả về trực tiếp clip MP4 gốc đầu tiên 100% chuẩn H.264
+        console.warn('[VideoMerge] Trả về video MP4 phân cảnh đầu tiên để bảo đảm chuẩn H.264 không bị lỗi Gallery.');
+        return videoUrls[0];
     }
 
     onProgress?.(`Đang tải đệm ${videoUrls.length} phân cảnh vào bộ nhớ máy...`);

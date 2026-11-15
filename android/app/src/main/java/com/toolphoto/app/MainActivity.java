@@ -679,6 +679,72 @@ class ApkInstallerPlugin extends Plugin {
     }
 
     /**
+     * Native Android DownloadManager (Hệ thống tải ngầm chính chủ của Android)
+     * Hiển thị tiến trình trên thanh thông báo hệ thống, tải ngầm an toàn,
+     * Tự động quét MediaStore đưa video/ảnh vào Gallery và thư mục Movies/ImageTool hoặc Downloads
+     */
+    @PluginMethod
+    public void downloadFileWithSystemManager(PluginCall call) {
+        String urlStr = call.getString("url");
+        String filename = call.getString("filename");
+        String mimeType = call.getString("mimeType");
+
+        if (urlStr == null || urlStr.trim().isEmpty()) {
+            call.reject("url is required");
+            return;
+        }
+
+        if (filename == null || filename.trim().isEmpty()) {
+            filename = "ImageTool_" + System.currentTimeMillis() + ".mp4";
+        }
+        filename = sanitizeFilename(filename);
+
+        if (mimeType == null || mimeType.trim().isEmpty()) {
+            mimeType = filename.endsWith(".mp4") ? "video/mp4" : "image/png";
+        }
+
+        final boolean isVideo = mimeType.startsWith("video/") || filename.endsWith(".mp4");
+        final String finalFilename = filename;
+        final String finalMimeType = mimeType;
+
+        try {
+            android.app.DownloadManager dm = (android.app.DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) {
+                call.reject("Dịch vụ DownloadManager không khả dụng trên thiết bị này");
+                return;
+            }
+
+            android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(Uri.parse(urlStr));
+            request.setTitle(finalFilename);
+            request.setDescription("Đang tải tệp về thiết bị...");
+            request.setMimeType(finalMimeType);
+            request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+
+            try {
+                if (isVideo) {
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MOVIES, "ImageTool/" + finalFilename);
+                } else {
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_PICTURES, "ImageTool/" + finalFilename);
+                }
+            } catch (Exception ex) {
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, finalFilename);
+            }
+
+            request.allowScanningByMediaScanner();
+
+            long downloadId = dm.enqueue(request);
+
+            JSObject res = new JSObject();
+            res.put("success", true);
+            res.put("downloadId", downloadId);
+            res.put("message", "🚀 Đang tải về máy qua Android Download Manager (Xem thanh thông báo hệ thống)");
+            call.resolve(res);
+        } catch (Exception e) {
+            call.reject("Lỗi Android Download Manager: " + e.getMessage());
+        }
+    }
+
+    /**
      * Native MP4 Video Concatenation for Android APK (MediaExtractor + MediaMuxer)
      * Extremely fast (0.2s), genuine MP4 H.264, zero quality loss.
      */
@@ -764,6 +830,8 @@ class ApkInstallerPlugin extends Plugin {
                 MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
                 long videoPtsOffsetUs = 0;
                 long audioPtsOffsetUs = 0;
+                long maxVideoPtsWritten = -1;
+                long maxAudioPtsWritten = -1;
 
                 for (File clip : tempClips) {
                     MediaExtractor extractor = new MediaExtractor();
@@ -771,18 +839,23 @@ class ApkInstallerPlugin extends Plugin {
 
                     int clipVideoTrack = -1;
                     int clipAudioTrack = -1;
+                    long clipDurationUs = 0;
+
                     for (int i = 0; i < extractor.getTrackCount(); i++) {
                         MediaFormat format = extractor.getTrackFormat(i);
                         String mime = format.getString(MediaFormat.KEY_MIME);
                         if (mime != null && mime.startsWith("video/") && clipVideoTrack == -1) {
                             clipVideoTrack = i;
+                            if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                                clipDurationUs = Math.max(clipDurationUs, format.getLong(MediaFormat.KEY_DURATION));
+                            }
                         } else if (mime != null && mime.startsWith("audio/") && clipAudioTrack == -1) {
                             clipAudioTrack = i;
                         }
                     }
 
-                    long lastVideoPts = 0;
-                    long lastAudioPts = 0;
+                    long clipMaxVideoPts = 0;
+                    long clipMaxAudioPts = 0;
 
                     if (clipVideoTrack != -1) {
                         extractor.selectTrack(clipVideoTrack);
@@ -790,13 +863,25 @@ class ApkInstallerPlugin extends Plugin {
                             int sampleSize = extractor.readSampleData(buffer, 0);
                             if (sampleSize < 0) break;
 
+                            long sampleTime = extractor.getSampleTime();
+                            if (sampleTime < 0) {
+                                extractor.advance();
+                                continue;
+                            }
+
+                            clipMaxVideoPts = Math.max(clipMaxVideoPts, sampleTime);
+                            long targetPts = sampleTime + videoPtsOffsetUs;
+                            if (targetPts <= maxVideoPtsWritten) {
+                                targetPts = maxVideoPtsWritten + 1000L; // Ensure strictly monotonic PTS
+                            }
+                            maxVideoPtsWritten = targetPts;
+
                             bufferInfo.offset = 0;
                             bufferInfo.size = sampleSize;
-                            bufferInfo.presentationTimeUs = extractor.getSampleTime() + videoPtsOffsetUs;
+                            bufferInfo.presentationTimeUs = targetPts;
                             bufferInfo.flags = extractor.getSampleFlags();
 
                             muxer.writeSampleData(muxerVideoTrack, buffer, bufferInfo);
-                            lastVideoPts = extractor.getSampleTime();
                             extractor.advance();
                         }
                         extractor.unselectTrack(clipVideoTrack);
@@ -808,13 +893,25 @@ class ApkInstallerPlugin extends Plugin {
                             int sampleSize = extractor.readSampleData(buffer, 0);
                             if (sampleSize < 0) break;
 
+                            long sampleTime = extractor.getSampleTime();
+                            if (sampleTime < 0) {
+                                extractor.advance();
+                                continue;
+                            }
+
+                            clipMaxAudioPts = Math.max(clipMaxAudioPts, sampleTime);
+                            long targetPts = sampleTime + audioPtsOffsetUs;
+                            if (targetPts <= maxAudioPtsWritten) {
+                                targetPts = maxAudioPtsWritten + 1000L; // Ensure strictly monotonic PTS
+                            }
+                            maxAudioPtsWritten = targetPts;
+
                             bufferInfo.offset = 0;
                             bufferInfo.size = sampleSize;
-                            bufferInfo.presentationTimeUs = extractor.getSampleTime() + audioPtsOffsetUs;
+                            bufferInfo.presentationTimeUs = targetPts;
                             bufferInfo.flags = extractor.getSampleFlags();
 
                             muxer.writeSampleData(muxerAudioTrack, buffer, bufferInfo);
-                            lastAudioPts = extractor.getSampleTime();
                             extractor.advance();
                         }
                         extractor.unselectTrack(clipAudioTrack);
@@ -822,12 +919,27 @@ class ApkInstallerPlugin extends Plugin {
 
                     extractor.release();
 
-                    videoPtsOffsetUs += lastVideoPts + 33000L;
-                    audioPtsOffsetUs += lastAudioPts + 23000L;
+                    long effectiveClipDuration = Math.max(clipDurationUs, clipMaxVideoPts);
+                    if (effectiveClipDuration <= 0) effectiveClipDuration = 5000000L;
+                    videoPtsOffsetUs += effectiveClipDuration + 33333L;
+
+                    long effectiveAudioDuration = Math.max(clipDurationUs, clipMaxAudioPts);
+                    if (effectiveAudioDuration <= 0) effectiveAudioDuration = 5000000L;
+                    audioPtsOffsetUs += effectiveAudioDuration + 23220L;
                 }
 
-                muxer.stop();
-                muxer.release();
+                try {
+                    muxer.stop();
+                } catch (Exception ex) {
+                    android.util.Log.e("ApkInstaller", "muxer.stop warning: " + ex.getMessage());
+                }
+                try {
+                    muxer.release();
+                } catch (Exception ignored) {}
+
+                if (!tempOutput.exists() || tempOutput.length() < 5000) {
+                    throw new Exception("File video ghép không hợp lệ hoặc kích thước quá nhỏ");
+                }
 
                 // Lưu bản sao vào Gallery MediaStore
                 Uri galleryUri = saveFileToGalleryInternal(ctx, tempOutput, cleanName, "video/mp4", true);
