@@ -2,7 +2,7 @@
  * Download Service - Handles file downloads for Web, Mobile (Android/iOS), and Electron Desktop
  * - Electron Desktop: Writes directly to user's configured custom folder (zero copy)
  * - Android/iOS: Streams chunks directly into Android MediaStore (Movies/ImageTool, Pictures/ImageTool)
- * - Web Browser: Uses standard data URL / blob download
+ * - Web Browser: Uses standard data URL / blob download with Web Share API fallback for Mobile Web
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -103,7 +103,7 @@ export function base64ToBlob(base64: string, defaultMime = 'image/png'): Blob {
 
 /**
  * Stream binary Blob to Android MediaStore in 256KB chunks via ApkInstaller.saveMediaChunk
- * Completely bypasses IPC memory bounds and eliminates 'writeFile' errors forever!
+ * Completely bypasses IPC memory bounds and saves directly to Movies/ImageTool or Pictures/ImageTool
  */
 async function streamBlobViaNativeChunks(blob: Blob, filename: string, mimeType: string): Promise<DownloadResult> {
     if (!ApkInstaller.saveMediaChunk) {
@@ -143,51 +143,80 @@ async function streamBlobViaNativeChunks(blob: Blob, filename: string, mimeType:
 }
 
 /**
- * Fallback saving via Capacitor Filesystem (for legacy native APK containers)
+ * Fallback saving via Capacitor Filesystem in 256KB chunks (for legacy native APK containers)
+ * Bypasses Android 1MB Binder IPC limit completely!
  */
 async function saveViaFilesystemFallback(blob: Blob, filename: string): Promise<DownloadResult> {
-    const cleanBase64 = await blobToBase64(blob);
-    if (!cleanBase64) {
-        throw new Error('Dữ liệu tệp rỗng');
-    }
+    const CHUNK_SIZE = 256 * 1024;
+    const targetDir = Directory.Documents;
 
-    // Try Documents first
+    // Try Documents first with sequential chunking
     try {
-        const result = await Filesystem.writeFile({
+        for (let offset = 0; offset < blob.size; offset += CHUNK_SIZE) {
+            const slice = blob.slice(offset, Math.min(offset + CHUNK_SIZE, blob.size));
+            const chunkBase64 = await blobToBase64(slice);
+            if (offset === 0) {
+                await Filesystem.writeFile({
+                    path: filename,
+                    data: chunkBase64,
+                    directory: targetDir,
+                    recursive: true
+                });
+            } else {
+                await Filesystem.appendFile({
+                    path: filename,
+                    data: chunkBase64,
+                    directory: targetDir
+                });
+            }
+        }
+        const fileUri = await Filesystem.getUri({
             path: filename,
-            data: cleanBase64,
-            directory: Directory.Documents,
-            recursive: true
+            directory: targetDir
         });
         return {
             success: true,
             message: `✅ Đã lưu vào Documents: ${filename}`,
-            path: result.uri
+            path: fileUri.uri
         };
     } catch (docErr) {
-        console.warn('[Download] Filesystem.Documents failed, trying Cache:', docErr);
+        console.warn('[Download] Filesystem Documents chunk write failed, trying Cache:', docErr);
+        // Fallback to Cache directory in chunks
+        for (let offset = 0; offset < blob.size; offset += CHUNK_SIZE) {
+            const slice = blob.slice(offset, Math.min(offset + CHUNK_SIZE, blob.size));
+            const chunkBase64 = await blobToBase64(slice);
+            if (offset === 0) {
+                await Filesystem.writeFile({
+                    path: filename,
+                    data: chunkBase64,
+                    directory: Directory.Cache,
+                    recursive: true
+                });
+            } else {
+                await Filesystem.appendFile({
+                    path: filename,
+                    data: chunkBase64,
+                    directory: Directory.Cache
+                });
+            }
+        }
+        const cacheUri = await Filesystem.getUri({
+            path: filename,
+            directory: Directory.Cache
+        });
+        return {
+            success: true,
+            message: `✅ Đã lưu vào bộ nhớ máy: ${filename}`,
+            path: cacheUri.uri
+        };
     }
-
-    // Fallback to Cache
-    const cacheResult = await Filesystem.writeFile({
-        path: filename,
-        data: cleanBase64,
-        directory: Directory.Cache,
-        recursive: true
-    });
-
-    return {
-        success: true,
-        message: `✅ Đã lưu vào bộ nhớ máy: ${filename}`,
-        path: cacheResult.uri
-    };
 }
 
 /**
  * Download base64 image or media URL to device
  * - On Native Android/iOS: Uses MediaStore (Movies/ImageTool or Pictures/ImageTool)
  * - On Electron Desktop: Saves directly to configured custom folder using electronAPI.saveFile
- * - On Web: Uses traditional data URL / blob download
+ * - On Web / Mobile Web: Uses Web Share API or traditional download
  */
 export async function downloadImage(dataOrUrl: string, filename: string): Promise<DownloadResult> {
     filename = sanitizeMediaFilename(filename);
@@ -249,11 +278,11 @@ export async function downloadImage(dataOrUrl: string, filename: string): Promis
                 console.warn('[Download] Native chunk stream failed, trying Filesystem fallback:', chunkErr);
             }
 
-            // Priority 2: Capacitor Filesystem fallback (works on any older APK container)
+            // Priority 2: Capacitor Filesystem chunked fallback (works on any older APK container)
             try {
                 return await saveViaFilesystemFallback(mediaBlob, filename);
             } catch (fsErr) {
-                console.warn('[Download] Filesystem fallback failed, falling back to web download:', fsErr);
+                console.warn('[Download] Filesystem chunked fallback failed, falling back to web download:', fsErr);
             }
         }
 
@@ -301,74 +330,64 @@ async function downloadElectron(dataOrUrl: string, filename: string): Promise<Do
 }
 
 /**
- * Web download using traditional data URL / blob method
+ * Web download using traditional data URL / blob method, with Web Share API for Mobile Web
  */
-function downloadWeb(dataOrUrl: string, filename: string): DownloadResult {
+async function downloadWeb(dataOrUrl: string, filename: string): Promise<DownloadResult> {
     try {
-        // Case A: blob: URL directly trigger anchor click
-        if (dataOrUrl.startsWith('blob:')) {
-            const link = document.createElement('a');
-            link.href = dataOrUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            return {
-                success: true,
-                message: `✅ Đang tải: ${filename}`
-            };
+        let blob: Blob | null = null;
+        if (dataOrUrl.startsWith('blob:') || dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
+            try {
+                const resp = await fetch(dataOrUrl);
+                if (resp.ok) {
+                    blob = await resp.blob();
+                }
+            } catch (err) {
+                console.warn('[downloadWeb] fetch error:', err);
+            }
+        } else {
+            const isVideo = filename.toLowerCase().endsWith('.mp4') || filename.toLowerCase().endsWith('.webm');
+            blob = base64ToBlob(dataOrUrl, isVideo ? 'video/mp4' : 'image/png');
         }
 
-        // Case B: http / https remote URL
-        if (dataOrUrl.startsWith('http://') || dataOrUrl.startsWith('https://')) {
-            fetch(dataOrUrl)
-                .then(r => r.blob())
-                .then(blob => {
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    setTimeout(() => URL.revokeObjectURL(url), 60000);
-                })
-                .catch(e => {
-                    console.error('[Download] Web fetch error, attempting direct link click:', e);
-                    const link = document.createElement('a');
-                    link.href = dataOrUrl;
-                    link.target = '_blank';
-                    link.download = filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                });
-
-            return {
-                success: true,
-                message: `✅ Đang tải: ${filename}`
-            };
+        // On mobile browsers / WebViews: Web Share API allows saving directly to device files
+        if (blob && typeof navigator !== 'undefined' && (navigator as any).canShare && typeof File !== 'undefined') {
+            try {
+                const file = new File([blob], filename, { type: blob.type || 'video/mp4' });
+                if ((navigator as any).canShare({ files: [file] })) {
+                    await (navigator as any).share({
+                        files: [file],
+                        title: filename,
+                        text: `Lưu ${filename}`
+                    });
+                    return {
+                        success: true,
+                        message: `✅ Đã mở trình lưu/chia sẻ tệp: ${filename}`
+                    };
+                }
+            } catch (shareErr: any) {
+                if (shareErr.name === 'AbortError') {
+                    return { success: true, message: `Đã hủy lưu tệp.` };
+                }
+                console.warn('[downloadWeb] navigator.share failed, fallback to anchor click:', shareErr);
+            }
         }
 
-        // Case C: Base64 string
-        const isVideo = filename.toLowerCase().endsWith('.mp4') || filename.toLowerCase().endsWith('.webm');
-        const blob = base64ToBlob(dataOrUrl, isVideo ? 'video/mp4' : 'image/png');
-        if (blob.size === 0) {
-            throw new Error('Dữ liệu tệp không hợp lệ');
-        }
-
-        const url = URL.createObjectURL(blob);
+        // Desktop and standard anchor fallback
+        const objectUrl = blob ? URL.createObjectURL(blob) : dataOrUrl;
         const link = document.createElement('a');
-        link.href = url;
+        link.href = objectUrl;
         link.download = filename;
+        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        if (blob) {
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        }
 
         return {
             success: true,
-            message: `✅ Đang tải: ${filename}`
+            message: `✅ Đã tải: ${filename}`
         };
     } catch (error: any) {
         console.error('[Download] Web download failed:', error);

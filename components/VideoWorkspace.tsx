@@ -214,16 +214,12 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
             {/* In-Progress State */}
             {isLoading && (
                 <div role="status" className="rounded-2xl bg-white p-6 shadow-sm border border-slate-200 text-center animate-fade-in">
-                    <div className="relative w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                    <div className="relative w-16 h-16 mx-auto mb-3 flex items-center justify-center">
                         <div className="absolute inset-0 rounded-full border-4 border-amber-200 border-t-amber-600 animate-spin" />
                         <span className="text-amber-600"><FilmIcon /></span>
                     </div>
 
-                    <h3 className="text-base font-bold text-slate-900">
-                        {loadingStatus || 'Vui lòng chờ...'}
-                    </h3>
-
-                    <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs font-mono font-bold text-slate-700">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs font-mono font-bold text-slate-700">
                         <span className="text-amber-600"><ClockIcon /></span>
                         <span>Thời gian đã xử lý: {formatSeconds(renderTime)}</span>
                     </div>

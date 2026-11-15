@@ -396,33 +396,6 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         })}
                     </div>
                 </div>
-
-                {/* Auto Series Factory Info */}
-                <div className="pt-2 border-t border-slate-100">
-                    <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                            <span>🎞️</span>
-                            <span>Dây chuyền tạo phim & Auto Ghép nối</span>
-                        </span>
-                        <span className="text-xs font-bold text-indigo-600 font-mono tabular-nums">
-                            {effectiveScenes} Cảnh → 1 Video
-                        </span>
-                    </div>
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
-                        <div className="flex items-center justify-between">
-                            <span>Số ảnh đầu vào (Tối đa 10):</span>
-                            <span className="font-bold text-slate-800 font-mono">{effectiveScenes} ảnh ({effectiveScenes} cảnh)</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <span>Thời lượng mỗi phân cảnh:</span>
-                            <span className="font-bold text-amber-600 font-mono">{duration}s / cảnh</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <span>Quy trình ghép nối tự động:</span>
-                            <span className="font-bold text-emerald-600">Cảnh 1 → {effectiveScenes} (Đã ghép hoàn chỉnh)</span>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             {/* 4. VIDEO SECONDS QUOTA SUMMARY */}
