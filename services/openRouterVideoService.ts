@@ -104,6 +104,108 @@ const base64ToImageBlob = async (base64Input: string): Promise<{ blob: Blob; fil
 };
 
 /**
+ * Chuẩn hóa ảnh tham chiếu đúng chuẩn tỉ lệ khung hình (16:9, 9:16, 1:1)
+ * Giữ nguyên 100% tỉ lệ pixel gương mặt, tránh hiện tượng co dãn làm méo hoặc thay đổi khuôn mặt
+ */
+export const prepareVideoReferenceFrame = async (
+    imageBase64OrUrl: string,
+    targetRatio: '16:9' | '9:16' | '1:1'
+): Promise<string> => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return imageBase64OrUrl;
+    }
+
+    try {
+        const dims: Record<'16:9' | '9:16' | '1:1', { w: number; h: number }> = {
+            '16:9': { w: 1280, h: 720 },
+            '9:16': { w: 720, h: 1280 },
+            '1:1': { w: 1024, h: 1024 }
+        };
+        const { w: targetW, h: targetH } = dims[targetRatio] || dims['16:9'];
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = (e) => reject(e);
+            img.src = imageBase64OrUrl.startsWith('data:') || /^https?:\/\//i.test(imageBase64OrUrl)
+                ? imageBase64OrUrl
+                : `data:image/png;base64,${imageBase64OrUrl}`;
+        });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return imageBase64OrUrl;
+
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, targetW, targetH);
+
+        const imgRatio = img.width / img.height;
+        const targetAspect = targetW / targetH;
+
+        let renderW = targetW;
+        let renderH = targetH;
+        let renderX = 0;
+        let renderY = 0;
+
+        if (imgRatio > targetAspect) {
+            renderH = targetH;
+            renderW = Math.round(targetH * imgRatio);
+            renderX = Math.round((targetW - renderW) / 2);
+        } else {
+            renderW = targetW;
+            renderH = Math.round(targetW / imgRatio);
+            renderY = Math.round(Math.max((targetH - renderH) * 0.2, targetH - renderH));
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, renderX, renderY, renderW, renderH);
+
+        return canvas.toDataURL('image/jpeg', 0.95);
+    } catch (err) {
+        console.warn('[prepareVideoReferenceFrame] Fallback to raw image:', err);
+        return imageBase64OrUrl;
+    }
+};
+
+/**
+ * Xây dựng Prompt Face-Lock chuyên sâu cho mô hình Video AI
+ * Đảm bảo khóa cứng 100% nhận diện khuôn mặt và nhân vật gốc xuyên suốt các góc quay
+ */
+export const buildFaceLockPrompt = (
+    userPrompt: string,
+    isImageToVideo: boolean
+): { prompt: string; negativePrompt: string } => {
+    const clean = userPrompt
+        .replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/gi, '')
+        .replace(/- Cảnh\s*\d+\/\d+/gi, '')
+        .trim();
+
+    const negativePrompt = 'face morphing, changing face, different person, shifting facial features, altered facial structure, mutated eyes, deformed nose, inconsistent identity, ugly, bad anatomy, deformed face during camera movement, duplicate faces, floating facial features, unnatural head movement, distorted jawline';
+
+    if (!isImageToVideo) {
+        return {
+            prompt: clean || 'Smooth cinematic camera motion, natural movement, high quality photorealistic',
+            negativePrompt
+        };
+    }
+
+    const faceLockDirectives = 'CRITICAL IDENTITY LOCK: Animate the exact person from the reference image. Strictly maintain 100% identical facial features, facial bone structure, eyes, nose, lips, hair, skin tone, and clothing. Zero face drift, zero face morphing, zero identity alteration even during camera motion, camera pan, or perspective angle change. Perfect likeness and consistent character fidelity throughout the entire clip.';
+
+    const combinedPrompt = clean
+        ? `${faceLockDirectives} Action and motion: ${clean}. Ultra-realistic, 4k cinematic photography.`
+        : `${faceLockDirectives} Natural subtle cinematic breathing, gentle lifelike movement and lighting. Ultra-realistic, 4k cinematic photography.`;
+
+    return {
+        prompt: combinedPrompt,
+        negativePrompt
+    };
+};
+
+/**
  * Tải nội dung MP4 nhị phân từ endpoint yêu cầu xác thực Bearer và chuyển sang Blob URL
  */
 const fetchAuthorizedVideoAsBlobUrl = async (videoContentUrl: string, apiKey: string): Promise<string> => {
@@ -134,7 +236,7 @@ const executeIdeaAiVideoCall = async (
     duration: number
 ): Promise<string> => {
     const meta = getVideoModelMeta(modelId);
-    const cleanPrompt = options.prompt.trim() || 'Smooth cinematic camera motion, natural movement, high quality';
+    const { prompt: enhancedPrompt } = buildFaceLockPrompt(options.prompt, Boolean(options.inputImageBase64));
 
     const validAspectRatio = meta.supportedAspectRatios.includes(aspectRatio)
         ? aspectRatio
@@ -162,14 +264,15 @@ const executeIdeaAiVideoCall = async (
 
     let preparedFrame: { blob: Blob; fileName: string } | null = null;
     if (options.inputImageBase64) {
-        preparedFrame = await base64ToImageBlob(options.inputImageBase64);
+        const fittedBase64 = await prepareVideoReferenceFrame(options.inputImageBase64, validAspectRatio);
+        preparedFrame = await base64ToImageBlob(fittedBase64);
     }
 
     const promptToVideoContent: Record<string, any> = {
         serviceType: 'SERVICE_TYPE_VIDEO_GENERATOR',
         model: modelEnum,
         promptContent: {
-            prompt: cleanPrompt
+            prompt: enhancedPrompt
         },
         videoDuration: {
             inSeconds: validDuration
@@ -361,7 +464,7 @@ const executeOpenRouterVideoCall = async (
     duration: number
 ): Promise<string> => {
     const meta = getVideoModelMeta(modelId);
-    const cleanPrompt = options.prompt.trim() || 'Smooth cinematic camera motion, natural movement, high quality';
+    const { prompt: enhancedPrompt, negativePrompt } = buildFaceLockPrompt(options.prompt, Boolean(options.inputImageBase64));
 
     // Đảm bảo tỷ lệ khung hình nằm trong danh sách hỗ trợ của model
     const validAspectRatio = meta.supportedAspectRatios.includes(aspectRatio)
@@ -377,7 +480,8 @@ const executeOpenRouterVideoCall = async (
 
     const payload: Record<string, any> = {
         model: meta.id,
-        prompt: cleanPrompt,
+        prompt: enhancedPrompt,
+        negative_prompt: negativePrompt,
         aspect_ratio: validAspectRatio,
         duration: validDuration,
         resolution: meta.defaultResolution
@@ -388,7 +492,8 @@ const executeOpenRouterVideoCall = async (
     }
 
     if (options.inputImageBase64) {
-        let imageUrl = options.inputImageBase64.trim();
+        const fittedBase64 = await prepareVideoReferenceFrame(options.inputImageBase64.trim(), validAspectRatio);
+        let imageUrl = fittedBase64.trim();
         if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
             const detectedMime = imageUrl.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
             imageUrl = `data:${detectedMime};base64,${imageUrl}`;
@@ -553,7 +658,7 @@ const executeVivixVideoCall = async (
     duration: number
 ): Promise<string> => {
     const meta = getVideoModelMeta(modelId);
-    const cleanPrompt = options.prompt.trim() || 'Smooth cinematic camera motion, natural movement, high quality';
+    const { prompt: enhancedPrompt, negativePrompt } = buildFaceLockPrompt(options.prompt, Boolean(options.inputImageBase64));
     const key = vivixApiKey.trim();
 
     // Model name on Vivix API: "vivix-w1" | "vivix-w1-fast" | "vivix-w1-ultrafast"
@@ -616,7 +721,8 @@ const executeVivixVideoCall = async (
     // Bước 1: Nếu có ảnh đầu vào (Image-to-Video), tải ảnh lên POST /v1/files/images
     if (options.inputImageBase64) {
         options.onProgress?.(`Đang tải ảnh nguồn lên máy chủ ${meta.shortName}...`);
-        const prepared = await base64ToImageBlob(options.inputImageBase64);
+        const fittedBase64 = await prepareVideoReferenceFrame(options.inputImageBase64, validAspectRatio);
+        const prepared = await base64ToImageBlob(fittedBase64);
 
         const formData = new FormData();
         formData.append('file', prepared.blob, prepared.fileName);
@@ -655,7 +761,8 @@ const executeVivixVideoCall = async (
     options.onProgress?.(`Đang khởi tạo tác vụ kết xuất trên ${meta.shortName}...`);
 
     const jobPayload: Record<string, any> = {
-        prompt: cleanPrompt,
+        prompt: enhancedPrompt,
+        negative_prompt: negativePrompt,
         aspect_ratio: validAspectRatio,
         duration: validDuration
     };
@@ -774,15 +881,16 @@ const executeMuseAiVideoCall = async (
     const rawBaseUrl = (config.museAiBaseUrl || 'http://127.0.0.1:18610/v1').trim();
     const baseUrl = rawBaseUrl.replace(/\/+$/, '');
     const apiKey = (config.museAiApiKey || '').trim();
+    const { prompt: enhancedPrompt, negativePrompt } = buildFaceLockPrompt(options.prompt, Boolean(options.inputImageBase64));
 
     options.onProgress?.('Đang gửi yêu cầu tạo video tới Muse AI Gateway...');
 
     let imagePayload: string | undefined = undefined;
     if (options.inputImageBase64 && options.inputImageBase64.trim()) {
-        const trimmed = options.inputImageBase64.trim();
-        imagePayload = trimmed.startsWith('data:') || trimmed.startsWith('http')
-            ? trimmed
-            : `data:image/png;base64,${trimmed}`;
+        const fittedBase64 = await prepareVideoReferenceFrame(options.inputImageBase64.trim(), aspectRatio);
+        imagePayload = fittedBase64.startsWith('data:') || fittedBase64.startsWith('http')
+            ? fittedBase64
+            : `data:image/png;base64,${fittedBase64}`;
     }
 
     const headers: Record<string, string> = {
@@ -794,9 +902,10 @@ const executeMuseAiVideoCall = async (
 
     const bodyPayload: Record<string, any> = {
         model: 'muse-video',
-        prompt: options.prompt,
+        prompt: enhancedPrompt,
         size: aspectRatio,
-        duration
+        duration,
+        negative_prompt: negativePrompt
     };
     if (imagePayload) {
         bodyPayload.image = imagePayload;

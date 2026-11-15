@@ -77,7 +77,6 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
 }) => {
     const [selectedUrl, setSelectedUrl] = useState('');
     const [downloading, setDownloading] = useState(false);
-    const [downloadingAll, setDownloadingAll] = useState(false);
     const [downloadStatus, setDownloadStatus] = useState<{ text: string; success: boolean } | null>(null);
     const [renderTime, setRenderTime] = useState(0);
     const [codecNotice, setCodecNotice] = useState<string | null>(null);
@@ -130,37 +129,6 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
             });
         } finally {
             setDownloading(false);
-        }
-    };
-
-    const handleDownloadAll = async () => {
-        if (videos.length === 0 || downloadingAll) return;
-        setDownloadingAll(true);
-        setDownloadStatus(null);
-
-        try {
-            let successCount = 0;
-            for (let i = 0; i < videos.length; i++) {
-                const item = videos[i];
-                const rawTitle = (item.title && item.title.trim())
-                    ? item.title.trim()
-                    : `Video_${i === 0 ? 'Ban_Ghep' : `Canh_${i}`}`;
-                const cleanTitle = rawTitle.replace(/[/\\?%*:|"<>]/g, '_');
-                const filename = cleanTitle.toLowerCase().endsWith('.mp4') ? cleanTitle : `${cleanTitle}.mp4`;
-                const res = await downloadImage(item.url, filename);
-                if (res.success) successCount++;
-            }
-            setDownloadStatus({
-                text: `✅ Đã lưu ${successCount}/${videos.length} video về máy!`,
-                success: true
-            });
-        } catch (err: any) {
-            setDownloadStatus({
-                text: err?.message || 'Lỗi khi tải hàng loạt video.',
-                success: false
-            });
-        } finally {
-            setDownloadingAll(false);
         }
     };
 
@@ -394,74 +362,6 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                             </div>
                         </div>
                     </div>
-
-                    {/* Gallery of Session Videos */}
-                    {videos.length > 1 && (
-                        <div>
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                                    Bộ sưu tập video trong phiên này ({videos.length})
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={handleDownloadAll}
-                                    disabled={downloadingAll}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                                >
-                                    <DownloadIcon />
-                                    <span>{downloadingAll ? 'Đang tải...' : `Tải tất cả (${videos.length})`}</span>
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                                {videos.map((item, idx) => (
-                                    <button
-                                        key={item.url}
-                                        type="button"
-                                        onClick={() => { setSelectedUrl(item.url); setDownloadMessage(''); }}
-                                        className={`rounded-xl overflow-hidden text-left bg-slate-900 border transition-all cursor-pointer group ${
-                                            item.url === active.url
-                                                ? 'border-amber-500 ring-2 ring-amber-500/30'
-                                                : 'border-slate-800 hover:border-slate-700'
-                                        }`}
-                                    >
-                                        <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
-                                            {item.firstFrame ? (
-                                                <img
-                                                    src={item.firstFrame.startsWith('data:') || /^https?:\/\//i.test(item.firstFrame) ? item.firstFrame : `data:image/png;base64,${item.firstFrame}`}
-                                                    alt=""
-                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                                />
-                                            ) : (
-                                                <div className="text-slate-600">▶</div>
-                                            )}
-                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <PlayIcon />
-                                            </div>
-                                        </div>
-                                        <div className="p-2 text-xs text-white flex flex-col gap-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="font-semibold truncate text-[11px] text-amber-300">
-                                                    {item.title || `Video #${videos.length - idx}`}
-                                                </span>
-                                                <span className="text-[10px] text-slate-400 font-mono">
-                                                    {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                            </div>
-                                            {idx === 0 && videos.length > 1 ? (
-                                                <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                                    🎬 Bản ghép hoàn chỉnh
-                                                </span>
-                                            ) : videos.length > 1 ? (
-                                                <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-800 text-slate-300">
-                                                    Phân cảnh {idx}
-                                                </span>
-                                            ) : null}
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </>
             ) : null}
         </section>

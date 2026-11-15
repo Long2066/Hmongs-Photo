@@ -201,12 +201,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         }
 
         const rawUserPrompt = prompt.trim() || 'Chuyển động tự nhiên mượt mà điện ảnh, sắc nét chân thực';
-        // Bắt buộc bổ sung cụm prompt "Giữ tuyệt đối khuôn mặt và nhân vật gốc" theo đúng kế hoạch
-        const finalPrompt = rawUserPrompt.includes('Giữ tuyệt đối khuôn mặt và nhân vật gốc')
-            ? rawUserPrompt
-            : `Giữ tuyệt đối khuôn mặt và nhân vật gốc. ${rawUserPrompt}`;
-
-        onGenerate(finalPrompt, aspectRatio, subMode, activeModelMeta.id, 1, duration, videoTitle.trim() || 'Video_Series');
+        onGenerate(rawUserPrompt, aspectRatio, subMode, activeModelMeta.id, 1, duration, videoTitle.trim() || 'Video_Series');
     };
 
     return (

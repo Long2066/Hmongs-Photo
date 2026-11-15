@@ -1047,17 +1047,21 @@ const App: React.FC = () => {
             };
 
             const sceneTasks = Array.from({ length: sceneCount }, (_, i) => async () => {
-                const scenePrompt = subMode === 'image_to_video'
-                    ? `${mandatoryPrefix} ${prompt.replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/g, '')} - Cảnh ${i + 1}/${sceneCount}`
-                    : prompt;
+                const cleanScenePrompt = prompt
+                    .replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/gi, '')
+                    .replace(/- Cảnh\s*\d+\/\d+/gi, '')
+                    .trim();
 
                 updateSceneProgress(i, 'Khởi tạo...');
-                const inputImageBase64 = subMode === 'image_to_video' && inputs[i]
-                    ? inputs[i].base64
+                // Đảm bảo mọi phân cảnh đều có ảnh tham chiếu neo cứng nhân vật:
+                // Nếu người dùng tải nhiều ảnh (inputs[i]), dùng đúng ảnh góc chụp của cảnh i.
+                // Nếu cảnh i thiếu ảnh, fallback về ảnh đầu tiên inputs[0] để không bao giờ bị rớt sang Text-to-Video.
+                const inputImageBase64 = subMode === 'image_to_video'
+                    ? (inputs[i]?.base64 || inputs[0]?.base64)
                     : undefined;
 
                 const result = await generateOpenRouterVideo({
-                    prompt: scenePrompt,
+                    prompt: cleanScenePrompt,
                     aspectRatio,
                     duration,
                     modelOverride: model === 'auto' ? undefined : model,
@@ -1133,28 +1137,8 @@ const App: React.FC = () => {
                 title: cleanTitle
             };
 
-            const sceneEntries: VideoEntry[] = successfulClips.length > 1
-                ? successfulClips.map((clipUrl, idx) => {
-                    const sceneInput = subMode === 'image_to_video' && inputs[idx] ? inputs[idx] : undefined;
-                    const frame = sceneInput
-                        ? sceneInput.base64.startsWith('data:') || /^https?:\/\//i.test(sceneInput.base64)
-                            ? sceneInput.base64
-                            : `data:${sceneInput.mimeType};base64,${sceneInput.base64}`
-                        : firstFrame;
-                    return {
-                        url: clipUrl,
-                        firstFrame: frame,
-                        createdAt: createdAt + idx + 1,
-                        prompt: `[Cảnh ${idx + 1}/${successfulClips.length}] ${prompt}`,
-                        modelUsed: model,
-                        duration,
-                        aspectRatio,
-                        title: `${cleanTitle}_Canh_${idx + 1}`
-                    };
-                })
-                : [];
-
-            setVideoEntries([mergedEntry, ...sceneEntries]);
+            // YÊU CẦU: Video cuối cùng chỉ hiển thị video đã ghép, không cần hiển thị các video đơn lẻ
+            setVideoEntries([mergedEntry]);
 
             updateModeState(() => ({
                 outputs: [finalVideoUrl],
