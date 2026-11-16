@@ -7,7 +7,8 @@ import {
     LogOut,
     Shirt,
     Cpu,
-    Gift
+    Gift,
+    Package
 } from 'lucide-react';
 import { AdminUser, logoutAdmin } from '../services/adminAuthService';
 import { subscribeToFeedback, subscribeToQuotaApprovalRequests } from '../services/adminFirebaseService';
@@ -16,9 +17,11 @@ interface SidebarProps {
     currentPage: string;
     onPageChange: (page: string) => void;
     admin: AdminUser;
+    isOpen?: boolean;
+    onClose?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin, isOpen = false, onClose }) => {
     const [unreadFeedbackCount, setUnreadFeedbackCount] = useState<number>(0);
     const [pendingQuotaCount, setPendingQuotaCount] = useState<number>(0);
 
@@ -50,11 +53,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
         { id: 'feedback', label: 'Hòm thư góp ý', icon: Inbox, badge: unreadFeedbackCount },
         { id: 'notifications', label: 'Gửi thông báo', icon: Bell },
         { id: 'clothing', label: 'Thư viện Trang phục', icon: Shirt },
+        { id: 'package-config', label: 'Cấu hình Gói', icon: Package },
         { id: 'ai-config', label: 'Cấu hình AI Tool', icon: Cpu },
     ];
 
     return (
-        <aside className="sidebar">
+        <>
+            <div
+                className={`sidebar-backdrop ${isOpen ? 'open' : ''}`}
+                onClick={onClose}
+                aria-hidden="true"
+            />
+            <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
             <div className="sidebar-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <img 
@@ -74,7 +84,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
                     <button
                         key={item.id}
                         className={`nav-item ${currentPage === item.id ? 'active' : ''}`}
-                        onClick={() => onPageChange(item.id)}
+                        onClick={() => {
+                            onPageChange(item.id);
+                            onClose?.();
+                        }}
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                     >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -121,6 +134,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin }) =
                 </button>
             </div>
         </aside>
+        </>
     );
 };
 

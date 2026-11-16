@@ -1,6 +1,12 @@
 // Terms of Service Modal Component
 import React, { useState, useEffect } from 'react';
 import { subscribeToTerms, TermsData } from '../services/firebaseService';
+import {
+    subscribeToSubscriptionPlansConfig,
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    formatVndCompact,
+    type SubscriptionPlansConfig
+} from '../services/subscriptionPlanConfigService';
 
 interface TermsModalProps {
     isOpen: boolean;
@@ -92,6 +98,7 @@ export const TERMS_LIST: TermItem[] = [
 
 export const TermsModal: React.FC<TermsModalProps> = ({ isOpen, onClose, onAccept, onReject }) => {
     const [termsData, setTermsData] = useState<TermsData | null>(null);
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -100,11 +107,34 @@ export const TermsModal: React.FC<TermsModalProps> = ({ isOpen, onClose, onAccep
         const unsubscribe = subscribeToTerms((data) => {
             setTermsData(data);
         });
+        const unsubscribePlans = subscribeToSubscriptionPlansConfig(setPlansConfig);
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribe();
+            unsubscribePlans();
+        };
     }, [isOpen]);
 
     if (!isOpen) return null;
+
+    const resolvedTermsList = TERMS_LIST.map((term) => {
+        if (term.id !== 3) return term;
+        const f = plansConfig.free;
+        const pl = plansConfig.plus;
+        const pr = plansConfig.pro;
+        const plusText = pl.enabled
+            ? `${pl.name} (${formatVndCompact(pl.price)}) ${pl.unlimitedImages ? 'không giới hạn ảnh' : `${pl.totalImages} ảnh`} + ${pl.videoSeconds}s video trong ${pl.durationDays} ngày`
+            : '';
+        const proText = pr.enabled
+            ? `${pr.name} (${formatVndCompact(pr.price)}) ${pr.unlimitedImages ? 'tạo ảnh không giới hạn' : `${pr.totalImages} ảnh`} + ${pr.videoSeconds}s video trong ${pr.durationDays} ngày`
+            : '';
+        const parts = [
+            `${f.name} tặng ${f.dailyFreeLimit} ảnh/ngày + ${f.videoSeconds}s video`,
+            plusText,
+            proText
+        ].filter(Boolean);
+        return { ...term, description: `${parts.join('; ')}.` };
+    });
 
     const handleAccept = () => {
         if (onAccept) onAccept();
@@ -156,7 +186,7 @@ export const TermsModal: React.FC<TermsModalProps> = ({ isOpen, onClose, onAccep
 
                 {/* Content - 11 Terms */}
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 overscroll-contain">
-                    {TERMS_LIST.map((term) => {
+                    {resolvedTermsList.map((term) => {
                         if (term.highlight) {
                             // Term 11: Legal & Disclaimer - special standout alert styling
                             return (

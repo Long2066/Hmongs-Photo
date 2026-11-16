@@ -56,7 +56,7 @@ export const consumeSubscriptionImages = async (
     count: number,
     requestId: string = crypto.randomUUID()
 ): Promise<SubscriptionEntitlement> => {
-    if (!Number.isSafeInteger(count) || count < 1 || count > 200) throw new Error('Invalid image count');
+    if (!Number.isSafeInteger(count) || count < 1 || count > 1000) throw new Error('Invalid image count');
     try {
         return await request({
             method: 'POST',
@@ -88,7 +88,7 @@ export const consumeSubscriptionVideoSeconds = async (
     seconds: number,
     requestId: string = crypto.randomUUID()
 ): Promise<SubscriptionEntitlement> => {
-    if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 180) throw new Error('Invalid video seconds');
+    if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 3600) throw new Error('Invalid video seconds');
     try {
         return await request({
             method: 'POST',

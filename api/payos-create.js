@@ -1,6 +1,7 @@
 import { paymentCors } from '../lib/payos/cors.js';
 import { randomInt } from 'node:crypto';
 import { admin, authenticate, checkoutUrls, orderRef, payos, PLANS } from '../lib/payos/core.js';
+import { getDynamicPlansConfig } from '../lib/payos/planConfig.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -12,9 +13,26 @@ export default async function handler(req, res) {
   if (typeof plan !== 'string' || !Object.hasOwn(PLANS, plan)) return res.status(400).json({ error: 'Invalid planId' });
   try {
     const { db } = admin();
+    const plans = await getDynamicPlansConfig(db);
+    const planCfg = plans[plan];
+    if (!planCfg || planCfg.enabled === false) {
+      return res.status(400).json({ error: 'Gói này hiện đang tạm khóa bởi quản trị viên' });
+    }
+    const amount = planCfg.price;
+    if (!Number.isSafeInteger(amount) || amount < 2000) {
+      return res.status(400).json({ error: 'Cấu hình giá gói không hợp lệ' });
+    }
     const client = payos();
     const { returnUrl, cancelUrl } = checkoutUrls();
-    const amount = PLANS[plan];
+    const planSnapshot = {
+      id: plan,
+      price: planCfg.price,
+      durationDays: planCfg.durationDays,
+      unlimitedImages: Boolean(planCfg.unlimitedImages),
+      totalImages: planCfg.totalImages,
+      videoSeconds: planCfg.videoSeconds,
+      maxResolution: planCfg.maxResolution,
+    };
     // PayOS order codes must be unique. Reserve before contacting PayOS, never mark paid by client input.
     let orderCode, ref;
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -22,7 +40,7 @@ export default async function handler(req, res) {
       ref = orderRef(db, orderCode);
       try {
         await ref.create({ orderCode, userId: user.uid, userName: user.name || '', userEmail: user.email || '',
-          plan, amount, status: 'CREATING', createdAt: Date.now() });
+          plan, amount, planSnapshot, status: 'CREATING', createdAt: Date.now() });
         break;
       } catch (error) {
         if (error.code !== 6 && error.code !== 'already-exists') throw error;

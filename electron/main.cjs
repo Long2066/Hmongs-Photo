@@ -667,34 +667,43 @@ ipcMain.handle('merge-videos', async (event, { videoUrls, filename }) => {
         tempDir = path.join(app.getPath('temp'), `imagetool_merge_${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
-        const localClips = [];
-        for (let i = 0; i < videoUrls.length; i++) {
-            const clipUrl = videoUrls[i];
-            const clipPath = path.join(tempDir, `clip_${i}.mp4`);
-            if (clipUrl.startsWith('http://') || clipUrl.startsWith('https://')) {
-                const resp = await fetch(clipUrl);
-                if (!resp.ok) {
-                    throw new Error(`HTTP ${resp.status} while downloading clip ${i + 1}`);
+        // Download/prepare all video clips in parallel (up to 6 concurrent downloads) while preserving exact clip order
+        const localClips = new Array(videoUrls.length);
+        const DOWNLOAD_CONCURRENCY = Math.min(6, videoUrls.length);
+        let nextClipIndex = 0;
+
+        const downloadWorker = async () => {
+            while (nextClipIndex < videoUrls.length) {
+                const i = nextClipIndex++;
+                const clipUrl = videoUrls[i];
+                const clipPath = path.join(tempDir, `clip_${i}.mp4`);
+                if (clipUrl.startsWith('http://') || clipUrl.startsWith('https://')) {
+                    const resp = await fetch(clipUrl);
+                    if (!resp.ok) {
+                        throw new Error(`HTTP ${resp.status} while downloading clip ${i + 1}`);
+                    }
+                    const buffer = Buffer.from(await resp.arrayBuffer());
+                    fs.writeFileSync(clipPath, buffer);
+                } else if (clipUrl.startsWith('data:')) {
+                    const commaIdx = clipUrl.indexOf(',');
+                    if (commaIdx === -1) {
+                        throw new Error(`Invalid data URL for clip ${i + 1}`);
+                    }
+                    const b64 = clipUrl.slice(commaIdx + 1);
+                    fs.writeFileSync(clipPath, Buffer.from(b64, 'base64'));
+                } else if (clipUrl.startsWith('file://')) {
+                    const src = decodeURIComponent(clipUrl.replace(/^file:\/\/\/?/, ''));
+                    fs.copyFileSync(src, clipPath);
+                } else if (fs.existsSync(clipUrl)) {
+                    fs.copyFileSync(clipUrl, clipPath);
+                } else {
+                    throw new Error(`Unsupported video clip source: ${clipUrl}`);
                 }
-                const buffer = Buffer.from(await resp.arrayBuffer());
-                fs.writeFileSync(clipPath, buffer);
-            } else if (clipUrl.startsWith('data:')) {
-                const commaIdx = clipUrl.indexOf(',');
-                if (commaIdx === -1) {
-                    throw new Error(`Invalid data URL for clip ${i + 1}`);
-                }
-                const b64 = clipUrl.slice(commaIdx + 1);
-                fs.writeFileSync(clipPath, Buffer.from(b64, 'base64'));
-            } else if (clipUrl.startsWith('file://')) {
-                const src = decodeURIComponent(clipUrl.replace(/^file:\/\/\/?/, ''));
-                fs.copyFileSync(src, clipPath);
-            } else if (fs.existsSync(clipUrl)) {
-                fs.copyFileSync(clipUrl, clipPath);
-            } else {
-                throw new Error(`Unsupported video clip source: ${clipUrl}`);
+                localClips[i] = clipPath;
             }
-            localClips.push(clipPath);
-        }
+        };
+
+        await Promise.all(Array.from({ length: DOWNLOAD_CONCURRENCY }, () => downloadWorker()));
 
         // Concat manifest list for ffmpeg
         const manifestPath = path.join(tempDir, 'concat_list.txt');

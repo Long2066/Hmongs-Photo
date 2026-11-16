@@ -234,49 +234,62 @@ const BACKUP_DOC = 'videoConfig';
 
 let cachedConfig: OpenRouterVideoConfig = { ...DEFAULT_VIDEO_CONFIG };
 let isInitialized = false;
+let inFlightConfigPromise: Promise<OpenRouterVideoConfig> | null = null;
 
 /**
- * Lấy cấu hình Video AI hiện tại (từ cache realtime hoặc fetch Firestore)
+ * Lấy cấu hình Video AI hiện tại (từ cache realtime hoặc fetch Firestore có gộp request song song)
  */
 export const getVideoConfig = async (): Promise<OpenRouterVideoConfig> => {
-    if (isInitialized && (cachedConfig.openRouterApiKey || cachedConfig.ideaAiApiKey)) {
+    if (isInitialized) {
         return cachedConfig;
     }
-
-    try {
-        const snap = await getDoc(doc(db, PRIMARY_COLLECTION, PRIMARY_DOC));
-        if (snap.exists()) {
-            cachedConfig = sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
-            isInitialized = true;
-            return cachedConfig;
-        }
-    } catch (err) {
-        console.warn('[VideoConfig] Không đọc được appConfig/videoConfig, thử fallback:', err);
+    if (inFlightConfigPromise) {
+        return inFlightConfigPromise;
     }
 
-    try {
-        const snap = await getDoc(doc(db, FALLBACK_COLLECTION, FALLBACK_DOC));
-        if (snap.exists()) {
-            cachedConfig = sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
-            isInitialized = true;
-            return cachedConfig;
+    inFlightConfigPromise = (async () => {
+        try {
+            const snap = await getDoc(doc(db, PRIMARY_COLLECTION, PRIMARY_DOC));
+            if (snap.exists()) {
+                cachedConfig = sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
+                isInitialized = true;
+                return cachedConfig;
+            }
+        } catch (err) {
+            console.warn('[VideoConfig] Không đọc được appConfig/videoConfig, thử fallback:', err);
         }
-    } catch (err) {
-        console.warn('[VideoConfig] Không đọc được systemSettings/videoAiConfig:', err);
-    }
+
+        try {
+            const snap = await getDoc(doc(db, FALLBACK_COLLECTION, FALLBACK_DOC));
+            if (snap.exists()) {
+                cachedConfig = sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
+                isInitialized = true;
+                return cachedConfig;
+            }
+        } catch (err) {
+            console.warn('[VideoConfig] Không đọc được systemSettings/videoAiConfig:', err);
+        }
+
+        try {
+            const snap = await getDoc(doc(db, BACKUP_COLLECTION, BACKUP_DOC));
+            if (snap.exists()) {
+                cachedConfig = sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
+                isInitialized = true;
+                return cachedConfig;
+            }
+        } catch (err) {
+            console.warn('[VideoConfig] Không đọc được userAccess/videoConfig:', err);
+        }
+
+        isInitialized = true;
+        return cachedConfig;
+    })();
 
     try {
-        const snap = await getDoc(doc(db, BACKUP_COLLECTION, BACKUP_DOC));
-        if (snap.exists()) {
-            cachedConfig = sanitizeVideoConfig(snap.data() as Partial<OpenRouterVideoConfig>);
-            isInitialized = true;
-            return cachedConfig;
-        }
-    } catch (err) {
-        console.warn('[VideoConfig] Không đọc được userAccess/videoConfig:', err);
+        return await inFlightConfigPromise;
+    } finally {
+        inFlightConfigPromise = null;
     }
-
-    return cachedConfig;
 };
 
 /**

@@ -1,6 +1,7 @@
 import { paymentCors } from '../lib/payos/cors.js';
 import { admin, authenticate } from '../lib/payos/core.js';
 import { consumeImages, consumeVideoSeconds, normalizeSubscription } from '../lib/payos/subscription.js';
+import { getDynamicPlansConfig } from '../lib/payos/planConfig.js';
 
 /** A verified Firebase identity may only read or consume its own entitlement. */
 export default async function handler(req, res) {
@@ -18,16 +19,18 @@ export default async function handler(req, res) {
     if (!validUuid || (!isConsumeImages && !isConsumeVideo)) {
       return res.status(400).json({ error: 'Invalid subscription request' });
     }
-    if (isConsumeImages && (!Number.isSafeInteger(req.body?.count) || req.body.count < 1 || req.body.count > 200)) {
+    if (isConsumeImages && (!Number.isSafeInteger(req.body?.count) || req.body.count < 1 || req.body.count > 1000)) {
       return res.status(400).json({ error: 'Invalid image request' });
     }
-    if (isConsumeVideo && (!Number.isSafeInteger(req.body?.seconds) || req.body.seconds < 1 || req.body.seconds > 180)) {
+    if (isConsumeVideo && (!Number.isSafeInteger(req.body?.seconds) || req.body.seconds < 1 || req.body.seconds > 3600)) {
       return res.status(400).json({ error: 'Invalid video seconds request' });
     }
   }
 
   try {
     const { db } = admin();
+    const plans = await getDynamicPlansConfig(db);
+    const subOptions = { plansConfig: plans, freeVideoSeconds: plans.free.videoSeconds };
     const ref = db.collection('userCredits').doc(user.uid);
     const debitRef = req.method === 'POST' ? db.collection('subscriptionDebits').doc(`${user.uid}_${req.body.requestId}`) : null;
     const requestedAmount = isConsumeVideo ? req.body.seconds : req.body?.count;
@@ -41,11 +44,12 @@ export default async function handler(req, res) {
       const snapshot = await tx.get(ref);
       const now = Date.now();
       const previous = snapshot.exists ? snapshot.data() : {};
-      const { data: normalized, changed } = normalizeSubscription(previous, now);
+      const { data: normalized, changed } = normalizeSubscription(previous, now, subOptions);
+      const activeOptions = { ...subOptions, planConfig: plans[normalized.plan] };
       if (req.method === 'POST') {
         const updated = isConsumeVideo
-          ? consumeVideoSeconds(normalized, req.body.seconds, now)
-          : consumeImages(normalized, req.body.count, now);
+          ? consumeVideoSeconds(normalized, req.body.seconds, now, activeOptions)
+          : consumeImages(normalized, req.body.count, now, activeOptions);
         if (!updated) {
           if (changed) tx.set(ref, { ...normalized, userId: user.uid }, { merge: true });
           return {

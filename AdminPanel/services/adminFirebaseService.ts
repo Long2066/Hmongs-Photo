@@ -18,6 +18,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { normalizeFlowToolUrl } from './flowToolConfig';
+import { getAdminSubscriptionPlansConfig } from './subscriptionPlanAdminService';
 
 // Collection names
 const USER_CREDITS_COLLECTION = "userCredits";
@@ -110,23 +111,25 @@ export const getAllUsers = async (): Promise<UserData[]> => {
 
         // 2. Safely fetch user credits & subscription data (if permissions allow)
         const creditsMap = new Map<string, any>();
+        const plansConfig = await getAdminSubscriptionPlansConfig().catch(() => null);
         try {
             const creditsSnapshot = await getDocs(collection(db, USER_CREDITS_COLLECTION));
             const now = Date.now();
             creditsSnapshot.forEach(doc => {
                 const data = doc.data();
                 const c = typeof data.credits === 'number' ? data.credits : 0;
-                const rawPlan = data.plan === 'pro' || data.plan === 'plus' ? data.plan : 'free';
+                const rawPlan: 'free' | 'plus' | 'pro' = data.plan === 'pro' || data.plan === 'plus' ? data.plan : 'free';
                 const expiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
                 const remainingImages = typeof data.remainingImages === 'number' ? data.remainingImages : 0;
                 const remainingVideoSeconds = typeof data.remainingVideoSeconds === 'number' ? data.remainingVideoSeconds : 0;
+                const isUnlimited = plansConfig ? plansConfig[rawPlan]?.unlimitedImages : rawPlan === 'pro';
 
                 // Resolve effective plan based on expiration & quotas
                 let effectivePlan: 'free' | 'plus' | 'pro' = rawPlan;
                 if (rawPlan !== 'free') {
                     if (expiresAt && expiresAt <= now) {
                         effectivePlan = 'free';
-                    } else if (remainingImages <= 0 && remainingVideoSeconds <= 0) {
+                    } else if (!isUnlimited && remainingImages <= 0 && remainingVideoSeconds <= 0) {
                         effectivePlan = 'free';
                     }
                 }
@@ -277,16 +280,18 @@ export const getUserById = async (userId: string): Promise<UserData | null> => {
 
         const creditsData = creditsDoc.data();
 
+        const plansConfig = await getAdminSubscriptionPlansConfig().catch(() => null);
         const now = Date.now();
         const rawPlan: 'free' | 'plus' | 'pro' = (creditsData?.plan === 'pro' || creditsData?.plan === 'plus') ? creditsData.plan : 'free';
         const expiresAt = Number.isSafeInteger(creditsData?.planExpiresAt) ? creditsData?.planExpiresAt : null;
         const remainingImages = typeof creditsData?.remainingImages === 'number' ? creditsData.remainingImages : 0;
         const remainingVideoSeconds = typeof creditsData?.remainingVideoSeconds === 'number' ? creditsData.remainingVideoSeconds : 0;
+        const isUnlimited = plansConfig ? plansConfig[rawPlan]?.unlimitedImages : rawPlan === 'pro';
         let effectivePlan: 'free' | 'plus' | 'pro' = rawPlan;
         if (rawPlan !== 'free') {
             if (expiresAt && expiresAt <= now) {
                 effectivePlan = 'free';
-            } else if (remainingImages <= 0 && remainingVideoSeconds <= 0) {
+            } else if (!isUnlimited && remainingImages <= 0 && remainingVideoSeconds <= 0) {
                 effectivePlan = 'free';
             }
         }
@@ -344,16 +349,22 @@ export const updateUserCredits = async (
                 break;
         }
 
+        const plansConfig = await getAdminSubscriptionPlansConfig().catch(() => null);
+        const plusCfg = plansConfig?.plus;
+        const proCfg = plansConfig?.pro;
+        const freeCfg = plansConfig?.free;
+        const proThreshold = proCfg?.price || 100000;
+
         const nextPlan: 'free' | 'plus' | 'pro' = planOverride
             ? planOverride
             : newCredits < 500
                 ? 'free'
                 : (existingData.plan === 'pro' || existingData.plan === 'plus')
                     ? existingData.plan
-                    : (newCredits >= 100000 ? 'pro' : 'plus');
+                    : (newCredits >= proThreshold ? 'pro' : 'plus');
 
         const now = Date.now();
-        const TERM_MS = 30 * 24 * 60 * 60 * 1000;
+        const DAY_MS = 24 * 60 * 60 * 1000;
         const updatePayload: Record<string, any> = {
             userId,
             credits: newCredits,
@@ -361,27 +372,34 @@ export const updateUserCredits = async (
             lastUpdated: now
         };
 
-        // Nếu admin gán gói Plus hoặc Pro -> đồng bộ cả lượt ảnh và số giây video 30 ngày
+        // Nếu admin gán gói Plus hoặc Pro -> đồng bộ cả lượt ảnh, số giây video và số ngày theo Cấu hình Gói
         if (planOverride === 'plus') {
-            updatePayload.remainingImages = 100;
-            updatePayload.planAllowanceImages = 100;
-            updatePayload.remainingVideoSeconds = 60;
-            updatePayload.planAllowanceVideoSeconds = 60;
+            const plusImgs = plusCfg?.unlimitedImages ? Math.max(1, plusCfg.totalImages || 999999) : (plusCfg?.totalImages ?? 300);
+            const plusVid = plusCfg?.videoSeconds ?? 60;
+            const plusTermMs = Math.max(1, plusCfg?.durationDays ?? 30) * DAY_MS;
+            updatePayload.remainingImages = plusImgs;
+            updatePayload.planAllowanceImages = plusImgs;
+            updatePayload.remainingVideoSeconds = plusVid;
+            updatePayload.planAllowanceVideoSeconds = plusVid;
             updatePayload.planStartedAt = now;
-            updatePayload.planExpiresAt = now + TERM_MS;
+            updatePayload.planExpiresAt = now + plusTermMs;
             updatePayload.freeVideoGranted = true;
         } else if (planOverride === 'pro') {
-            updatePayload.remainingImages = 200;
-            updatePayload.planAllowanceImages = 200;
-            updatePayload.remainingVideoSeconds = 180;
-            updatePayload.planAllowanceVideoSeconds = 180;
+            const proImgs = proCfg?.unlimitedImages ? Math.max(1, proCfg.totalImages || 999999) : (proCfg?.totalImages ?? 999999);
+            const proVid = proCfg?.videoSeconds ?? 180;
+            const proTermMs = Math.max(1, proCfg?.durationDays ?? 30) * DAY_MS;
+            updatePayload.remainingImages = proImgs;
+            updatePayload.planAllowanceImages = proImgs;
+            updatePayload.remainingVideoSeconds = proVid;
+            updatePayload.planAllowanceVideoSeconds = proVid;
             updatePayload.planStartedAt = now;
-            updatePayload.planExpiresAt = now + TERM_MS;
+            updatePayload.planExpiresAt = now + proTermMs;
             updatePayload.freeVideoGranted = true;
         } else if (planOverride === 'free') {
+            const freeVid = freeCfg?.videoSeconds ?? 8;
             updatePayload.remainingImages = 0;
             updatePayload.planAllowanceImages = 0;
-            updatePayload.remainingVideoSeconds = Number.isSafeInteger(existingData.remainingVideoSeconds) ? existingData.remainingVideoSeconds : 8;
+            updatePayload.remainingVideoSeconds = Number.isSafeInteger(existingData.remainingVideoSeconds) ? existingData.remainingVideoSeconds : freeVid;
             updatePayload.freeVideoGranted = true;
         }
 

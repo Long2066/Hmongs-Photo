@@ -36,6 +36,12 @@ import {
     getAdminActionLogs,
     AdminActionLog
 } from '../services/subscriptionAdmin';
+import {
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    formatVndCompact,
+    subscribeToAdminSubscriptionPlansConfig,
+    type SubscriptionPlansConfig
+} from '../services/subscriptionPlanAdminService';
 import { getCurrentAdmin } from '../services/adminAuthService';
 
 interface UserEditModalProps {
@@ -65,9 +71,16 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
 
     // Copied feedback
     const [copiedId, setCopiedId] = useState(false);
+    const [confirmDowngrade, setConfirmDowngrade] = useState(false);
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
 
     const admin = getCurrentAdmin();
     const adminEmail = admin?.email || 'admin@toolphoto.com';
+
+    useEffect(() => {
+        const unsub = subscribeToAdminSubscriptionPlansConfig(setPlansConfig);
+        return () => unsub();
+    }, []);
 
     useEffect(() => {
         if (activeTab === 'history') {
@@ -113,9 +126,11 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                 planExpiresAt: updated.planExpiresAt,
                 planStartedAt: updated.planStartedAt
             }));
+            const grantedCfg = plansConfig[plan];
+            const imgText = grantedCfg.unlimitedImages ? 'Không giới hạn ảnh' : `${updated.remainingImages} ảnh`;
             setActionMsg({
                 type: 'success',
-                text: `Đã kích hoạt ${plan === 'pro' ? '👑 GÓI PRO' : '⚡ GÓI PLUS'} thành công! Hạn mức: ${updated.remainingImages} ảnh, ${updated.remainingVideoSeconds}s video (30 ngày).`
+                text: `Đã kích hoạt ${plan === 'pro' ? '👑' : '⚡'} ${grantedCfg.name.toUpperCase()} thành công! Hạn mức: ${imgText}, ${updated.remainingVideoSeconds}s video (${grantedCfg.durationDays || 30} ngày).`
             });
             onUpdated();
         } catch (err: any) {
@@ -191,9 +206,7 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
 
     // Downgrade to Free
     const handleDowngrade = async () => {
-        if (!window.confirm('Bạn có chắc muốn hạ gói tài khoản này về FREE? Số ảnh và video của gói sẽ trở về 0.')) {
-            return;
-        }
+        setConfirmDowngrade(false);
         setLoading(true);
         setActionMsg(null);
         try {
@@ -207,7 +220,7 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
             }));
             setActionMsg({
                 type: 'success',
-                text: 'Đã hạ tài khoản về Gói Free! Hạn mức gói đã được reset về 0.'
+                text: `Đã hạ tài khoản về ${plansConfig.free.name}! Hạn mức gói đã được reset về 0.`
             });
             onUpdated();
         } catch (err: any) {
@@ -274,6 +287,8 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
 
     const now = Date.now();
     const effectivePlan = user.plan || 'free';
+    const activeTierCfg = plansConfig[effectivePlan] || plansConfig.free;
+    const isUnlimitedActive = effectivePlan !== 'free' && activeTierCfg.unlimitedImages;
     const expiresAt = user.planExpiresAt;
     const daysLeft = expiresAt ? Math.ceil((expiresAt - now) / (24 * 60 * 60 * 1000)) : null;
     const isExpired = expiresAt ? expiresAt <= now : false;
@@ -336,7 +351,7 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                     border: `1px solid ${effectivePlan === 'pro' ? '#c7d2fe' : effectivePlan === 'plus' ? '#a7f3d0' : '#e2e8f0'}`
                                 }}>
                                     {effectivePlan === 'pro' ? <Crown size={12} /> : effectivePlan === 'plus' ? <Zap size={12} /> : null}
-                                    {effectivePlan === 'pro' ? 'Gói Pro' : effectivePlan === 'plus' ? 'Gói Plus' : 'Gói Free'}
+                                    {activeTierCfg.name}
                                 </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', fontSize: '0.82rem', color: '#64748b' }}>
@@ -529,10 +544,14 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                             fontFamily: 'monospace',
                                             fontVariantNumeric: 'tabular-nums'
                                         }}>
-                                            {user.remainingImages ?? 0}
+                                            {isUnlimitedActive ? '∞' : (user.remainingImages ?? 0)}
                                         </div>
                                         <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
-                                            {user.planAllowanceImages ? `Gói gốc: ${user.planAllowanceImages} ảnh` : 'Chưa có gói trả phí'}
+                                            {isUnlimitedActive
+                                                ? 'Tạo ảnh không giới hạn'
+                                                : user.planAllowanceImages
+                                                    ? `Gói gốc: ${user.planAllowanceImages} ảnh`
+                                                    : `Miễn phí: ${plansConfig.free.dailyFreeLimit} ảnh/ngày`}
                                         </div>
                                     </div>
 
@@ -558,7 +577,7 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                             {user.remainingVideoSeconds ?? 0}<span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>s</span>
                                         </div>
                                         <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
-                                            {user.planAllowanceVideoSeconds ? `Gói gốc: ${user.planAllowanceVideoSeconds}s` : '8s ban đầu'}
+                                            {user.planAllowanceVideoSeconds ? `Gói gốc: ${user.planAllowanceVideoSeconds}s` : `${plansConfig.free.videoSeconds}s ban đầu`}
                                         </div>
                                     </div>
 
@@ -572,7 +591,9 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#d97706', marginBottom: '4px' }}>
                                             <Calendar size={16} />
-                                            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Hạn dùng (30 ngày)</span>
+                                            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                                                {effectivePlan === 'free' ? 'Hạn dùng' : `Hạn dùng (${activeTierCfg.durationDays || 30} ngày)`}
+                                            </span>
                                         </div>
                                         <div style={{
                                             fontSize: '0.95rem',
@@ -621,7 +642,7 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.04em'
                                 }}>
-                                    ⚡ Kích hoạt nhanh theo gói chuẩn (Thời hạn 30 ngày)
+                                    ⚡ Kích hoạt nhanh theo Cấu hình Gói hiện tại
                                 </label>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                     {/* Grant Plus */}
@@ -647,10 +668,10 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#047857', fontWeight: 700, fontSize: '0.95rem' }}>
                                             <Zap size={18} />
-                                            <span>Gói PLUS (50.000đ)</span>
+                                            <span>{plansConfig.plus.name} ({formatVndCompact(plansConfig.plus.price)})</span>
                                         </div>
                                         <span style={{ fontSize: '0.78rem', color: '#475569', marginTop: '4px' }}>
-                                            +100 ảnh • +60s video • 30 ngày
+                                            {plansConfig.plus.unlimitedImages ? 'Không giới hạn ảnh' : `+${plansConfig.plus.totalImages} ảnh`} • +{plansConfig.plus.videoSeconds}s video • {plansConfig.plus.durationDays} ngày
                                         </span>
                                         <span style={{
                                             marginTop: '8px',
@@ -688,10 +709,10 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4338ca', fontWeight: 700, fontSize: '0.95rem' }}>
                                             <Crown size={18} />
-                                            <span>Gói PRO (100.000đ)</span>
+                                            <span>{plansConfig.pro.name} ({formatVndCompact(plansConfig.pro.price)})</span>
                                         </div>
                                         <span style={{ fontSize: '0.78rem', color: '#475569', marginTop: '4px' }}>
-                                            +200 ảnh • +180s video • 30 ngày
+                                            {plansConfig.pro.unlimitedImages ? 'Không giới hạn ảnh' : `+${plansConfig.pro.totalImages} ảnh`} • +{plansConfig.pro.videoSeconds}s video • {plansConfig.pro.durationDays} ngày
                                         </span>
                                         <span style={{
                                             marginTop: '8px',
@@ -910,30 +931,85 @@ const UserEditModal: React.FC<UserEditModalProps> = ({ user: initialUser, onClos
                                         +30 Ngày hạn dùng
                                     </button>
 
-                                    <button
-                                        type="button"
-                                        disabled={loading || effectivePlan === 'free'}
-                                        onClick={handleDowngrade}
-                                        style={{
-                                            flex: '1 1 auto',
-                                            display: 'inline-flex',
+                                    {!confirmDowngrade ? (
+                                        <button
+                                            type="button"
+                                            disabled={loading || effectivePlan === 'free'}
+                                            onClick={() => setConfirmDowngrade(true)}
+                                            style={{
+                                                flex: '1 1 auto',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '6px',
+                                                padding: '10px 14px',
+                                                borderRadius: '8px',
+                                                background: effectivePlan === 'free' ? '#f1f5f9' : '#fff1f2',
+                                                border: `1px solid ${effectivePlan === 'free' ? '#e2e8f0' : '#fecdd3'}`,
+                                                color: effectivePlan === 'free' ? '#94a3b8' : '#e11d48',
+                                                fontWeight: 600,
+                                                fontSize: '0.85rem',
+                                                cursor: (loading || effectivePlan === 'free') ? 'not-allowed' : 'pointer',
+                                                minHeight: '42px'
+                                            }}
+                                        >
+                                            <ArrowDownCircle size={15} />
+                                            Hạ về {plansConfig.free.name} (Reset quota)
+                                        </button>
+                                    ) : (
+                                        <div style={{
+                                            flex: '1 1 100%',
+                                            display: 'flex',
                                             alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '6px',
-                                            padding: '10px 14px',
-                                            borderRadius: '8px',
-                                            background: effectivePlan === 'free' ? '#f1f5f9' : '#fff1f2',
-                                            border: `1px solid ${effectivePlan === 'free' ? '#e2e8f0' : '#fecdd3'}`,
-                                            color: effectivePlan === 'free' ? '#94a3b8' : '#e11d48',
-                                            fontWeight: 600,
-                                            fontSize: '0.85rem',
-                                            cursor: (loading || effectivePlan === 'free') ? 'not-allowed' : 'pointer',
-                                            minHeight: '42px'
-                                        }}
-                                    >
-                                        <ArrowDownCircle size={15} />
-                                        Hạ về Free (Reset quota)
-                                    </button>
+                                            justifyContent: 'space-between',
+                                            flexWrap: 'wrap',
+                                            gap: '8px',
+                                            padding: '10px 12px',
+                                            borderRadius: '10px',
+                                            background: '#fff1f2',
+                                            border: '1px solid #fecdd3'
+                                        }}>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#9f1239' }}>
+                                                Xác nhận hạ về Free và đưa ảnh/video về 0?
+                                            </span>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={handleDowngrade}
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        borderRadius: '7px',
+                                                        background: '#dc2626',
+                                                        color: '#ffffff',
+                                                        border: 'none',
+                                                        fontWeight: 700,
+                                                        fontSize: '0.8rem',
+                                                        cursor: loading ? 'not-allowed' : 'pointer'
+                                                    }}
+                                                >
+                                                    Xác nhận hạ
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={() => setConfirmDowngrade(false)}
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        borderRadius: '7px',
+                                                        background: '#ffffff',
+                                                        color: '#475569',
+                                                        border: '1px solid #cbd5e1',
+                                                        fontWeight: 600,
+                                                        fontSize: '0.8rem',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    Hủy
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

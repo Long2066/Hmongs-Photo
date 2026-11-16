@@ -2,12 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types';
 import * as firebaseService from '../services/firebaseService';
 import {
-    SUBSCRIPTION_PLANS,
     SubscriptionPlan,
-    FREE_DAILY_IMAGE_LIMIT,
     getCachedUserPlan,
-    getDailyFreeRemaining
+    getCachedDailyFreeUsed
 } from '../services/firebaseService';
+import {
+    subscribeToSubscriptionPlansConfig,
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    type SubscriptionPlansConfig
+} from '../services/subscriptionPlanConfigService';
 import { updateProfile } from 'firebase/auth';
 import { auth } from '../src/firebaseConfig';
 
@@ -29,14 +32,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
     const [avatar, setAvatar] = useState(user.avatar);
     const [newPassword, setNewPassword] = useState('');
     const [message, setMessage] = useState('');
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
     const [remainingImages, setRemainingImages] = useState(0);
     const [remainingVideoSeconds, setRemainingVideoSeconds] = useState(() => firebaseService.getCachedRemainingVideoSeconds(user.id));
     const [bonusImages, setBonusImages] = useState(0);
     const [activePlan, setActivePlan] = useState<SubscriptionPlan>(() => getCachedUserPlan(user.id));
-    const [freeRemaining, setFreeRemaining] = useState<number>(() => getDailyFreeRemaining(user.id));
+    const [dailyFreeUsed, setDailyFreeUsed] = useState<number>(() => getCachedDailyFreeUsed(user.id));
     const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
     const [isLoadingLog, setIsLoadingLog] = useState(true);
     const fileRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => subscribeToSubscriptionPlansConfig(setPlansConfig), []);
 
     useEffect(() => {
         const unsubscribe = firebaseService.subscribeToUserCredits(user.id, (newBalance, subState) => {
@@ -45,14 +51,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
             setBonusImages((subState?.bonusImages ?? 0) + Math.max(0, Math.floor(newBalance / firebaseService.IMAGE_COST_VND)));
             if (subState) {
                 setActivePlan(subState.plan);
-                setFreeRemaining(Math.max(0, FREE_DAILY_IMAGE_LIMIT - subState.dailyFreeUsed));
+                setDailyFreeUsed(subState.dailyFreeUsed ?? 0);
             } else {
                 setActivePlan('free');
-                setFreeRemaining(getDailyFreeRemaining(user.id));
+                setDailyFreeUsed(getCachedDailyFreeUsed(user.id));
             }
         });
         return () => unsubscribe();
     }, [user.id]);
+
+    const freeDailyLimit = plansConfig.free.dailyFreeLimit;
+    const freeRemaining = Math.max(0, freeDailyLimit - dailyFreeUsed);
+    const activePlanCfg = plansConfig[activePlan] || plansConfig.free;
 
     // Load activity log
     useEffect(() => {
@@ -164,12 +174,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
                             </p>
                             <div className="flex items-center gap-1.5 sm:gap-2 justify-end sm:justify-start flex-wrap">
                                 <span className="text-xs sm:text-sm font-bold">
-                                    {SUBSCRIPTION_PLANS[activePlan].name}
+                                    {activePlanCfg.name}
                                 </span>
                                 <span className="text-[10px] sm:text-xs text-white/90 font-mono tabular-nums bg-white/20 px-1.5 sm:px-2 py-0.5 rounded-full font-semibold">
                                     {activePlan === 'free'
-                                        ? `Còn ${freeRemaining}/${FREE_DAILY_IMAGE_LIMIT} ảnh${bonusImages > 0 ? ` (+${bonusImages})` : ''} • ${remainingVideoSeconds}s`
-                                        : activePlan === 'pro'
+                                        ? `Còn ${freeRemaining}/${freeDailyLimit} ảnh${bonusImages > 0 ? ` (+${bonusImages})` : ''} • ${remainingVideoSeconds}s`
+                                        : activePlanCfg.unlimitedImages
                                             ? `Không giới hạn ảnh • ${remainingVideoSeconds}s video`
                                             : `Còn ${remainingImages} ảnh${bonusImages > 0 ? ` (+${bonusImages})` : ''} • ${remainingVideoSeconds}s`}
                                 </span>
@@ -209,7 +219,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onBack }) => {
                                     ? 'bg-emerald-600 text-white'
                                     : 'bg-slate-200 text-slate-700'
                         }`}>
-                            {SUBSCRIPTION_PLANS[activePlan].name}
+                            {activePlanCfg.name}
                         </span>
                     </div>
                     <p className="text-slate-500 text-sm font-medium truncate">{user.username}</p>

@@ -76,6 +76,12 @@ service cloud.firestore {
             && request.resource.data.remainingImages <= resource.data.remainingImages
             && (request.resource.data.plan == resource.data.plan
                 || (request.resource.data.plan == 'free' && request.resource.data.remainingImages == 0)))
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remainingVideoSeconds', 'freeVideoGranted', 'plan', 'lastUpdated', 'userId'])
+            && request.resource.data.remainingVideoSeconds is number
+            && request.resource.data.remainingVideoSeconds >= 0
+            && (!('remainingVideoSeconds' in resource.data) || request.resource.data.remainingVideoSeconds <= resource.data.remainingVideoSeconds)
+            && (request.resource.data.plan == resource.data.plan
+                || (request.resource.data.plan == 'free' && request.resource.data.remainingVideoSeconds == 0)))
           || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credits', 'plan', 'lastUpdated', 'userId'])
             && request.resource.data.credits is number
             && request.resource.data.credits >= 0
@@ -114,6 +120,12 @@ service cloud.firestore {
     match /systemSettings/{docId} {
       allow read: if isAuthenticated();   // Tool clients (logged in) read config
       allow write: if isAuthenticated();  // Admin có thể lưu cấu hình
+    }
+
+    // === SUBSCRIPTION PLANS CONFIG (Cấu hình Gói - Public Read, Admin-only Write) ===
+    match /appConfig/subscriptionPlans {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // === APP CONFIG (Terms, Announcements, etc.) ===

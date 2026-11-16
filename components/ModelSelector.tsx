@@ -9,10 +9,16 @@ import { SUPPORTED_IMAGE_MODELS } from '../services/nineRouterService';
 import { isAdmin } from '../services/storageService';
 import {
     SubscriptionPlan,
-    FREE_DAILY_IMAGE_LIMIT,
     getCachedUserPlan,
     getDailyFreeRemaining
 } from '../services/firebaseService';
+import {
+    subscribeToSubscriptionPlansConfig,
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    isResolutionAllowedByConfig,
+    formatVndCompact,
+    type SubscriptionPlansConfig
+} from '../services/subscriptionPlanConfigService';
 
 interface ModelSelectorProps {
     onModelChange?: (modelId: string) => void;
@@ -31,6 +37,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     showResolution = true,
     userBalance: _propBalance
 }) => {
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
+    const [selectionError, setSelectionError] = useState<string | null>(null);
+
     // User Balance & Plan State
     const [userPlan, setUserPlan] = useState<SubscriptionPlan>(() =>
         isAdmin() ? 'pro' : getCachedUserPlan()
@@ -47,20 +56,23 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     // Effective Plan considering balance & admin status
     const effectivePlan: SubscriptionPlan = isAdmin() ? 'pro' : userPlan;
 
-    // Helper: Determine if a model is Paid according to Firebase real-time sync
+    // Helper: Determine if a model is Paid according to Firebase real-time sync or plan config
     const checkIsPaid = useCallback((modelId: string): boolean => {
+        if (plansConfig.updatedAt > 0) {
+            return !nineRouterService.isImageModelAllowedForPlan(modelId, 'free');
+        }
         const clean = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
         if (pricingMap && pricingMap[clean] !== undefined) {
             return !!pricingMap[clean];
         }
         return nineRouterService.isModelPaid(clean);
-    }, [pricingMap]);
+    }, [pricingMap, plansConfig]);
 
     // Helper: Determine if a model requires an active paid package.
     const checkIsLocked = useCallback((modelId: string): boolean => {
         if (isAdmin()) return false;
         return !nineRouterService.isImageModelAllowedForPlan(modelId, effectivePlan);
-    }, [effectivePlan, pricingMap]);
+    }, [effectivePlan, pricingMap, plansConfig]);
 
     // Selected Image Model
     const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -83,6 +95,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
 
     // Current selected model object
     const currentModelObj = SUPPORTED_IMAGE_MODELS.find(m => m.id === selectedModel);
+
+    // Subscribe to dynamic Admin subscription plans configuration
+    useEffect(() => {
+        return subscribeToSubscriptionPlansConfig((cfg) => {
+            setPlansConfig(cfg);
+            setFreeRemaining(getDailyFreeRemaining());
+        });
+    }, []);
 
     // Sync state with real-time events (Firebase config updates, balance changes, model changes)
     useEffect(() => {
@@ -119,25 +139,30 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     }, []);
 
     // Dynamic auto-fallback: if the selected model is locked for the current package,
-    // automatically fall back to the first available Free model
+    // automatically fall back to the first available unlocked model
     useEffect(() => {
         if (checkIsLocked(selectedModel)) {
-            const availableFree = SUPPORTED_IMAGE_MODELS.find(m => !checkIsPaid(m.id))?.id || 'gemini-3.1-flash-image';
-            console.log(`[ModelSelector] Active model ${selectedModel} requires a package. Switching to free model: ${availableFree}`);
-            setSelectedModel(availableFree);
-            nineRouterService.setNineRouterImageModel(availableFree);
-            onModelChange?.(availableFree);
+            const availableModel = SUPPORTED_IMAGE_MODELS.find(m => !checkIsLocked(m.id))?.id
+                || plansConfig[effectivePlan]?.allowedImageModels?.[0]
+                || 'gemini-3.1-flash-image';
+            if (availableModel !== selectedModel && !checkIsLocked(availableModel)) {
+                console.log(`[ModelSelector] Active model ${selectedModel} is locked for ${effectivePlan}. Switching to ${availableModel}`);
+                setSelectedModel(availableModel);
+                nineRouterService.setNineRouterImageModel(availableModel);
+                onModelChange?.(availableModel);
+            }
         }
-    }, [selectedModel, checkIsLocked, checkIsPaid, onModelChange]);
+    }, [selectedModel, checkIsLocked, effectivePlan, plansConfig, onModelChange]);
 
-    // Enforce Free & Plus resolution restriction (max FHD; 2K and 4K are Pro only)
+    // Enforce plan's maxResolution dynamically
     useEffect(() => {
-        if (effectivePlan !== 'pro' && (selectedRes === '2K' || selectedRes === '4K')) {
-            setSelectedResolution('FHD');
-            setSelectedRes('FHD');
-            onResolutionChange?.('FHD');
+        const maxPlanRes = plansConfig[effectivePlan]?.maxResolution || 'FHD';
+        if (!isAdmin() && !isResolutionAllowedByConfig(selectedRes, effectivePlan, plansConfig)) {
+            setSelectedResolution(maxPlanRes);
+            setSelectedRes(maxPlanRes);
+            onResolutionChange?.(maxPlanRes);
         }
-    }, [effectivePlan, selectedRes, onResolutionChange]);
+    }, [effectivePlan, selectedRes, plansConfig, onResolutionChange]);
 
     // Outside click listener to auto-close dropdown
     useEffect(() => {
@@ -158,46 +183,55 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
     // Choose a model
     const handleSelectModel = useCallback((modelId: string) => {
         if (checkIsLocked(modelId)) {
-            alert('Model này không thuộc gói hiện tại. Plus mở GPT Image 2.5, Flare, Sunburst và GPT Image 2; Pro mở toàn bộ model.');
+            const currentName = plansConfig[effectivePlan]?.name || effectivePlan;
+            setSelectionError(`Model này không thuộc ${currentName}. Vui lòng chọn model khác hoặc nâng cấp gói tại Cấu hình & gói dịch vụ.`);
             return;
         }
 
+        setSelectionError(null);
         setSelectedModel(modelId);
         nineRouterService.setNineRouterImageModel(modelId);
         onModelChange?.(modelId);
         setIsOpen(false);
-    }, [checkIsLocked, onModelChange]);
+    }, [checkIsLocked, effectivePlan, plansConfig, onModelChange]);
 
     // Handle resolution change
     const handleResolutionChange = useCallback((res: ResolutionType) => {
-        const isHighRes = res === '2K' || res === '4K';
-        if (isHighRes && effectivePlan !== 'pro') {
-            alert('Độ phân giải 2K và 4K chỉ dành cho Gói Pro (100.000đ). Gói Free và Gói Plus hỗ trợ tối đa mức FHD. Vui lòng nâng cấp Gói Pro tại Cấu hình & gói dịch vụ để mở khóa!');
+        const maxPlanRes = plansConfig[effectivePlan]?.maxResolution || 'FHD';
+        if (!isAdmin() && !isResolutionAllowedByConfig(res, effectivePlan, plansConfig)) {
+            const plusUnlocks = plansConfig.plus.enabled && isResolutionAllowedByConfig(res, 'plus', plansConfig);
+            const targetPlan = plusUnlocks ? plansConfig.plus : plansConfig.pro;
+            setSelectionError(`Độ phân giải ${res} chỉ dành cho ${targetPlan.name} (${formatVndCompact(targetPlan.price)}). ${plansConfig[effectivePlan]?.name || 'Gói hiện tại'} hỗ trợ tối đa mức ${maxPlanRes}.`);
             return;
         }
 
+        setSelectionError(null);
         setSelectedResolution(res);
         setSelectedRes(res);
         onResolutionChange?.(res);
-    }, [effectivePlan, onResolutionChange]);
+    }, [effectivePlan, plansConfig, onResolutionChange]);
 
     // Handle apply custom model ID
     const handleApplyCustomModel = useCallback(() => {
         const trimmed = customModelInput.trim();
         if (!trimmed) return;
         if (checkIsLocked(trimmed)) {
-            alert('Model này không thuộc gói hiện tại. Chọn Pro để mở toàn bộ model.');
+            setSelectionError(`Model "${trimmed}" không thuộc ${plansConfig[effectivePlan]?.name || 'gói hiện tại'}. Chọn ${plansConfig.pro.name} để mở toàn bộ model.`);
             return;
         }
+        setSelectionError(null);
         setSelectedModel(trimmed);
         nineRouterService.setNineRouterImageModel(trimmed);
         onModelChange?.(trimmed);
         setIsOpen(false);
         setShowCustomInput(false);
         setCustomModelInput('');
-    }, [customModelInput, checkIsLocked, onModelChange]);
+    }, [customModelInput, checkIsLocked, effectivePlan, plansConfig, onModelChange]);
 
     const activeModelIsPaid = checkIsPaid(selectedModel);
+    const freeDailyLimit = plansConfig.free.dailyFreeLimit;
+    const effectivePlanCfg = plansConfig[effectivePlan] || plansConfig.free;
+    const maxPlanRes = effectivePlanCfg.maxResolution;
 
     return (
         <div className={`space-y-3.5 ${className}`}>
@@ -209,9 +243,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                     </label>
                     <span className="text-[11px] font-semibold">
                         {effectivePlan === 'free' && !activeModelIsPaid ? (
-                            <span className="text-emerald-700 font-mono tabular-nums">Miễn phí • Còn {freeRemaining}/{FREE_DAILY_IMAGE_LIMIT} ảnh hôm nay</span>
+                            <span className="text-emerald-700 font-mono tabular-nums">Miễn phí • Còn {freeRemaining}/{freeDailyLimit} ảnh hôm nay</span>
                         ) : (
-                            <span className="text-indigo-700 font-mono tabular-nums">{effectivePlan === 'free' ? 'Cần gói Plus/Pro' : `${effectivePlan === 'pro' ? 'Pro' : 'Plus'} • Dùng lượt trong gói`}</span>
+                            <span className="text-indigo-700 font-mono tabular-nums">
+                                {effectivePlan === 'free'
+                                    ? 'Cần nâng cấp gói'
+                                    : `${effectivePlanCfg.name} • ${effectivePlanCfg.unlimitedImages ? 'Không giới hạn' : 'Dùng lượt trong gói'}`}
+                            </span>
                         )}
                     </span>
                 </div>
@@ -350,6 +388,21 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                 </div>
             </div>
 
+            {/* Inline error banner instead of blocking alert */}
+            {selectionError && (
+                <div role="alert" className="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-[11px] font-medium text-amber-900 flex items-start justify-between gap-2">
+                    <span>{selectionError}</span>
+                    <button
+                        type="button"
+                        onClick={() => setSelectionError(null)}
+                        aria-label="Đóng thông báo"
+                        className="text-amber-700 hover:text-amber-900 font-bold leading-none px-1 cursor-pointer"
+                    >
+                        ×
+                    </button>
+                </div>
+            )}
+
             {/* Resolution Selection */}
             {showResolution && (
                 <div>
@@ -357,23 +410,25 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                         <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
                             Độ phân giải xuất ra
                         </label>
-                        {effectivePlan !== 'pro' && (
+                        {maxPlanRes !== '4K' && !isAdmin() && (
                             <span className="text-[10px] font-semibold text-slate-500">
-                                Tối đa FHD ({effectivePlan === 'plus' ? 'Gói Plus' : 'Gói Free'})
+                                Tối đa {maxPlanRes} ({effectivePlanCfg.name})
                             </span>
                         )}
                     </div>
                     <div className="flex gap-2">
                         {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map((res) => {
                             const isSelected = selectedRes === res;
-                            const isLockedRes = (res === '2K' || res === '4K') && effectivePlan !== 'pro';
+                            const isLockedRes = !isAdmin() && !isResolutionAllowedByConfig(res, effectivePlan, plansConfig);
+                            const plusUnlocks = plansConfig.plus.enabled && isResolutionAllowedByConfig(res, 'plus', plansConfig);
+                            const unlockBadge = plusUnlocks ? 'Plus' : 'Pro';
 
                             return (
                                 <button
                                     key={res}
                                     type="button"
                                     onClick={() => handleResolutionChange(res)}
-                                    title={isLockedRes ? 'Nâng cấp Gói Pro (100.000đ) để mở khóa độ phân giải 2K/4K' : `Độ phân giải ${res}`}
+                                    title={isLockedRes ? `Nâng cấp ${plusUnlocks ? plansConfig.plus.name : plansConfig.pro.name} để mở khóa độ phân giải ${res}` : `Độ phân giải ${res}`}
                                     className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 min-h-[38px] ${
                                         isLockedRes
                                             ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
@@ -385,7 +440,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
                                     <span>{res}</span>
                                     {isLockedRes && (
                                         <span className="text-[9px] font-semibold px-1 py-0.2 bg-slate-200 text-slate-600 rounded uppercase tracking-wider">
-                                            Pro
+                                            {unlockBadge}
                                         </span>
                                     )}
                                 </button>

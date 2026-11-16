@@ -16,6 +16,11 @@ import {
     Clock
 } from 'lucide-react';
 import { getAllUsers, UserData } from '../services/adminFirebaseService';
+import {
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    subscribeToAdminSubscriptionPlansConfig,
+    type SubscriptionPlansConfig
+} from '../services/subscriptionPlanAdminService';
 import UserEditModal from './UserEditModal';
 import * as XLSX from 'xlsx';
 
@@ -27,6 +32,12 @@ const UserList: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
     const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
+
+    useEffect(() => {
+        const unsub = subscribeToAdminSubscriptionPlansConfig(setPlansConfig);
+        return () => unsub();
+    }, []);
 
     const fetchUsers = async () => {
         setLoading(true);
@@ -391,6 +402,7 @@ const UserList: React.FC = () => {
                 ) : (
                     filteredUsers.map(user => {
                         const p = user.plan || 'free';
+                        const tierCfg = plansConfig[p] || plansConfig.free;
                         const expiresAt = user.planExpiresAt;
                         const daysLeft = expiresAt ? Math.ceil((expiresAt - now) / (24 * 60 * 60 * 1000)) : null;
                         const isExpired = expiresAt ? expiresAt <= now : false;
@@ -450,7 +462,7 @@ const UserList: React.FC = () => {
                                             border: `1px solid ${p === 'pro' ? '#c7d2fe' : p === 'plus' ? '#a7f3d0' : '#e2e8f0'}`
                                         }}>
                                             {p === 'pro' ? <Crown size={11} /> : p === 'plus' ? <Zap size={11} /> : null}
-                                            {p === 'pro' ? 'Gói Pro' : p === 'plus' ? 'Gói Plus' : 'Gói Free'}
+                                            {tierCfg.name}
                                         </span>
 
                                         {/* Expiry Pill */}
@@ -481,7 +493,7 @@ const UserList: React.FC = () => {
                                     }}>
                                         <span title="Ảnh khả dụng" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                                             <ImageIcon size={13} style={{ color: '#4f46e5' }} />
-                                            {user.remainingImages ?? 0} ảnh
+                                            {p !== 'free' && tierCfg.unlimitedImages ? '∞ ảnh' : `${user.remainingImages ?? 0} ảnh`}
                                         </span>
                                         <span style={{ color: '#cbd5e1' }}>•</span>
                                         <span title="Giây video khả dụng" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
@@ -498,7 +510,7 @@ const UserList: React.FC = () => {
                                         </span>
                                     ) : p === 'free' ? (
                                         <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                                            Hôm nay: {user.dailyFreeUsed || 0}/10 ảnh free
+                                            Hôm nay: {user.dailyFreeUsed || 0}/{plansConfig.free.dailyFreeLimit} ảnh free
                                         </span>
                                     ) : null}
                                 </div>

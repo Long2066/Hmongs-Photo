@@ -45,6 +45,13 @@ import { refreshSubscription, consumeSubscriptionImages, consumeSubscriptionVide
 import { getSystemApiKey } from './services/geminiCoreService';
 import { getCachedBalance } from './services/balanceService';
 import * as firebaseService from './services/firebaseService';
+import {
+    subscribeToSubscriptionPlansConfig,
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    isResolutionAllowedByConfig,
+    type SubscriptionPlansConfig
+} from './services/subscriptionPlanConfigService';
+import { resolveEffectiveConcurrency } from './services/concurrencyService';
 import { APP_VERSION } from './services/appUpdateService';
 import { checkDeviceAccountLimit, recordDeviceAccount } from './services/antiFraudService';
 import * as nineRouterService from './services/nineRouterService';
@@ -150,6 +157,11 @@ const App: React.FC = () => {
     const [remainingVideoSeconds, setRemainingVideoSeconds] = useState(0);
     const [currentSubscriptionPlan, setCurrentSubscriptionPlan] = useState<firebaseService.SubscriptionPlan>('free');
     const [subscriptionExpiresAt, setSubscriptionExpiresAt] = useState<number | null>(null);
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
+
+    useEffect(() => {
+        return subscribeToSubscriptionPlansConfig(setPlansConfig);
+    }, []);
 
     // --- MODE MANAGEMENT ---
     const [mode, setMode] = useState<'creative' | 'id_photo' | 'edit' | 'upscale' | 'profile_pro' | 'restore' | 'video' | 'poster'>('creative');
@@ -450,31 +462,33 @@ const App: React.FC = () => {
         if (!currentUser) return false;
         if (storage.isAdmin()) return true;
         if (currentSubscriptionPlan !== 'free') {
+            const localPlanCfg = plansConfig[currentSubscriptionPlan];
             let entitlement;
-            try { entitlement = (await refreshSubscription()) ?? { plan: currentSubscriptionPlan, remainingImages: remainingPaidImages, planStartedAt: null, planExpiresAt: subscriptionExpiresAt, planAllowanceImages: firebaseService.SUBSCRIPTION_PLANS[currentSubscriptionPlan].totalImages }; } catch (error) {
+            try { entitlement = (await refreshSubscription()) ?? { plan: currentSubscriptionPlan, remainingImages: remainingPaidImages, planStartedAt: null, planExpiresAt: subscriptionExpiresAt, planAllowanceImages: localPlanCfg.totalImages }; } catch (error) {
                 setError(error instanceof Error ? error.message : 'Không xác minh được lượt ảnh của gói. Vui lòng thử lại.');
                 return false;
             }
+            const activePlanCfg = plansConfig[entitlement.plan] || localPlanCfg;
             if (entitlement.plan === 'free' || !entitlement.planExpiresAt || entitlement.planExpiresAt <= Date.now()) {
-                setError('Gói đã hết hạn 30 ngày. Vui lòng chọn gói mới tại Cấu hình & gói dịch vụ.');
+                setError(`Gói đã hết hạn (${activePlanCfg.durationDays || 30} ngày). Vui lòng chọn gói mới tại Cấu hình & gói dịch vụ.`);
                 return false;
             }
             if (!nineRouterService.isImageModelAllowedForPlan(nineRouterService.getNineRouterImageModel(), entitlement.plan)) {
-                setError('Model này không thuộc gói hiện tại. Plus mở GPT Image 2.5, Flare, Sunburst và GPT Image 2; Pro mở toàn bộ model.');
+                setError(`Model này không thuộc ${activePlanCfg.name}. Vui lòng chọn model trong gói hoặc nâng cấp ${plansConfig.pro.name}.`);
                 return false;
             }
-            if (entitlement.plan !== 'pro') {
+            if (!activePlanCfg.unlimitedImages) {
                 const bonusImgs = firebaseService.getCachedBonusImages(currentUser.id);
                 if (requestedImages > entitlement.remainingImages + bonusImgs) {
-                    setError(`Gói Plus chỉ còn ${entitlement.remainingImages} ảnh${bonusImgs ? ` (+${bonusImgs} ảnh thưởng)` : ''}. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
+                    setError(`${activePlanCfg.name} chỉ còn ${entitlement.remainingImages} ảnh${bonusImgs ? ` (+${bonusImgs} ảnh thưởng)` : ''}. Hãy giảm số ảnh hoặc chọn gói mới tại Cấu hình & gói dịch vụ.`);
                     return false;
                 }
             }
             return true;
         }
         const modelId = nineRouterService.getNineRouterImageModel();
-        if (nineRouterService.isModelPaid(modelId)) {
-            setError('Mô hình này cần gói Plus hoặc Pro. Vui lòng chọn gói tại Cấu hình & gói dịch vụ.');
+        if (!nineRouterService.isImageModelAllowedForPlan(modelId, 'free')) {
+            setError(`Mô hình này cần nâng cấp gói (${plansConfig.plus.name} hoặc ${plansConfig.pro.name}). Vui lòng chọn gói tại Cấu hình & gói dịch vụ.`);
             return false;
         }
         const remainingFree = firebaseService.getDailyFreeRemaining(currentUser.id);
@@ -486,7 +500,7 @@ const App: React.FC = () => {
             return false;
         }
         return true;
-    }, [currentUser, currentSubscriptionPlan, userBalance]);
+    }, [currentUser, currentSubscriptionPlan, remainingPaidImages, subscriptionExpiresAt, userBalance, plansConfig]);
 
     // Paid packages consume bonusImages or package quota; Free uses daily images first, then bonusImages.
     const deductBalanceForVIP = async (imagesCount: number = 1, _generationType: string = 'image_generation') => {
@@ -494,7 +508,7 @@ const App: React.FC = () => {
         let remainingToDeduct = imagesCount;
 
         if (currentSubscriptionPlan !== 'free') {
-            if (currentSubscriptionPlan === 'pro') {
+            if (plansConfig[currentSubscriptionPlan]?.unlimitedImages) {
                 return;
             }
             const availBonus = firebaseService.getCachedBonusImages(currentUser.id);
@@ -661,12 +675,12 @@ const App: React.FC = () => {
         const cleanPrefix = (filenamePrefix && filenamePrefix.trim()) ? filenamePrefix.trim().replace(/[/\\?%*:|"<>]/g, '_') : 'ImageTool';
         setCurrentOutputTitlePrefix(cleanPrefix);
 
-        // Clamp resolution to FHD if user is not on Pro plan
-        const effectivePlan = storage.isAdmin()
+        // Clamp resolution according to current plan's live maxResolution
+        const effectivePlan: firebaseService.SubscriptionPlan = storage.isAdmin()
             ? 'pro'
             : currentSubscriptionPlan;
-        const safeResolution = effectivePlan !== 'pro' && (resolution === '2K' || resolution === '4K')
-            ? 'FHD'
+        const safeResolution = !isResolutionAllowedByConfig(resolution, effectivePlan, plansConfig)
+            ? (plansConfig[effectivePlan]?.maxResolution || 'FHD')
             : resolution;
 
         // Read specific creative inputs
@@ -736,7 +750,7 @@ const App: React.FC = () => {
                 setLoadingStatus('');
             }
         }
-    }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate]);
+    }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate, plansConfig]);
 
     // 3. Edit Image (Batch 1-to-1 Support, max 10 images)
     const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', _outputCount: number, extraData?: any) => {
@@ -809,7 +823,10 @@ const App: React.FC = () => {
                     }
                 });
 
-                const editConcurrency = Math.min(4, inputs.length);
+                const editConcurrency = resolveEffectiveConcurrency('image', inputs.length, {
+                    modelId: nineRouterService.getNineRouterImageModel(),
+                    isNineRouter: nineRouterService.isNineRouterEnabled()
+                });
                 setLoadingStatus(`Đang xử lý song song ${inputs.length} ảnh (${editConcurrency} luồng)...`);
                 await parallelWithConcurrency(editTasks, editConcurrency);
 
@@ -1014,10 +1031,10 @@ const App: React.FC = () => {
             }
 
             if (effectiveVideoSec < totalSecondsNeeded) {
-                const planLabel = currentSubscriptionPlan === 'pro' ? 'Pro' : currentSubscriptionPlan === 'plus' ? 'Plus' : 'Free';
+                const planLabel = plansConfig[currentSubscriptionPlan]?.name || currentSubscriptionPlan;
                 setError(
                     effectiveVideoSec <= 0
-                        ? `Bạn đã dùng hết số giây tạo video của gói ${planLabel}. Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s) tại Cấu hình & gói dịch vụ.`
+                        ? `Bạn đã dùng hết số giây tạo video của ${planLabel}. Vui lòng nâng cấp ${plansConfig.plus.name} (${plansConfig.plus.videoSeconds}s) hoặc ${plansConfig.pro.name} (${plansConfig.pro.videoSeconds}s) tại Cấu hình & gói dịch vụ.`
                         : `Số giây video còn lại (${effectiveVideoSec}s) không đủ để tạo ${sceneCount} phân cảnh × ${duration}s (${totalSecondsNeeded}s). Vui lòng chọn thời lượng ngắn hơn hoặc nâng cấp gói.`
                 );
                 setPackagesVisible(true);
@@ -1048,7 +1065,7 @@ const App: React.FC = () => {
                 const activeSummaries = sceneStatuses
                     .map((st, idx) => ({ st, idx }))
                     .filter(item => item.st !== 'Đang chờ...' && item.st !== 'Hoàn thành')
-                    .slice(0, 2)
+                    .slice(0, 4)
                     .map(item => `[Cảnh ${item.idx + 1}: ${item.st}]`)
                     .join(' ');
                 setLoadingStatus(`Render song song (${doneCount}/${sceneCount} cảnh xong)${activeSummaries ? `: ${activeSummaries}` : ''}`);
@@ -1089,7 +1106,7 @@ const App: React.FC = () => {
                 return returnedUrls[0];
             });
 
-            const videoConcurrency = Math.min(2, sceneCount);
+            const videoConcurrency = resolveEffectiveConcurrency('video', sceneCount, { modelId: model });
             setLoadingStatus(`Đang tạo song song ${sceneCount} phân cảnh (${videoConcurrency} luồng song song)...`);
             await parallelWithConcurrency(sceneTasks, videoConcurrency);
 
@@ -1169,7 +1186,7 @@ const App: React.FC = () => {
             setIsLoading(false);
             setLoadingStatus('');
         }
-    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser, autoDownload]);
+    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser, autoDownload, plansConfig]);
 
     // 9. Poster Studio Generation (Client-Side High-DPI Canvas Engine - 0 API cost)
     const handleSwapPosterInputs = useCallback((i: number, j: number) => {

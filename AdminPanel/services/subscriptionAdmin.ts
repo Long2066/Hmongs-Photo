@@ -1,10 +1,23 @@
 import { doc, getDoc, setDoc, addDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
+import {
+    getAdminSubscriptionPlansConfig,
+    type PlanConfig,
+    type SubscriptionPlansConfig
+} from './subscriptionPlanAdminService';
 
-export const TERM_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày
-export const ALLOWANCE = Object.freeze({ plus: 100, pro: 200 });
+export const DAY_MS = 24 * 60 * 60 * 1000;
+export const TERM_MS = 30 * DAY_MS; // 30 ngày mặc định
+export const ALLOWANCE = Object.freeze({ plus: 300, pro: 999999 });
 export const FREE_VIDEO_SECONDS = 8;
 export const VIDEO_ALLOWANCE = Object.freeze({ free: FREE_VIDEO_SECONDS, plus: 60, pro: 180 });
+
+export interface SubscriptionPlanCalcOptions {
+    planConfig?: PlanConfig;
+    plansConfig?: SubscriptionPlansConfig;
+    durationDays?: number;
+    freeVideoSeconds?: number;
+}
 
 const USER_CREDITS_COLLECTION = 'userCredits';
 const ADMIN_ACTIONS_COLLECTION = 'adminActions';
@@ -38,7 +51,16 @@ const paid = (plan: string) => plan === 'plus' || plan === 'pro';
 /**
  * Chuẩn hóa dữ liệu Subscription theo chuẩn của Tool chính
  */
-export function normalizeSubscription(data: any, now: number = Date.now()): { data: SubscriptionData; changed: boolean } {
+export function normalizeSubscription(
+    data: any,
+    now: number = Date.now(),
+    options?: SubscriptionPlanCalcOptions
+): { data: SubscriptionData; changed: boolean } {
+    const freeVideoSec =
+        typeof options?.freeVideoSeconds === 'number'
+            ? Math.max(0, options.freeVideoSeconds)
+            : (options?.plansConfig?.free?.videoSeconds ?? FREE_VIDEO_SECONDS);
+
     const current: SubscriptionData = {
         plan: data?.plan === 'pro' || data?.plan === 'plus' ? data.plan : 'free',
         remainingImages: typeof data?.remainingImages === 'number' ? data.remainingImages : 0,
@@ -53,12 +75,12 @@ export function normalizeSubscription(data: any, now: number = Date.now()): { da
     };
     let changed = false;
 
-    // Tặng 8s video miễn phí ban đầu cho tài khoản chưa nhận
+    // Tặng giây video miễn phí ban đầu cho tài khoản chưa nhận
     if (!current.freeVideoGranted) {
         current.freeVideoGranted = true;
         if (!paid(current.plan) && current.remainingVideoSeconds === 0) {
-            current.remainingVideoSeconds = FREE_VIDEO_SECONDS;
-            current.planAllowanceVideoSeconds = FREE_VIDEO_SECONDS;
+            current.remainingVideoSeconds = freeVideoSec;
+            current.planAllowanceVideoSeconds = freeVideoSec;
         }
         changed = true;
     }
@@ -71,7 +93,7 @@ export function normalizeSubscription(data: any, now: number = Date.now()): { da
         return { data: current, changed };
     }
 
-    // Nếu là gói trả phí nhưng hết hạn 30 ngày -> hạ về Free
+    // Nếu là gói trả phí nhưng hết hạn -> hạ về Free
     if (current.planExpiresAt && current.planExpiresAt <= now) {
         current.plan = 'free';
         current.remainingImages = 0;
@@ -80,8 +102,12 @@ export function normalizeSubscription(data: any, now: number = Date.now()): { da
         return { data: current, changed: true };
     }
 
-    // Nếu hết cả ảnh và video trước 30 ngày -> hạ về Free
-    if (current.remainingImages === 0 && current.remainingVideoSeconds === 0) {
+    // Nếu hết cả ảnh và video trước khi hết hạn -> hạ về Free (trừ gói không giới hạn ảnh)
+    const activePlanCfg = options?.planConfig?.id === current.plan
+        ? options.planConfig
+        : options?.plansConfig?.[current.plan];
+    const isUnlimited = activePlanCfg ? activePlanCfg.unlimitedImages : current.plan === 'pro';
+    if (!isUnlimited && current.remainingImages === 0 && current.remainingVideoSeconds === 0) {
         current.plan = 'free';
         current.lastUpdated = now;
         return { data: current, changed: true };
@@ -94,15 +120,16 @@ export function normalizeSubscription(data: any, now: number = Date.now()): { da
  * Tính toán trạng thái khi Admin cấp hoặc nâng cấp Gói
  * Luật nghiệp vụ:
  * - Plus -> Pro: Được cộng dồn số ảnh và giây video còn lại của Plus vào Pro
- * - Pro gia hạn Pro: Được cộng dồn hạn mức và gia hạn thêm 30 ngày
- * - Pro mua thêm Plus: Giữ nguyên Pro, cộng thêm 100 ảnh + 60s
+ * - Pro gia hạn Pro: Được cộng dồn hạn mức và gia hạn thêm theo cấu hình ngày của gói
+ * - Pro mua thêm Plus: Giữ nguyên Pro, cộng thêm hạn mức Plus
  */
 export function calculateGrantedPlan(
     existingData: any,
     purchasedPlan: 'plus' | 'pro',
-    now: number = Date.now()
+    now: number = Date.now(),
+    options?: SubscriptionPlanCalcOptions
 ): SubscriptionData {
-    const { data: existing } = normalizeSubscription(existingData, now);
+    const { data: existing } = normalizeSubscription(existingData, now, options);
 
     const isCurrentActivePaid = paid(existing.plan) && existing.planExpiresAt && existing.planExpiresAt > now;
     const carryPlusImages = isCurrentActivePaid && existing.plan === 'plus' && purchasedPlan === 'pro' ? existing.remainingImages : 0;
@@ -111,8 +138,18 @@ export function calculateGrantedPlan(
     const proTopUp = isCurrentActivePaid && existing.plan === 'pro';
     const finalPlan = proTopUp ? 'pro' : purchasedPlan;
 
-    const newAllowanceImages = ALLOWANCE[purchasedPlan];
-    const newAllowanceVideo = VIDEO_ALLOWANCE[purchasedPlan];
+    const targetPlanCfg = options?.planConfig?.id === purchasedPlan
+        ? options.planConfig
+        : options?.plansConfig?.[purchasedPlan];
+
+    const newAllowanceImages = targetPlanCfg
+        ? (targetPlanCfg.unlimitedImages ? Math.max(1, targetPlanCfg.totalImages || 999999) : Math.max(0, targetPlanCfg.totalImages))
+        : ALLOWANCE[purchasedPlan];
+    const newAllowanceVideo = targetPlanCfg
+        ? Math.max(0, targetPlanCfg.videoSeconds)
+        : VIDEO_ALLOWANCE[purchasedPlan];
+    const durationDays = Math.max(1, options?.durationDays ?? targetPlanCfg?.durationDays ?? 30);
+    const termMs = durationDays * DAY_MS;
 
     const finalImages = newAllowanceImages + (proTopUp ? existing.remainingImages : carryPlusImages);
     const finalVideo = newAllowanceVideo + (proTopUp ? existing.remainingVideoSeconds : carryPlusVideo);
@@ -130,7 +167,7 @@ export function calculateGrantedPlan(
         planAllowanceVideoSeconds: finalVideo,
         freeVideoGranted: true,
         planStartedAt: existing.planStartedAt || now,
-        planExpiresAt: expiryBase + TERM_MS,
+        planExpiresAt: expiryBase + termMs,
         lastUpdated: now
     };
 }
@@ -155,11 +192,21 @@ export async function grantSubscriptionPlan(
     adminEmail: string
 ): Promise<SubscriptionData> {
     const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
-    const docSnap = await getDoc(docRef);
+    const [docSnap, plansConfig] = await Promise.all([
+        getDoc(docRef),
+        getAdminSubscriptionPlansConfig()
+    ]);
     const existing = docSnap.exists() ? docSnap.data() : { userId };
 
     const now = Date.now();
-    const updated = calculateGrantedPlan(existing, plan, now);
+    const targetPlanCfg = plansConfig[plan];
+    const durationDays = Math.max(1, targetPlanCfg?.durationDays || 30);
+    const updated = calculateGrantedPlan(existing, plan, now, {
+        planConfig: targetPlanCfg,
+        plansConfig,
+        durationDays,
+        freeVideoSeconds: plansConfig.free.videoSeconds
+    });
 
     await setDoc(docRef, {
         ...existing,
@@ -168,11 +215,15 @@ export async function grantSubscriptionPlan(
         lastUpdated: now
     }, { merge: true });
 
+    const quotaSummary = targetPlanCfg?.unlimitedImages
+        ? 'Không giới hạn ảnh'
+        : `${updated.remainingImages} ảnh`;
+
     await logAdminAction({
         adminEmail,
         targetUserId: userId,
         action: 'grant_plan',
-        description: `Kích hoạt gói ${plan.toUpperCase()} (Hạn mức: ${updated.remainingImages} ảnh, ${updated.remainingVideoSeconds}s video, 30 ngày)`,
+        description: `Kích hoạt ${targetPlanCfg?.name || `gói ${plan.toUpperCase()}`} (Hạn mức: ${quotaSummary}, ${updated.remainingVideoSeconds}s video, ${durationDays} ngày)`,
         before: {
             plan: existing.plan || 'free',
             remainingImages: existing.remainingImages || 0,
@@ -204,11 +255,17 @@ export async function adjustSubscriptionQuota(
     adminEmail: string
 ): Promise<SubscriptionData> {
     const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
-    const docSnap = await getDoc(docRef);
+    const [docSnap, plansConfig] = await Promise.all([
+        getDoc(docRef),
+        getAdminSubscriptionPlansConfig()
+    ]);
     const existing = docSnap.exists() ? docSnap.data() : { userId };
     const now = Date.now();
 
-    const { data: current } = normalizeSubscription(existing, now);
+    const { data: current } = normalizeSubscription(existing, now, {
+        plansConfig,
+        freeVideoSeconds: plansConfig.free.videoSeconds
+    });
 
     let nextImages = current.remainingImages;
     let nextVideo = current.remainingVideoSeconds;
@@ -224,13 +281,14 @@ export async function adjustSubscriptionQuota(
         nextVideo = Math.max(0, params.deltaVideoSeconds || 0);
     }
 
-    // Nếu đang là Free mà được cấp quota dương -> tự động đặt hạn dùng 30 ngày và kích hoạt Plus
+    // Nếu đang là Free mà được cấp quota dương -> tự động đặt hạn dùng theo cấu hình gói Plus và kích hoạt Plus
     let nextPlan = current.plan;
     let nextExpiresAt = current.planExpiresAt;
+    const defaultPlusMs = Math.max(1, plansConfig.plus?.durationDays || 30) * DAY_MS;
     if (nextImages > 0 || nextVideo > 0) {
         if (!paid(nextPlan) || !nextExpiresAt || nextExpiresAt <= now) {
             nextPlan = 'plus';
-            nextExpiresAt = now + TERM_MS;
+            nextExpiresAt = now + defaultPlusMs;
         }
     } else {
         nextPlan = 'free';
@@ -284,11 +342,17 @@ export async function extendSubscriptionPlan(
     adminEmail: string
 ): Promise<SubscriptionData> {
     const docRef = doc(db, USER_CREDITS_COLLECTION, userId);
-    const docSnap = await getDoc(docRef);
+    const [docSnap, plansConfig] = await Promise.all([
+        getDoc(docRef),
+        getAdminSubscriptionPlansConfig()
+    ]);
     const existing = docSnap.exists() ? docSnap.data() : { userId };
     const now = Date.now();
 
-    const { data: current } = normalizeSubscription(existing, now);
+    const { data: current } = normalizeSubscription(existing, now, {
+        plansConfig,
+        freeVideoSeconds: plansConfig.free.videoSeconds
+    });
 
     const baseExpiry = (current.planExpiresAt && current.planExpiresAt > now)
         ? current.planExpiresAt

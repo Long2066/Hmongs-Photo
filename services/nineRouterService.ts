@@ -7,6 +7,8 @@
 
 import { optimizeReferenceImages, createCompositeReferenceImage } from './imageOptimizer';
 import { getVideoConfig } from './videoConfigService';
+import { getCachedSubscriptionPlansConfig, isImageModelAllowedByConfig } from './subscriptionPlanConfigService';
+import { computeJitteredBackoffMs, isTransientHttpOrNetworkError, sleepWithAbort } from './concurrencyService';
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'https://753c-158-178-235-87.ngrok-free.app/v1';
@@ -220,14 +222,20 @@ export const getModelPricing = (): Record<string, boolean> => {
     return { ...DEFAULT_MODEL_PRICING };
 };
 
-// Plus includes the four GPT models shown in the package; Pro can choose any model.
+// Plan model access resolves dynamically from Admin "Cấu hình Gói" (appConfig/subscriptionPlans) with defaults.
 export const PLUS_IMAGE_MODEL_IDS = ['gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2'] as const;
 
 export const isImageModelAllowedForPlan = (modelId: string, plan: 'free' | 'plus' | 'pro'): boolean => {
-    if (plan === 'pro') return true;
-    const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim().toLowerCase();
-    if (plan === 'plus' && PLUS_IMAGE_MODEL_IDS.some(id => id === cleanId)) return true;
-    return SUPPORTED_IMAGE_MODELS.some(model => model.id === cleanId) && !isModelPaid(cleanId);
+    const plansConfig = getCachedSubscriptionPlansConfig();
+    if (isImageModelAllowedByConfig(modelId, plan, plansConfig)) {
+        return true;
+    }
+    // Keep backwards compatibility if Admin toggled AiConfigManager paid status cleanly for Free when config hasn't been customized yet
+    if (plan === 'free' && !plansConfig.updatedAt) {
+        const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim().toLowerCase();
+        return SUPPORTED_IMAGE_MODELS.some(model => model.id === cleanId) && !isModelPaid(cleanId);
+    }
+    return false;
 };
 
 export const isModelPaid = (modelId: string): boolean => {
@@ -1620,25 +1628,59 @@ CRITICAL RULES:
         }
 
         console.log(`[MuseAI] Generating image via ${museUrl}/images/generations (ratio: ${ratio}, refs: ${refsPayload.length})`);
-        const respMuse = await fetchWithTimeout(`${museUrl}/images/generations`, {
-            method: 'POST',
-            headers: museHeaders,
-            signal: abortSignal,
-            body: JSON.stringify(musePayload)
-        }, 240000);
+        let lastMuseErr: Error | null = null;
+        for (let museAttempt = 0; museAttempt < 3; museAttempt++) {
+            if (abortSignal?.aborted) {
+                throw new Error('ABORTED');
+            }
+            try {
+                const respMuse = await fetchWithTimeout(`${museUrl}/images/generations`, {
+                    method: 'POST',
+                    headers: museHeaders,
+                    signal: abortSignal,
+                    body: JSON.stringify(musePayload)
+                }, 240000);
 
-        if (!respMuse.ok) {
-            const errText = await respMuse.text().catch(() => '');
-            throw new Error(`Muse AI Gateway tạo ảnh lỗi (HTTP ${respMuse.status}): ${errText || respMuse.statusText}`);
-        }
+                if (!respMuse.ok) {
+                    const errText = await respMuse.text().catch(() => '');
+                    const errMessage = `Muse AI Gateway tạo ảnh lỗi (HTTP ${respMuse.status}): ${errText || respMuse.statusText}`;
+                    if (isTransientHttpOrNetworkError(respMuse.status, errMessage) && museAttempt < 2) {
+                        const waitMs = computeJitteredBackoffMs(museAttempt, 1500, 7000);
+                        console.warn(`[MuseAI] Transient HTTP ${respMuse.status}, retrying (${museAttempt + 2}/3) after ${waitMs}ms...`);
+                        await sleepWithAbort(waitMs, abortSignal);
+                        continue;
+                    }
+                    throw new Error(errMessage);
+                }
 
-        const parsedMuse = await parseNineRouterResponse(respMuse);
-        const museImage = await extractAnyImageFromResponse(parsedMuse, museUrl);
-        if (museImage) {
-            console.log('[MuseAI] Successfully generated image via /v1/images/generations');
-            return museImage;
+                const parsedMuse = await parseNineRouterResponse(respMuse);
+                const museImage = await extractAnyImageFromResponse(parsedMuse, museUrl);
+                if (museImage) {
+                    console.log('[MuseAI] Successfully generated image via /v1/images/generations');
+                    return museImage;
+                }
+                lastMuseErr = new Error('Muse AI Gateway không trả về dữ liệu ảnh.');
+                if (museAttempt < 2) {
+                    const waitMs = computeJitteredBackoffMs(museAttempt, 1200, 5000);
+                    await sleepWithAbort(waitMs, abortSignal);
+                    continue;
+                }
+                throw lastMuseErr;
+            } catch (museErr: any) {
+                if (abortSignal?.aborted || museErr?.name === 'AbortError' || museErr?.message === 'ABORTED') {
+                    throw new Error('ABORTED');
+                }
+                lastMuseErr = museErr instanceof Error ? museErr : new Error(String(museErr));
+                if (museAttempt < 2 && isTransientHttpOrNetworkError(undefined, lastMuseErr.message)) {
+                    const waitMs = computeJitteredBackoffMs(museAttempt, 1500, 7000);
+                    console.warn(`[MuseAI] Network/transient error (${lastMuseErr.message}), retrying (${museAttempt + 2}/3) after ${waitMs}ms...`);
+                    await sleepWithAbort(waitMs, abortSignal);
+                    continue;
+                }
+                throw lastMuseErr;
+            }
         }
-        throw new Error('Muse AI Gateway không trả về dữ liệu ảnh.');
+        throw lastMuseErr || new Error('Muse AI Gateway không trả về dữ liệu ảnh.');
     }
 
     // Build candidate models order based on user selection

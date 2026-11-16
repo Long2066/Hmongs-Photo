@@ -6,6 +6,11 @@ import {
     OpenRouterVideoConfig
 } from './videoConfigService';
 import { analyzeVoiceDirective } from './scenePromptUtils';
+import {
+    computeJitteredBackoffMs,
+    isTransientHttpOrNetworkError,
+    sleepWithAbort
+} from './concurrencyService';
 
 export interface GenerateOpenRouterVideoOptions {
     prompt: string;
@@ -15,6 +20,7 @@ export interface GenerateOpenRouterVideoOptions {
     inputImageBase64?: string;
     outputCount?: number;
     onProgress?: (status: string) => void;
+    abortSignal?: AbortSignal;
 }
 
 export interface GenerateOpenRouterVideoResult {
@@ -321,38 +327,64 @@ const executeIdeaAiVideoCall = async (
         'Accept': 'application/json'
     };
 
-    // Bước 1: InitiateSession trên idea.ai
+    // Bước 1: InitiateSession trên idea.ai (retry nhẹ nếu gặp 429/5xx/mạng thoáng qua)
     options.onProgress?.(`Đang khởi tạo phiên tạo video trên ${meta.shortName}...`);
-    const initController = new AbortController();
-    const initTimeout = setTimeout(() => initController.abort(), 45000);
-
     const initUrl = resolveIdeaAiUrl(`${IDEA_AI_STUDIO_BASE}/InitiateSession`);
 
     let initData: any;
-    try {
-        const initResp = await fetch(initUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                visibility: 'SESSION_VISIBILITY_PRIVATE',
-                sessionRequestPromptToVideoGeneratorContent: promptToVideoContent
-            }),
-            signal: initController.signal
-        });
-        clearTimeout(initTimeout);
+    for (let submitAttempt = 0; submitAttempt < 2; submitAttempt++) {
+        if (options.abortSignal?.aborted) {
+            throw new Error('ABORTED');
+        }
+        const initController = new AbortController();
+        const initTimeout = setTimeout(() => initController.abort(), 45000);
+        const onParentAbort = () => initController.abort();
+        options.abortSignal?.addEventListener('abort', onParentAbort, { once: true });
 
-        const rawJson = await initResp.json().catch(() => ({}));
-        if (!initResp.ok) {
-            const errMsg = rawJson?.message || rawJson?.error?.message || `HTTP ${initResp.status}`;
-            throw new Error(`[${meta.shortName}] ${errMsg}`);
+        try {
+            const initResp = await fetch(initUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    visibility: 'SESSION_VISIBILITY_PRIVATE',
+                    sessionRequestPromptToVideoGeneratorContent: promptToVideoContent
+                }),
+                signal: initController.signal
+            });
+            clearTimeout(initTimeout);
+            options.abortSignal?.removeEventListener('abort', onParentAbort);
+
+            const rawJson = await initResp.json().catch(() => ({}));
+            if (!initResp.ok) {
+                const errMsg = rawJson?.message || rawJson?.error?.message || `HTTP ${initResp.status}`;
+                if (submitAttempt < 1 && isTransientHttpOrNetworkError(initResp.status, errMsg)) {
+                    const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 5000);
+                    await sleepWithAbort(waitMs, options.abortSignal);
+                    continue;
+                }
+                throw new Error(`[${meta.shortName}] ${errMsg}`);
+            }
+            initData = rawJson;
+            break;
+        } catch (err: any) {
+            clearTimeout(initTimeout);
+            options.abortSignal?.removeEventListener('abort', onParentAbort);
+            if (options.abortSignal?.aborted || err?.message === 'ABORTED') {
+                throw new Error('ABORTED');
+            }
+            const errMsg = err?.name === 'AbortError'
+                ? `Quá thời gian chờ khi khởi tạo phiên tạo video trên ${meta.shortName}.`
+                : (err?.message || String(err));
+            if (submitAttempt < 1 && isTransientHttpOrNetworkError(undefined, errMsg)) {
+                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 5000);
+                await sleepWithAbort(waitMs, options.abortSignal);
+                continue;
+            }
+            if (err.name === 'AbortError') {
+                throw new Error(errMsg);
+            }
+            throw err;
         }
-        initData = rawJson;
-    } catch (err: any) {
-        clearTimeout(initTimeout);
-        if (err.name === 'AbortError') {
-            throw new Error(`Quá thời gian chờ khi khởi tạo phiên tạo video trên ${meta.shortName}.`);
-        }
-        throw err;
     }
 
     const session = initData?.session || initData;
@@ -540,39 +572,65 @@ const executeOpenRouterVideoCall = async (
         'Content-Type': 'application/json'
     };
 
-    // Bước 1: Khởi tạo tiến trình tạo video (POST /api/v1/videos)
-    const submitController = new AbortController();
-    const submitTimeout = setTimeout(() => submitController.abort(), 60000);
-
+    // Bước 1: Khởi tạo tiến trình tạo video (POST /api/v1/videos) với retry thoáng qua
     let submitData: any;
-    try {
-        const submitResp = await fetch(OPENROUTER_VIDEOS_ENDPOINT, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(payload),
-            signal: submitController.signal
-        });
-        clearTimeout(submitTimeout);
+    for (let submitAttempt = 0; submitAttempt < 2; submitAttempt++) {
+        if (options.abortSignal?.aborted) {
+            throw new Error('ABORTED');
+        }
+        const submitController = new AbortController();
+        const submitTimeout = setTimeout(() => submitController.abort(), 60000);
+        const onParentAbort = () => submitController.abort();
+        options.abortSignal?.addEventListener('abort', onParentAbort, { once: true });
 
-        if (!submitResp.ok) {
-            let errorDetail = `HTTP ${submitResp.status}`;
-            try {
-                const errJson = await submitResp.json();
-                errorDetail = errJson?.error?.message || JSON.stringify(errJson?.error || errJson) || errorDetail;
-            } catch {
-                // Ignore json parse error
+        try {
+            const submitResp = await fetch(OPENROUTER_VIDEOS_ENDPOINT, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+                signal: submitController.signal
+            });
+            clearTimeout(submitTimeout);
+            options.abortSignal?.removeEventListener('abort', onParentAbort);
+
+            if (!submitResp.ok) {
+                let errorDetail = `HTTP ${submitResp.status}`;
+                try {
+                    const errJson = await submitResp.json();
+                    errorDetail = errJson?.error?.message || JSON.stringify(errJson?.error || errJson) || errorDetail;
+                } catch {
+                    // Ignore json parse error
+                }
+                if (submitAttempt < 1 && isTransientHttpOrNetworkError(submitResp.status, errorDetail)) {
+                    const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 5000);
+                    await sleepWithAbort(waitMs, options.abortSignal);
+                    continue;
+                }
+                throw new Error(`[${meta.shortName}] ${errorDetail}`);
             }
-            throw new Error(`[${meta.shortName}] ${errorDetail}`);
-        }
 
-        const rawText = await submitResp.text();
-        submitData = JSON.parse(rawText.trim());
-    } catch (err: any) {
-        clearTimeout(submitTimeout);
-        if (err.name === 'AbortError') {
-            throw new Error(`Quá thời gian chờ khi gửi yêu cầu tới ${meta.shortName}.`);
+            const rawText = await submitResp.text();
+            submitData = JSON.parse(rawText.trim());
+            break;
+        } catch (err: any) {
+            clearTimeout(submitTimeout);
+            options.abortSignal?.removeEventListener('abort', onParentAbort);
+            if (options.abortSignal?.aborted || err?.message === 'ABORTED') {
+                throw new Error('ABORTED');
+            }
+            const errMsg = err?.name === 'AbortError'
+                ? `Quá thời gian chờ khi gửi yêu cầu tới ${meta.shortName}.`
+                : (err?.message || String(err));
+            if (submitAttempt < 1 && isTransientHttpOrNetworkError(undefined, errMsg)) {
+                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 5000);
+                await sleepWithAbort(waitMs, options.abortSignal);
+                continue;
+            }
+            if (err.name === 'AbortError') {
+                throw new Error(errMsg);
+            }
+            throw err;
         }
-        throw err;
     }
 
     if (submitData?.status === 'completed' && Array.isArray(submitData.urls) && submitData.urls[0]) {
@@ -670,6 +728,61 @@ const executeOpenRouterVideoCall = async (
 };
 
 /**
+ * Cache 5 phút cho danh sách model được cấp quyền trên Vivix (/v1/models)
+ * để tránh 8-10 luồng song song gọi lặp lại gây 429.
+ */
+const VIVIX_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+const vivixAllowedModelsCache = new Map<string, { models: Array<{ name: string; tag?: string }>; expiresAt: number }>();
+const inFlightVivixModelsFetch = new Map<string, Promise<Array<{ name: string; tag?: string }>>>();
+
+const fetchVivixAllowedModelsCached = async (key: string): Promise<Array<{ name: string; tag?: string }>> => {
+    const cached = vivixAllowedModelsCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.models;
+    }
+    const pending = inFlightVivixModelsFetch.get(key);
+    if (pending) {
+        return pending;
+    }
+
+    const job = (async (): Promise<Array<{ name: string; tag?: string }>> => {
+        const modelsUrl = resolveProxyUrl(`${VIVIX_API_BASE}/models`);
+        let modelsResp: Response;
+        try {
+            modelsResp = await fetch(modelsUrl, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+            });
+        } catch {
+            modelsResp = await fetch(`${VIVIX_API_BASE}/models`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+            });
+        }
+
+        if (modelsResp.ok) {
+            const modelsJson = await modelsResp.json().catch(() => ({}));
+            const allowedList: Array<{ name: string; tag?: string }> = Array.isArray(modelsJson?.data?.models)
+                ? modelsJson.data.models
+                : [];
+            vivixAllowedModelsCache.set(key, {
+                models: allowedList,
+                expiresAt: Date.now() + VIVIX_MODELS_CACHE_TTL_MS
+            });
+            return allowedList;
+        }
+        return [];
+    })();
+
+    inFlightVivixModelsFetch.set(key, job);
+    try {
+        return await job;
+    } finally {
+        inFlightVivixModelsFetch.delete(key);
+    }
+};
+
+/**
  * Gửi một lượt yêu cầu tạo video tới máy chủ chính chủ Vivix (Vivix W1 real)
  * API: POST https://api.vivix.ai/v1/videos/jobs & GET /v1/videos/jobs/{job_id}
  */
@@ -695,43 +808,23 @@ const executeVivixVideoCall = async (
     // Vivix W1 requires duration between 5 and 15
     const validDuration = Math.max(5, Math.min(15, duration || 5));
 
-    // Bước 0: Kiểm tra danh sách model được phép của API Key (GET /v1/models)
+    // Bước 0: Kiểm tra danh sách model được phép của API Key (cached 5 phút)
     try {
-        const modelsUrl = resolveProxyUrl(`${VIVIX_API_BASE}/models`);
-        let modelsResp: Response;
-        try {
-            modelsResp = await fetch(modelsUrl, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
-            });
-        } catch {
-            modelsResp = await fetch(`${VIVIX_API_BASE}/models`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
-            });
-        }
+        const allowedList = await fetchVivixAllowedModelsCached(key);
+        if (allowedList.length > 0) {
+            const fullNames = allowedList.map(m => (m.tag ? `${m.name}:${m.tag}` : m.name));
+            const w1Matches = allowedList.filter(m => String(m.name || '').toLowerCase().includes('w1'));
+            if (w1Matches.length === 0) {
+                throw new Error(
+                    `[${meta.shortName}] Tài khoản Vivix của bạn hiện chỉ mở quyền gọi [${fullNames.join(', ')}], chưa mở quyền API dòng Vivix W1 (Preview giới hạn). Vui lòng mua gói W-Pack tại platform.vivix.ai/pricing#W để kích hoạt API W1, hoặc chọn model [Vivix W1 T].`
+                );
+            }
 
-        if (modelsResp.ok) {
-            const modelsJson = await modelsResp.json().catch(() => ({}));
-            const allowedList: Array<{ name: string; tag?: string }> = Array.isArray(modelsJson?.data?.models)
-                ? modelsJson.data.models
-                : [];
-
-            if (allowedList.length > 0) {
-                const fullNames = allowedList.map(m => (m.tag ? `${m.name}:${m.tag}` : m.name));
-                const w1Matches = allowedList.filter(m => String(m.name || '').toLowerCase().includes('w1'));
-                if (w1Matches.length === 0) {
-                    throw new Error(
-                        `[${meta.shortName}] Tài khoản Vivix của bạn hiện chỉ mở quyền gọi [${fullNames.join(', ')}], chưa mở quyền API dòng Vivix W1 (Preview giới hạn). Vui lòng mua gói W-Pack tại platform.vivix.ai/pricing#W để kích hoạt API W1, hoặc chọn model [Vivix W1 T].`
-                    );
-                }
-
-                // Tìm khớp chính xác variant được chọn hoặc tag đi kèm (vd: vivix-w1:latest)
-                const exactBare = w1Matches.find(m => m.name === vivixModel && !m.tag);
-                if (!exactBare) {
-                    const matchedVariant = w1Matches.find(m => m.name === vivixModel) || w1Matches[0];
-                    vivixModel = matchedVariant.tag ? `${matchedVariant.name}:${matchedVariant.tag}` : matchedVariant.name;
-                }
+            // Tìm khớp chính xác variant được chọn hoặc tag đi kèm (vd: vivix-w1:latest)
+            const exactBare = w1Matches.find(m => m.name === vivixModel && !m.tag);
+            if (!exactBare) {
+                const matchedVariant = w1Matches.find(m => m.name === vivixModel) || w1Matches[0];
+                vivixModel = matchedVariant.tag ? `${matchedVariant.name}:${matchedVariant.tag}` : matchedVariant.name;
             }
         }
     } catch (checkErr: any) {
@@ -801,38 +894,68 @@ const executeVivixVideoCall = async (
     };
 
     const submitUrl = resolveProxyUrl(`${VIVIX_API_BASE}/videos/jobs`);
-    let submitResp: Response;
-    try {
-        submitResp = await fetch(submitUrl, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${key}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(requestBody)
-        });
-    } catch {
-        submitResp = await fetch(`${VIVIX_API_BASE}/videos/jobs`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${key}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(requestBody)
-        });
-    }
+    let submitResp!: Response;
+    let submitJson: any = {};
 
-    const submitJson = await submitResp.json().catch(() => ({}));
-    if (!submitResp.ok || submitJson?.code !== 0) {
-        const rawErr = submitJson?.message || `HTTP ${submitResp.status}`;
-        if (String(rawErr).toLowerCase().includes('model tag not available')) {
-            throw new Error(
-                `[${meta.shortName}] Tài khoản Vivix chưa được cấp quyền API cho dòng Vivix W1 (Preview giới hạn). Vui lòng mua gói W-Pack trên platform.vivix.ai/pricing#W để mở khóa, hoặc chuyển sang chọn [Vivix W1 T].`
-            );
+    for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
+        if (options.abortSignal?.aborted) {
+            throw new Error('ABORTED');
         }
-        throw new Error(`[${meta.shortName}] Gửi tác vụ tạo video thất bại: ${rawErr}`);
+        try {
+            try {
+                submitResp = await fetch(submitUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${key}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: options.abortSignal
+                });
+            } catch (proxyErr: any) {
+                if (options.abortSignal?.aborted || proxyErr?.name === 'AbortError') {
+                    throw proxyErr;
+                }
+                submitResp = await fetch(`${VIVIX_API_BASE}/videos/jobs`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${key}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: options.abortSignal
+                });
+            }
+
+            submitJson = await submitResp.json().catch(() => ({}));
+            if (submitResp.ok && submitJson?.code === 0) {
+                break;
+            }
+            const rawErr = submitJson?.message || `HTTP ${submitResp.status}`;
+            if (String(rawErr).toLowerCase().includes('model tag not available')) {
+                throw new Error(
+                    `[${meta.shortName}] Tài khoản Vivix chưa được cấp quyền API cho dòng Vivix W1 (Preview giới hạn). Vui lòng mua gói W-Pack trên platform.vivix.ai/pricing#W để mở khóa, hoặc chuyển sang chọn [Vivix W1 T].`
+                );
+            }
+            if (submitAttempt < 2 && isTransientHttpOrNetworkError(submitResp.status, rawErr)) {
+                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
+                await sleepWithAbort(waitMs, options.abortSignal);
+                continue;
+            }
+            throw new Error(`[${meta.shortName}] Gửi tác vụ tạo video thất bại: ${rawErr}`);
+        } catch (err: any) {
+            if (options.abortSignal?.aborted || err?.name === 'AbortError' || err?.message === 'ABORTED') {
+                throw new Error('ABORTED');
+            }
+            if (submitAttempt < 2 && isTransientHttpOrNetworkError(undefined, err?.message || String(err))) {
+                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
+                await sleepWithAbort(waitMs, options.abortSignal);
+                continue;
+            }
+            throw err;
+        }
     }
 
     const jobId = submitJson?.data?.results?.[0]?.job_id || submitJson?.data?.job_id;
@@ -840,35 +963,53 @@ const executeVivixVideoCall = async (
         throw new Error(`[${meta.shortName}] Không nhận được mã tác vụ (Job ID) từ Vivix API.`);
     }
 
-    // Bước 3: Poll GET /v1/videos/jobs/{jobId} mỗi 4 giây cho tới khi hoàn tất
-    const maxAttempts = 75; // 75 * 4s = 300s (5 phút)
+    // Bước 3: Poll GET /v1/videos/jobs/{jobId} với jitter nhẹ để tránh dồn request khi chạy 8-10 luồng
+    const maxAttempts = 75; // ~5 phút tối đa
+    let consecutivePollErrors = 0;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        await sleep(4000);
+        await sleepWithAbort(3600 + Math.floor(Math.random() * 800), options.abortSignal);
         const elapsedSec = attempt * 4;
         options.onProgress?.(`Đang kết xuất video qua máy chủ ${meta.shortName} (${elapsedSec}s)...`);
 
         const pollUrl = resolveProxyUrl(`${VIVIX_API_BASE}/videos/jobs/${encodeURIComponent(jobId)}`);
         let pollResp: Response;
         try {
-            pollResp = await fetch(pollUrl, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${key}`,
-                    'Accept': 'application/json'
+            try {
+                pollResp = await fetch(pollUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${key}`,
+                        'Accept': 'application/json'
+                    },
+                    signal: options.abortSignal
+                });
+            } catch (proxyErr: any) {
+                if (options.abortSignal?.aborted || proxyErr?.name === 'AbortError') {
+                    throw proxyErr;
                 }
-            });
-        } catch {
-            pollResp = await fetch(`${VIVIX_API_BASE}/videos/jobs/${encodeURIComponent(jobId)}`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${key}`,
-                    'Accept': 'application/json'
-                }
-            });
+                pollResp = await fetch(`${VIVIX_API_BASE}/videos/jobs/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${key}`,
+                        'Accept': 'application/json'
+                    },
+                    signal: options.abortSignal
+                });
+            }
+        } catch (netErr: any) {
+            if (options.abortSignal?.aborted || netErr?.name === 'AbortError' || netErr?.message === 'ABORTED') {
+                throw new Error('ABORTED');
+            }
+            consecutivePollErrors++;
+            if (consecutivePollErrors >= 5) {
+                throw netErr;
+            }
+            continue;
         }
+        consecutivePollErrors = 0;
 
         if (!pollResp.ok) {
-            if (pollResp.status >= 500 && attempt < maxAttempts) {
+            if ((pollResp.status >= 500 || pollResp.status === 429) && attempt < maxAttempts) {
                 continue;
             }
             const errJson = await pollResp.json().catch(() => ({}));
@@ -935,30 +1076,74 @@ const executeMuseAiVideoCall = async (
         bodyPayload.image = imagePayload;
     }
 
-    const submitResp = await fetch(`${baseUrl}/videos`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(bodyPayload)
-    });
+    let submitData: any = null;
+    for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
+        if (options.abortSignal?.aborted) {
+            throw new Error('ABORTED');
+        }
+        try {
+            const submitResp = await fetch(`${baseUrl}/videos`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(bodyPayload),
+                signal: options.abortSignal
+            });
 
-    if (!submitResp.ok) {
-        const errText = await submitResp.text().catch(() => '');
-        throw new Error(`Muse AI Gateway lỗi (HTTP ${submitResp.status}): ${errText || submitResp.statusText}`);
+            if (!submitResp.ok) {
+                const errText = await submitResp.text().catch(() => '');
+                const errMsg = `Muse AI Gateway lỗi (HTTP ${submitResp.status}): ${errText || submitResp.statusText}`;
+                if (submitAttempt < 2 && isTransientHttpOrNetworkError(submitResp.status, errMsg)) {
+                    const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
+                    options.onProgress?.(`Gateway Muse đang bận, thử lại sau ${Math.round(waitMs / 1000)}s (${submitAttempt + 2}/3)...`);
+                    await sleepWithAbort(waitMs, options.abortSignal);
+                    continue;
+                }
+                throw new Error(errMsg);
+            }
+
+            submitData = await submitResp.json();
+            break;
+        } catch (err: any) {
+            if (options.abortSignal?.aborted || err?.name === 'AbortError' || err?.message === 'ABORTED') {
+                throw new Error('ABORTED');
+            }
+            if (submitAttempt < 2 && isTransientHttpOrNetworkError(undefined, err?.message || String(err))) {
+                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
+                options.onProgress?.(`Kết nối Muse gián đoạn, thử lại (${submitAttempt + 2}/3)...`);
+                await sleepWithAbort(waitMs, options.abortSignal);
+                continue;
+            }
+            throw err;
+        }
     }
 
-    const submitData = await submitResp.json();
     const taskId = submitData?.id;
     if (!taskId) {
         throw new Error('Muse AI Gateway không trả về mã tác vụ (Task ID).');
     }
 
-    const maxAttempts = 200; // ~10 phút tối đa (3s/lần)
+    const maxAttempts = 200; // ~10 phút tối đa (~3s/lần có jitter tránh nghẽn đồng loạt)
+    let consecutivePollErrors = 0;
     for (let i = 1; i <= maxAttempts; i++) {
-        await sleep(3000);
-        const pollResp = await fetch(`${baseUrl}/videos/${encodeURIComponent(taskId)}`, {
-            method: 'GET',
-            headers
-        });
+        await sleepWithAbort(2800 + Math.floor(Math.random() * 800), options.abortSignal);
+        let pollResp: Response;
+        try {
+            pollResp = await fetch(`${baseUrl}/videos/${encodeURIComponent(taskId)}`, {
+                method: 'GET',
+                headers,
+                signal: options.abortSignal
+            });
+        } catch (pollErr: any) {
+            if (options.abortSignal?.aborted || pollErr?.name === 'AbortError' || pollErr?.message === 'ABORTED') {
+                throw new Error('ABORTED');
+            }
+            consecutivePollErrors++;
+            if (consecutivePollErrors >= 5) {
+                throw new Error(`Muse AI mất kết nối khi theo dõi tác vụ ${taskId}: ${pollErr?.message || pollErr}`);
+            }
+            continue;
+        }
+        consecutivePollErrors = 0;
 
         if (!pollResp.ok) {
             if (pollResp.status === 404) {

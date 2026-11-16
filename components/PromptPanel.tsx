@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MagicWandIcon } from './Icons';
 import { generateBatchPromptsText, optimizePrompt } from '../services/aiService';
 import { extractSceneLines, MAX_STORY_SCENES } from '../services/scenePromptUtils';
@@ -6,6 +6,13 @@ import type { CreativeRefImages } from '../services/aiService';
 import * as storage from '../services/storageService';
 import { getSystemApiKey, getSelectedResolution } from '../services/geminiCoreService';
 import { ModelSelector } from './ModelSelector';
+import {
+    CONCURRENCY_OPTIONS,
+    CONCURRENCY_EVENT,
+    ConcurrencySetting,
+    getConcurrencySetting,
+    setConcurrencySetting
+} from '../services/concurrencyService';
 
 interface PromptPanelProps {
     onGenerate: (
@@ -123,6 +130,23 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     const generatingRef = useRef(false);
     const [promptError, setPromptError] = useState('');
     const [isOptimizing, setIsOptimizing] = useState(false);
+    const [imageConcurrency, setImageConcurrency] = useState<ConcurrencySetting>(() => getConcurrencySetting('image'));
+
+    useEffect(() => {
+        const handleConcurrencySync = (ev: Event) => {
+            const custom = ev as CustomEvent<{ kind?: string; setting?: ConcurrencySetting }>;
+            if (custom.detail?.kind === 'image' && custom.detail.setting !== undefined) {
+                setImageConcurrency(custom.detail.setting);
+            }
+        };
+        window.addEventListener(CONCURRENCY_EVENT, handleConcurrencySync);
+        return () => window.removeEventListener(CONCURRENCY_EVENT, handleConcurrencySync);
+    }, []);
+
+    const handleSelectImageConcurrency = (val: ConcurrencySetting) => {
+        setImageConcurrency(val);
+        setConcurrencySetting('image', val);
+    };
 
     const parsedSceneLines = extractSceneLines(topic);
     const isLineByLineMode = parsedSceneLines.length >= 2;
@@ -149,7 +173,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
             setTopic(optimized);
         } catch (e: any) {
             const message = e?.message || 'Lỗi không xác định';
-            alert(`Lỗi tối ưu hóa: ${message}`);
+            setPromptError(`Lỗi tối ưu hóa: ${message}`);
         } finally {
             setIsOptimizing(false);
         }
@@ -416,6 +440,40 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                                 </svg>
                             </div>
                         </div>
+                    </div>
+
+                    {/* Parallel Concurrency Threads */}
+                    <div className="col-span-2">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                                Luồng chạy song song
+                            </label>
+                            <span className="text-[10.5px] font-mono font-semibold text-indigo-700 tabular-nums">
+                                {imageConcurrency === 'auto' ? 'Tự động (8–10 luồng)' : `${imageConcurrency} luồng`}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-6 gap-1.5 bg-slate-100 p-1 rounded-xl ring-1 ring-slate-900/5">
+                            {CONCURRENCY_OPTIONS.map((opt) => {
+                                const isActive = imageConcurrency === opt;
+                                return (
+                                    <button
+                                        key={String(opt)}
+                                        type="button"
+                                        onClick={() => handleSelectImageConcurrency(opt)}
+                                        className={`min-h-[44px] sm:min-h-[38px] rounded-lg text-[11px] font-mono font-bold tabular-nums transition-all cursor-pointer active:scale-[0.97] ${
+                                            isActive
+                                                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/10'
+                                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                                        }`}
+                                    >
+                                        {opt === 'auto' ? 'Auto' : `x${opt}`}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="mt-1 text-[10.5px] text-slate-500 leading-snug">
+                            Tối ưu 8–10 luồng đồng thời khi chạy Muse / 9Router đa tài khoản.
+                        </p>
                     </div>
                 </div>
 

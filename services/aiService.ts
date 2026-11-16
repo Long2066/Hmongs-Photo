@@ -5,6 +5,12 @@ import * as antigravityService from './antigravityService';
 import * as geminiOAuthService from './geminiOAuthService';
 import * as nineRouterService from './nineRouterService';
 import { optimizeReferenceImages, enforceResolutionAndAspect } from './imageOptimizer';
+import {
+    resolveEffectiveConcurrency,
+    isTransientHttpOrNetworkError,
+    computeJitteredBackoffMs,
+    sleepWithAbort
+} from './concurrencyService';
 
 // --- GENERATION MODE TYPES ---
 export type GenerationMode = 'ninerouter' | 'antigravity' | 'oauth' | 'vip' | 'free' | 'none';
@@ -846,23 +852,24 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper for parallel execution with concurrency control and staggered start
+// Helper for parallel execution with concurrency control and bounded staggered start
 export const parallelWithConcurrency = async <T>(
     tasks: (() => Promise<T>)[],
     concurrency: number,
     onProgress?: (completed: number, total: number) => void,
-    staggerDelayMs: number = 300,
+    staggerDelayMs: number = 150,
     abortSignal?: AbortSignal
 ): Promise<T[]> => {
     const results: T[] = new Array(tasks.length);
     let currentIndex = 0;
     let completed = 0;
+    const perWorkerStagger = Math.min(Math.max(0, staggerDelayMs), 150);
 
     const executeNext = async (workerIndex: number): Promise<void> => {
-        // Stagger start: each worker waits a bit before starting
-        if (staggerDelayMs > 0 && workerIndex > 0) {
+        // Bounded stagger start: spreads initial burst cleanly without starving high worker indices
+        if (perWorkerStagger > 0 && workerIndex > 0) {
             if (abortSignal?.aborted) return;
-            await delay(staggerDelayMs * workerIndex);
+            await delay(Math.min(1200, perWorkerStagger * workerIndex));
         }
 
         while (currentIndex < tasks.length) {
@@ -880,16 +887,16 @@ export const parallelWithConcurrency = async <T>(
             completed++;
             if (onProgress) onProgress(completed, tasks.length);
 
-            // Add small delay between tasks for same worker to spread load
-            if (staggerDelayMs > 0 && currentIndex < tasks.length) {
+            // Brief yield between consecutive tasks on the same worker
+            if (perWorkerStagger > 0 && currentIndex < tasks.length) {
                 if (abortSignal?.aborted) break;
-                await delay(100);
+                await delay(30);
             }
         }
     };
 
-    // Start workers with staggered timing
-    const workerCount = Math.min(concurrency, tasks.length);
+    // Start workers with bounded staggered timing
+    const workerCount = Math.max(1, Math.min(concurrency, tasks.length));
     const workers = Array(workerCount)
         .fill(null)
         .map((_, i) => executeNext(i));
@@ -1141,10 +1148,10 @@ export const generateBatchPromptsText = async (
     const globalContext = options?.globalContext?.trim() || '';
     const sceneLines = (options?.sceneLines || []).map(l => l.trim()).filter(Boolean).slice(0, 40);
 
-    // Split >10 prompts (up to 40) into chunks of 10 so Text AI never truncates or drops scenes
+    // Split >10 prompts (up to 40) into chunks of 10 and run chunks in parallel for faster story generation
     if (safeTotalCount > 10) {
         const CHUNK_SIZE = 10;
-        const allPrompts: string[] = [];
+        const chunkDefs: Array<{ start: number; chunkCount: number; chunkScenes: string[]; chunkTopic: string }> = [];
 
         for (let start = 0; start < safeTotalCount; start += CHUNK_SIZE) {
             const chunkCount = Math.min(CHUNK_SIZE, safeTotalCount - start);
@@ -1154,7 +1161,10 @@ export const generateBatchPromptsText = async (
             const chunkTopic = chunkScenes.length > 0
                 ? chunkScenes.join('\n')
                 : `${topic} (Continuous story progression: scenes ${start + 1} to ${start + chunkCount} out of ${safeTotalCount} total sequential scenes)`;
+            chunkDefs.push({ start, chunkCount, chunkScenes, chunkTopic });
+        }
 
+        const chunkTasks = chunkDefs.map(({ chunkCount, chunkScenes, chunkTopic }) => async (): Promise<string[]> => {
             const chunkText = await generateBatchPromptsText(
                 apiKey,
                 chunkTopic,
@@ -1171,18 +1181,36 @@ export const generateBatchPromptsText = async (
             );
 
             const parsed = parseChunkPrompts(chunkText);
+            const chunkPrompts: string[] = [];
             for (let j = 0; j < chunkCount; j++) {
                 const candidate = parsed[j];
                 if (candidate && candidate.length > 0) {
-                    allPrompts.push(candidate);
+                    chunkPrompts.push(candidate);
                 } else {
+                    const fallbackScene = chunkScenes[j] || topic;
+                    chunkPrompts.push(
+                        `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${fallbackScene}. Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
+                    );
+                }
+            }
+            return chunkPrompts;
+        });
+
+        const chunkResults = await parallelWithConcurrency(chunkTasks, Math.min(4, chunkTasks.length), undefined, 100);
+        const allPrompts: string[] = [];
+        chunkResults.forEach((chunkList, idx) => {
+            if (Array.isArray(chunkList) && chunkList.length > 0) {
+                allPrompts.push(...chunkList);
+            } else {
+                const { chunkCount, chunkScenes } = chunkDefs[idx];
+                for (let j = 0; j < chunkCount; j++) {
                     const fallbackScene = chunkScenes[j] || topic;
                     allPrompts.push(
                         `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${fallbackScene}. Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
                     );
                 }
             }
-        }
+        });
 
         return allPrompts.map((p, idx) => `${idx + 1}. ${p}`).join('\n\n');
     }
@@ -1484,10 +1512,15 @@ export const generateImagesFromPromptsList = async (
     // Fixed seed logic for consistency
     const sessionSeed = Math.floor(Math.random() * 1000000);
 
-    // Determine concurrency based on mode:
-    // NineRouter / CLIProxyAPI Gateway has an account pool with round-robin rotation, supporting up to 4 workers smoothly
-    const concurrency = nineRouterConnected ? Math.min(4, prompts.length) : antigravityConnected ? 2 : useVipMode ? Math.min(4, prompts.length) : 2;
-    onStatusUpdate(`🚀 Đang tạo ${prompts.length} ảnh song song (x${concurrency})...`);
+    // Determine concurrency from user setting + active pool (8-10 parallel threads on Muse/9Router pools)
+    const activeImageModel = nineRouterService.getNineRouterImageModel();
+    const concurrency = resolveEffectiveConcurrency('image', prompts.length, {
+        modelId: activeImageModel,
+        isNineRouter: nineRouterConnected,
+        isVipMode: useVipMode,
+        isAntigravity: antigravityConnected
+    });
+    onStatusUpdate(`🚀 Đang tạo ${prompts.length} ảnh song song (x${concurrency} luồng)...`);
 
     // Create tasks for parallel execution
     const generateSingleImage = async (index: number): Promise<string | null> => {
@@ -1601,10 +1634,16 @@ export const generateImagesFromPromptsList = async (
             let usedAntigravity = false;
             let usedNineRouter = false;
 
-            // PRIORITY -1: NineRouter mode (if enabled and connected)
+            // PRIORITY -1: NineRouter / Muse Gateway mode (multi-account pool with backoff+jitter rotation retry)
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
                 onStatusUpdate(`[Cấu hình] Đang tạo ảnh ${index + 1}/${prompts.length}...`);
-                for (let attempt = 0; attempt < 3; attempt++) {
+                const maxGatewayAttempts = activeImageModel.toLowerCase().includes('muse') ? 4 : 3;
+                let sawQuotaExhaustion = false;
+
+                for (let attempt = 0; attempt < maxGatewayAttempts; attempt++) {
+                    if (abortSignal?.aborted) {
+                        return null;
+                    }
                     try {
                         base64Image = await nineRouterService.generateImageViaNineRouter({
                             prompt: fullPrompt,
@@ -1622,32 +1661,47 @@ export const generateImagesFromPromptsList = async (
                             console.log(`[9Router] Image ${index + 1} generated successfully`);
                             break;
                         } else {
-                            console.warn(`[9Router] Attempt ${attempt + 1}: Image ${index + 1} returned null`);
-                            if (attempt < 2) {
-                                onStatusUpdate(`[Cấu hình] Thử lại ${attempt + 1}/3 cho ảnh ${index + 1}...`);
-                                await delay(2000);
+                            console.warn(`[9Router] Attempt ${attempt + 1}/${maxGatewayAttempts}: Image ${index + 1} returned null`);
+                            if (attempt < maxGatewayAttempts - 1) {
+                                const waitMs = computeJitteredBackoffMs(attempt, 1200, 5000);
+                                onStatusUpdate(`[Cấu hình] Thử lại ${attempt + 2}/${maxGatewayAttempts} cho ảnh ${index + 1}...`);
+                                await sleepWithAbort(waitMs, abortSignal);
                             }
                         }
                     } catch (err: any) {
-                        console.error(`[9Router] Attempt ${attempt + 1} failed:`, err);
+                        if (abortSignal?.aborted || err?.message === 'ABORTED' || err?.name === 'AbortError') {
+                            return null;
+                        }
+                        console.error(`[9Router] Attempt ${attempt + 1}/${maxGatewayAttempts} failed:`, err);
                         const errorMsg = err?.message || String(err);
-                        const isQuotaError = errorMsg.toLowerCase().includes('quota')
-                            || errorMsg.toLowerCase().includes('exhausted')
+                        const lowerMsg = errorMsg.toLowerCase();
+                        const isQuotaError = lowerMsg.includes('quota')
+                            || lowerMsg.includes('exhausted')
                             || errorMsg.includes('429');
 
                         if (isQuotaError) {
-                            console.error('[9Router] QUOTA EXHAUSTED - Mode isolated');
-                            throw new Error('NINEROUTER_QUOTA_EXHAUSTED');
+                            sawQuotaExhaustion = true;
                         }
 
-                        if (attempt < 2) {
-                            onStatusUpdate(`[Cấu hình] Lỗi, thử lại sau 3s (${attempt + 2}/3)...`);
-                            await delay(3000);
+                        if (attempt < maxGatewayAttempts - 1 && (isQuotaError || isTransientHttpOrNetworkError(undefined, errorMsg))) {
+                            const waitMs = computeJitteredBackoffMs(attempt, 1500, 7000);
+                            onStatusUpdate(`[Cấu hình] Đang xoay tài khoản & thử lại ảnh ${index + 1} (${attempt + 2}/${maxGatewayAttempts})...`);
+                            await sleepWithAbort(waitMs, abortSignal);
+                            continue;
                         }
+
+                        if (isQuotaError) {
+                            console.error('[9Router] QUOTA EXHAUSTED after retries - Mode isolated');
+                            throw new Error('NINEROUTER_QUOTA_EXHAUSTED');
+                        }
+                        break;
                     }
                 }
 
                 if (!base64Image) {
+                    if (sawQuotaExhaustion) {
+                        throw new Error('NINEROUTER_QUOTA_EXHAUSTED');
+                    }
                     console.error('[9Router] Failed after all retries - no fallback (isolated mode)');
                     throw new Error('NINEROUTER_FAILED');
                 }
@@ -2001,9 +2055,14 @@ export const generateIdPhotos = async (
 
     console.log('[ID Photo] 9Router:', useNineRouterMode, 'Antigravity:', useAntigravityMode, 'VIP:', useVipMode, 'Clothing ref:', hasClothingRef);
 
-    // Concurrency based on multi-account pool
-    const idConcurrency = nineRouterConnected ? 4 : antigravityConnected ? 2 : useVipMode ? 4 : 2;
-    onStatusUpdate(`🚀 Đang xử lý ${prompts.length} biến thể ảnh thẻ song song (x${idConcurrency})${hasClothingRef ? ' 👔' : ''}...`);
+    // Concurrency based on multi-account pool & user setting
+    const idConcurrency = resolveEffectiveConcurrency('image', prompts.length, {
+        modelId: nineRouterService.getNineRouterImageModel(),
+        isNineRouter: nineRouterConnected,
+        isVipMode: useVipMode,
+        isAntigravity: antigravityConnected
+    });
+    onStatusUpdate(`🚀 Đang xử lý ${prompts.length} biến thể ảnh thẻ song song (x${idConcurrency} luồng)${hasClothingRef ? ' 👔' : ''}...`);
 
     const generateSingleIdPhoto = async (index: number): Promise<string | null> => {
         const prompt = prompts[index];
@@ -2376,8 +2435,15 @@ ${CLEAN_OUTPUT_REQUIREMENTS}
 
 ${ULTRA_SHARP_QUALITY}`;
 
-    // Generate multiple variations
-    for (let i = 0; i < outputCount; i++) {
+    // Generate multiple variations in parallel
+    const editConcurrency = resolveEffectiveConcurrency('image', outputCount, {
+        modelId: nineRouterService.getNineRouterImageModel(),
+        isNineRouter: nineRouterConnected,
+        isVipMode: useVipMode
+    });
+    onStatusUpdate(`🚀 Đang chỉnh sửa ${outputCount} ảnh song song (x${editConcurrency} luồng)...`);
+
+    const editTasks = Array.from({ length: outputCount }, (_, i) => async (): Promise<string | null> => {
         try {
             const variationPrompt = outputCount > 1
                 ? `${enhancedPrompt}\n\nVariation ${i + 1}: Create a unique interpretation while following the instructions above.`
@@ -2387,7 +2453,6 @@ ${ULTRA_SHARP_QUALITY}`;
 
             // PRIORITY -1: NineRouter mode
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[Cấu hình] Đang chỉnh sửa (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt: variationPrompt,
@@ -2396,13 +2461,11 @@ ${ULTRA_SHARP_QUALITY}`;
                     });
                 } catch (err) {
                     console.error('9Router edit failed:', err);
-                    onStatusUpdate(`[Cấu hình] Lỗi chỉnh sửa...`);
                 }
             }
 
             // VIP Mode: Use Gemini system key
             if (!base64Image && useVipMode) {
-                onStatusUpdate(`[VIP] Đang chỉnh sửa (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await callWithRetry(
                         async () => generateImageWithSystemKey(systemApiKey!, variationPrompt, [imagePart]),
@@ -2412,13 +2475,11 @@ ${ULTRA_SHARP_QUALITY}`;
                     );
                 } catch (err) {
                     console.error('VIP Gemini edit failed:', err);
-                    onStatusUpdate(`[VIP] Lỗi chỉnh sửa...`);
                 }
             }
 
             // FREE Mode or Fallback: Use Gemini (when not NineRouter active)
             if (!base64Image && ai && !useNineRouterMode) {
-                onStatusUpdate(`Đang chỉnh sửa (${i + 1}/${outputCount})...`);
                 base64Image = await callWithRetry(
                     async () => {
                         const response = await ai.models.generateContent({
@@ -2444,16 +2505,17 @@ ${ULTRA_SHARP_QUALITY}`;
             }
 
             onImageGenerated(i, base64Image);
-
-            // Delay between generations to avoid rate limits
-            if (i < outputCount - 1) {
-                await delay(2000);
-            }
+            return base64Image;
         } catch (e) {
             console.error(`Error editing image ${i}:`, e);
             onImageGenerated(i, null);
+            return null;
         }
-    }
+    });
+
+    await parallelWithConcurrency(editTasks, editConcurrency, (completed, total) => {
+        onStatusUpdate(`✨ Hoàn tất ${completed}/${total} ảnh chỉnh sửa (x${editConcurrency} luồng)...`);
+    }, 120);
 };
 
 // --- OUTFIT MIX & MATCH ---
@@ -2858,7 +2920,14 @@ export const upscaleImages = async (
         'Studio quality with professional color grading'
     ];
 
-    for (let i = 0; i < outputCount; i++) {
+    const upscaleConcurrency = resolveEffectiveConcurrency('image', outputCount, {
+        modelId: nineRouterService.getNineRouterImageModel(),
+        isNineRouter: nineRouterConnected,
+        isVipMode: useVipMode
+    });
+    onStatusUpdate(`🚀 Đang tăng nét ${outputCount} ảnh song song (x${upscaleConcurrency} luồng)...`);
+
+    const upscaleTasks = Array.from({ length: outputCount }, (_, i) => async (): Promise<string | null> => {
         try {
             const variationHint = outputCount > 1 ? `\n\nVariation style: ${variations[i % variations.length]}` : '';
 
@@ -2881,7 +2950,6 @@ export const upscaleImages = async (
 
             // PRIORITY -1: NineRouter mode
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[Cấu hình] Đang tăng nét (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await nineRouterService.generateImageViaNineRouter({
                         prompt,
@@ -2890,13 +2958,11 @@ export const upscaleImages = async (
                     });
                 } catch (err) {
                     console.error('9Router upscale failed:', err);
-                    onStatusUpdate(`[Cấu hình] Lỗi tăng nét...`);
                 }
             }
 
             // VIP Mode: Use Gemini system key
             if (!base64Image && useVipMode) {
-                onStatusUpdate(`[VIP] Đang tăng nét (${i + 1}/${outputCount})...`);
                 try {
                     base64Image = await callWithRetry(
                         async () => generateImageWithSystemKey(systemApiKey!, prompt, [imagePart]),
@@ -2906,13 +2972,11 @@ export const upscaleImages = async (
                     );
                 } catch (err) {
                     console.error('VIP Gemini upscale failed:', err);
-                    onStatusUpdate(`[VIP] Lỗi tăng nét...`);
                 }
             }
 
             // FREE Mode or Fallback (not NineRouter)
             if (!base64Image && ai && !useNineRouterMode) {
-                onStatusUpdate(`Đang tăng nét (${i + 1}/${outputCount})...`);
                 base64Image = await callWithRetry(
                     async () => {
                         const response = await ai.models.generateContent({
@@ -2938,15 +3002,17 @@ export const upscaleImages = async (
             }
 
             onImageGenerated(i, base64Image);
-
-            if (i < outputCount - 1) {
-                await delay(2000);
-            }
+            return base64Image;
         } catch (e) {
             console.error(`Error upscaling image ${i}:`, e);
             onImageGenerated(i, null);
+            return null;
         }
-    }
+    });
+
+    await parallelWithConcurrency(upscaleTasks, upscaleConcurrency, (completed, total) => {
+        onStatusUpdate(`✨ Hoàn tất tăng nét ${completed}/${total} ảnh (x${upscaleConcurrency} luồng)...`);
+    }, 120);
 };
 
 // --- GENERATE PROFILE PIC ---
@@ -3110,8 +3176,12 @@ export const generateProfilePics = async (
         'Premium luxury with soft golden lighting'
     ];
 
-    const profileConcurrency = nineRouterConnected ? Math.min(4, outputCount) : antigravityConnected ? 2 : useVipMode ? Math.min(4, outputCount) : 2;
-    onStatusUpdate(`🚀 Đang tạo ${outputCount} ảnh Profile song song (x${profileConcurrency})...`);
+    const profileConcurrency = resolveEffectiveConcurrency('image', outputCount, {
+        modelId: nineRouterService.getNineRouterImageModel(),
+        isNineRouter: nineRouterConnected,
+        isVipMode: useVipMode
+    });
+    onStatusUpdate(`🚀 Đang tạo ${outputCount} ảnh Profile song song (x${profileConcurrency} luồng)...`);
 
     const generateSingleProfile = async (i: number): Promise<string | null> => {
         try {

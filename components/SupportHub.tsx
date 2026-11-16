@@ -7,6 +7,13 @@ import {
     ChatMessageItem
 } from '../services/nineRouterService';
 import { submitUserFeedback } from '../services/firebaseService';
+import {
+    subscribeToSubscriptionPlansConfig,
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    formatVndCompact,
+    computeDiscountStats,
+    type SubscriptionPlansConfig
+} from '../services/subscriptionPlanConfigService';
 
 // EmailJS Configuration
 const EMAILJS_SERVICE_ID = 'service_7nxzcwc';
@@ -373,6 +380,9 @@ export const SupportHub: React.FC<SupportHubProps> = ({
     const [showBot, setShowBot] = useState(false);
     const [showFeedback, setShowFeedback] = useState(false);
     const [currentIcon, setCurrentIcon] = useState<'bot' | 'feedback'>('bot');
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
+
+    useEffect(() => subscribeToSubscriptionPlansConfig(setPlansConfig), []);
 
     // Sync external trigger from Header Bot AI button
     useEffect(() => {
@@ -550,11 +560,37 @@ export const SupportHub: React.FC<SupportHubProps> = ({
                     content: m.content
                 }));
 
+            const buildDynamicPlansAppendix = (cfg: SubscriptionPlansConfig): string => {
+                const { free: f, plus: pl, pro: pr } = cfg;
+                const plDisc = computeDiscountStats(pl.price, pl.originalPrice);
+                const prDisc = computeDiscountStats(pr.price, pr.originalPrice);
+                const lines = [
+                    '',
+                    'CẬP NHẬT CẤU HÌNH GÓI CƯỚC HIỆN TẠI (ƯU TIÊN TUYỆT ĐỐI NẾU KHÁC THÔNG SỐ MẶC ĐỊNH Ở TRÊN):',
+                    `- ${f.name}: ${formatVndCompact(f.price)}, tặng ${f.dailyFreeLimit} ảnh/ngày + ${f.videoSeconds}s video miễn phí, độ phân giải tối đa ${f.maxResolution}, model mở khóa: ${f.allModelsUnlocked ? 'tất cả model' : f.allowedImageModels.join(', ')}.`,
+                ];
+                if (pl.enabled) {
+                    lines.push(
+                        `- ${pl.name}: ${formatVndCompact(pl.price)}${plDisc.hasDiscount ? ` (giá gốc ${formatVndCompact(pl.originalPrice)}, giảm ${plDisc.discountPercent}%)` : ''}, thời hạn ${pl.durationDays} ngày, ${pl.unlimitedImages ? 'tạo ảnh không giới hạn' : `${pl.totalImages} ảnh`} + ${pl.videoSeconds}s video, độ phân giải tối đa ${pl.maxResolution}, model mở khóa: ${pl.allModelsUnlocked ? 'tất cả model' : pl.allowedImageModels.join(', ')}.`
+                    );
+                } else {
+                    lines.push(`- ${pl.name}: Hiện đang tạm ẩn.`);
+                }
+                if (pr.enabled) {
+                    lines.push(
+                        `- ${pr.name}: ${formatVndCompact(pr.price)}${prDisc.hasDiscount ? ` (giá gốc ${formatVndCompact(pr.originalPrice)}, giảm ${prDisc.discountPercent}%)` : ''}, thời hạn ${pr.durationDays} ngày, ${pr.unlimitedImages ? 'tạo ảnh không giới hạn' : `${pr.totalImages} ảnh`} + ${pr.videoSeconds}s video, độ phân giải tối đa ${pr.maxResolution}, model mở khóa: ${pr.allModelsUnlocked ? 'tất cả model' : pr.allowedImageModels.join(', ')}.`
+                    );
+                } else {
+                    lines.push(`- ${pr.name}: Hiện đang tạm ẩn.`);
+                }
+                return lines.join('\n');
+            };
+
             // Call NineRouter text models (Claude Opus 5.5, ChatGPT 6.1, Gemini 4, Gemini 3.8)
             const response = await generateChatCompletionViaNineRouter(
                 chatHistory,
                 selectedModel,
-                SYSTEM_PROMPT
+                SYSTEM_PROMPT + buildDynamicPlansAppendix(plansConfig)
             );
 
             const cleanedResponse = cleanMarkdown(formatNumbersAsDigits(response.content || ''));

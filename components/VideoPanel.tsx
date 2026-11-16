@@ -10,6 +10,18 @@ import {
 } from '../services/videoConfigService';
 import { MAX_STORY_SCENES, summarizeVideoPromptLines } from '../services/scenePromptUtils';
 import type { SubscriptionPlan } from '../services/firebaseService';
+import {
+    DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
+    SubscriptionPlansConfig,
+    subscribeToSubscriptionPlansConfig
+} from '../services/subscriptionPlanConfigService';
+import {
+    CONCURRENCY_OPTIONS,
+    CONCURRENCY_EVENT,
+    ConcurrencySetting,
+    getConcurrencySetting,
+    setConcurrencySetting
+} from '../services/concurrencyService';
 
 // Vector SVG Icons
 const SparklesIcon = () => (
@@ -97,6 +109,27 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [duration, setDuration] = useState<number>(5);
     const [videoTitle, setVideoTitle] = useState<string>('Tap_1');
     const [prompt, setPrompt] = useState<string>('');
+    const [formError, setFormError] = useState<string>('');
+    const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
+    const [videoConcurrency, setVideoConcurrency] = useState<ConcurrencySetting>(() => getConcurrencySetting('video'));
+
+    useEffect(() => subscribeToSubscriptionPlansConfig(setPlansConfig), []);
+
+    useEffect(() => {
+        const handleConcurrencySync = (ev: Event) => {
+            const custom = ev as CustomEvent<{ kind?: string; setting?: ConcurrencySetting }>;
+            if (custom.detail?.kind === 'video' && custom.detail.setting !== undefined) {
+                setVideoConcurrency(custom.detail.setting);
+            }
+        };
+        window.addEventListener(CONCURRENCY_EVENT, handleConcurrencySync);
+        return () => window.removeEventListener(CONCURRENCY_EVENT, handleConcurrencySync);
+    }, []);
+
+    const handleSelectVideoConcurrency = (val: ConcurrencySetting) => {
+        setVideoConcurrency(val);
+        setConcurrencySetting('video', val);
+    };
 
     const activeModelMeta = getVideoModelMeta(selectedModel);
     const isCurrentModelEnabled = isVideoModelProviderEnabled(selectedModel, videoConfig);
@@ -185,13 +218,14 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     // Calculate video seconds needed based on duration & effectiveScenes
     const totalSecondsNeeded = duration * effectiveScenes;
     const hasEnoughSeconds = isAdmin || remainingVideoSeconds >= totalSecondsNeeded;
-    const planLabel = userPlan === 'pro' ? 'Gói Pro' : userPlan === 'plus' ? 'Gói Plus' : 'Gói Free';
+    const planLabel = plansConfig[userPlan]?.name || (userPlan === 'pro' ? 'Gói Pro' : userPlan === 'plus' ? 'Gói Plus' : 'Gói Free');
 
     const handleSubmit = () => {
         if (isDisabled || isLoading || !anyProviderEnabled || !isCurrentModelEnabled) return;
+        setFormError('');
 
         if (subMode === 'image_to_video' && !hasInputImage) {
-            alert(`Vui lòng tải lên từ 1 đến ${MAX_STORY_SCENES} ảnh nguồn ở khung tải ảnh phía trên để tạo video.`);
+            setFormError(`Vui lòng tải lên từ 1 đến ${MAX_STORY_SCENES} ảnh nguồn ở khung tải ảnh phía trên để tạo video.`);
             return;
         }
 
@@ -199,7 +233,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
             if (onRequestTopUp) {
                 onRequestTopUp();
             } else {
-                alert(`Số giây video còn lại (${remainingVideoSeconds}s) không đủ để tạo video (${totalSecondsNeeded}s cho ${effectiveScenes} cảnh). Vui lòng nâng cấp gói Plus (60s) hoặc Pro (180s).`);
+                setFormError(`Số giây video còn lại (${remainingVideoSeconds}s) không đủ (${totalSecondsNeeded}s cho ${effectiveScenes} cảnh). Vui lòng nâng cấp ${plansConfig.plus.name} (${plansConfig.plus.videoSeconds}s) hoặc ${plansConfig.pro.name} (${plansConfig.pro.videoSeconds}s).`);
             }
             return;
         }
@@ -462,6 +496,35 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                         })}
                     </div>
                 </div>
+                <div className="pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                            Luồng render song song
+                        </label>
+                        <span className="text-[11px] font-bold text-indigo-700 font-mono tabular-nums">
+                            {videoConcurrency === 'auto' ? 'Tự động (8–10 cảnh)' : `${videoConcurrency} luồng`}
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-6 gap-1.5 bg-slate-100 p-1 rounded-xl ring-1 ring-slate-900/5">
+                        {CONCURRENCY_OPTIONS.map((opt) => {
+                            const isActive = videoConcurrency === opt;
+                            return (
+                                <button
+                                    key={String(opt)}
+                                    type="button"
+                                    onClick={() => handleSelectVideoConcurrency(opt)}
+                                    className={`min-h-[44px] sm:min-h-[38px] rounded-lg text-[11px] font-mono font-bold tabular-nums transition-all cursor-pointer active:scale-[0.97] ${
+                                        isActive
+                                            ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/10'
+                                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                                    }`}
+                                >
+                                    {opt === 'auto' ? 'Auto' : `x${opt}`}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
 
             {/* 4. VIDEO SECONDS QUOTA SUMMARY */}
@@ -519,6 +582,12 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                 {!hasInputImage && anyProviderEnabled && (
                     <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-xs flex items-center gap-2">
                         <span>💡 Vui lòng tải ảnh nguồn ở khung trên để bắt đầu tạo video.</span>
+                    </div>
+                )}
+
+                {formError && (
+                    <div role="alert" className="p-3 rounded-xl bg-rose-50 ring-1 ring-rose-900/10 text-rose-700 text-xs font-semibold leading-relaxed">
+                        {formError}
                     </div>
                 )}
 

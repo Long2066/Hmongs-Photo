@@ -26,6 +26,7 @@ import {
     increment
 } from "firebase/firestore";
 import { auth, db } from "../src/firebaseConfig";
+import { getCachedSubscriptionPlansConfig } from "./subscriptionPlanConfigService";
 import type { HistoryItem, User } from "../types";
 
 // --- Auth Services ---
@@ -934,6 +935,18 @@ export const getTodayDateString = (): string => {
     return `${year}-${month}-${day}`;
 };
 
+export const getDailyFreeLimit = (): number =>
+    getCachedSubscriptionPlansConfig().free.dailyFreeLimit;
+
+export const getFreeVideoSeconds = (): number =>
+    getCachedSubscriptionPlansConfig().free.videoSeconds;
+
+export const getPlanVideoAllowance = (plan: SubscriptionPlan): number =>
+    getCachedSubscriptionPlansConfig()[plan]?.videoSeconds ?? PLAN_VIDEO_ALLOWANCE[plan];
+
+export const isPlanImagesUnlimited = (plan: SubscriptionPlan): boolean =>
+    plan !== 'free' && Boolean(getCachedSubscriptionPlansConfig()[plan]?.unlimitedImages);
+
 export const resolveEffectivePlan = (
     rawPlan?: string,
     _credits: number = 0,
@@ -942,9 +955,10 @@ export const resolveEffectivePlan = (
     remainingVideoSeconds: number = 0
 ): SubscriptionPlan => {
     if (!planExpiresAt || planExpiresAt <= Date.now()) return 'free';
-    if (rawPlan === 'pro') return 'pro';
+    if (rawPlan !== 'plus' && rawPlan !== 'pro') return 'free';
+    if (isPlanImagesUnlimited(rawPlan)) return rawPlan;
     if (remainingImages <= 0 && remainingVideoSeconds <= 0) return 'free';
-    return rawPlan === 'plus' ? rawPlan : 'free';
+    return rawPlan;
 };
 
 export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
@@ -962,15 +976,16 @@ export const getCachedUserPlan = (userId?: string): SubscriptionPlan => {
 };
 
 export const getCachedRemainingVideoSeconds = (userId?: string): number => {
+    const defaultFreeVideoSec = getFreeVideoSeconds();
     try {
         const uid = userId || JSON.parse(localStorage.getItem('image_gen_logged_in_user') || '{}')?.id;
-        if (!uid) return FREE_ACCOUNT_VIDEO_SECONDS;
+        if (!uid) return defaultFreeVideoSec;
         const raw = localStorage.getItem('user_remaining_video_seconds_' + uid);
-        if (raw === null) return FREE_ACCOUNT_VIDEO_SECONDS;
+        if (raw === null) return defaultFreeVideoSec;
         const parsed = parseInt(raw, 10);
         return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
     } catch {
-        return FREE_ACCOUNT_VIDEO_SECONDS;
+        return defaultFreeVideoSec;
     }
 };
 export const getCachedDailyFreeUsed = (userId?: string): number => {
@@ -990,7 +1005,7 @@ export const getCachedDailyFreeUsed = (userId?: string): number => {
 
 export const getDailyFreeRemaining = (userId?: string): number => {
     const used = getCachedDailyFreeUsed(userId);
-    return Math.max(0, FREE_DAILY_IMAGE_LIMIT - used);
+    return Math.max(0, getDailyFreeLimit() - used);
 };
 
 export const getCachedBonusImages = (userId?: string): number => {
@@ -1228,11 +1243,27 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
 
         const currentRemaining = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
         const currentVideoSec = Number.isSafeInteger(data.remainingVideoSeconds) ? data.remainingVideoSeconds : 0;
-        const isProPlan = data.plan === 'pro';
-        const newRemaining = isProPlan ? Math.max(999999, currentRemaining) : Math.max(0, currentRemaining - count);
-        const newPlan: SubscriptionPlan = isProPlan
-            ? 'pro'
-            : ((newRemaining > 0 || currentVideoSec > 0) && data.plan === 'plus' ? 'plus' : 'free');
+        const rawPlanKey: SubscriptionPlan = data.plan === 'plus' || data.plan === 'pro' ? data.plan : 'free';
+        const isUnlimited = isPlanImagesUnlimited(rawPlanKey);
+        if (isUnlimited) {
+            // Unlimited plan: never inflate remainingImages (which could breach security rules <= resource.data.remainingImages)
+            return {
+                credits: data.credits || 0,
+                plan: rawPlanKey,
+                dailyFreeUsed: data.dailyFreeUsed || 0,
+                dailyFreeDate: data.dailyFreeDate || getTodayDateString(),
+                remainingImages: currentRemaining,
+                remainingVideoSeconds: currentVideoSec,
+                planStartedAt: data.planStartedAt || null,
+                planExpiresAt,
+                planAllowanceImages: data.planAllowanceImages || 0,
+                planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || 0
+            };
+        }
+        const newRemaining = Math.max(0, currentRemaining - count);
+        const newPlan: SubscriptionPlan = rawPlanKey !== 'free' && (newRemaining > 0 || currentVideoSec > 0)
+            ? rawPlanKey
+            : 'free';
 
         await setDoc(docRef, {
             userId,
@@ -1289,17 +1320,19 @@ export const consumeUserVideoSecondsDirect = async (userId: string, seconds: num
             return null;
         }
 
+        const freeVideoSec = getFreeVideoSeconds();
         const currentImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
         const currentVideoSec = Number.isSafeInteger(data.remainingVideoSeconds)
             ? data.remainingVideoSeconds
-            : (!data.freeVideoGranted ? FREE_ACCOUNT_VIDEO_SECONDS : 0);
+            : (!data.freeVideoGranted ? freeVideoSec : 0);
 
         if (currentVideoSec < seconds) return null;
 
         const newVideoSec = Math.max(0, currentVideoSec - seconds);
         const isPaid = data.plan === 'pro' || data.plan === 'plus';
+        const unlimited = isPaid && isPlanImagesUnlimited(data.plan);
         const newPlan: SubscriptionPlan = isPaid
-            ? (data.plan === 'pro' || currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
+            ? (unlimited || currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
             : 'free';
 
         await setDoc(docRef, {
@@ -1328,7 +1361,7 @@ export const consumeUserVideoSecondsDirect = async (userId: string, seconds: num
             planStartedAt: data.planStartedAt || null,
             planExpiresAt,
             planAllowanceImages: data.planAllowanceImages || 0,
-            planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (isPaid ? PLAN_VIDEO_ALLOWANCE[data.plan] : FREE_ACCOUNT_VIDEO_SECONDS)
+            planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (isPaid ? getPlanVideoAllowance(data.plan) : freeVideoSec)
         };
     } catch (e) {
         console.warn('[consumeUserVideoSecondsDirect] error:', e);
@@ -1428,6 +1461,7 @@ export const subscribeToUserCredits = (
     return onSnapshot(docRef, (docSnap) => {
         const today = getTodayDateString();
         const now = Date.now();
+        const freeVideoSec = getFreeVideoSeconds();
         if (docSnap.exists()) {
             const data = docSnap.data();
             const credits = data.credits || 0;
@@ -1437,13 +1471,14 @@ export const subscribeToUserCredits = (
             const isExpiredPaid = isPaidRaw && (!planExpiresAt || planExpiresAt <= now);
 
             let remainingImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
+            const defaultPlanVideo = isPaidRaw ? getPlanVideoAllowance(rawPlan) : freeVideoSec;
             let remainingVideoSeconds = Number.isSafeInteger(data.remainingVideoSeconds)
                 ? data.remainingVideoSeconds
                 : (!data.freeVideoGranted
-                    ? (isPaidRaw ? PLAN_VIDEO_ALLOWANCE[rawPlan] : FREE_ACCOUNT_VIDEO_SECONDS)
-                    : (isPaidRaw && !data.videoQuotaMigratedAt ? PLAN_VIDEO_ALLOWANCE[rawPlan] : 0));
+                    ? defaultPlanVideo
+                    : (isPaidRaw && !data.videoQuotaMigratedAt ? defaultPlanVideo : 0));
 
-            // Nếu gói Plus/Pro đã quá hạn 30 ngày -> đưa cả ảnh và giây video về 0, hạ gói về Free
+            // Nếu gói Plus/Pro đã quá hạn -> đưa cả ảnh và giây video về 0, hạ gói về Free
             if (isExpiredPaid) {
                 remainingImages = 0;
                 remainingVideoSeconds = 0;
@@ -1459,7 +1494,7 @@ export const subscribeToUserCredits = (
                 setDoc(docRef, {
                     userId,
                     remainingVideoSeconds,
-                    planAllowanceVideoSeconds: isPaidRaw ? PLAN_VIDEO_ALLOWANCE[rawPlan] : FREE_ACCOUNT_VIDEO_SECONDS,
+                    planAllowanceVideoSeconds: defaultPlanVideo,
                     freeVideoGranted: true,
                     ...(isPaidRaw ? { videoQuotaMigratedAt: now } : {}),
                     lastUpdated: now
@@ -1514,19 +1549,19 @@ export const subscribeToUserCredits = (
                 planStartedAt: data.planStartedAt || null,
                 planExpiresAt,
                 planAllowanceImages: data.planAllowanceImages || 0,
-                planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (plan !== 'free' ? PLAN_VIDEO_ALLOWANCE[plan] : FREE_ACCOUNT_VIDEO_SECONDS),
+                planAllowanceVideoSeconds: data.planAllowanceVideoSeconds || (plan !== 'free' ? getPlanVideoAllowance(plan) : freeVideoSec),
                 bonusImages,
                 bonusExpiresAt
             });
         } else {
-            // Tài khoản mới chưa có doc userCredits -> cấp ngay 8s video miễn phí một lần
+            // Tài khoản mới chưa có doc userCredits -> cấp ngay video miễn phí một lần theo cấu hình gói Free
             setDoc(docRef, {
                 userId,
                 credits: 0,
                 plan: 'free',
                 remainingImages: 0,
-                remainingVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
-                planAllowanceVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
+                remainingVideoSeconds: freeVideoSec,
+                planAllowanceVideoSeconds: freeVideoSec,
                 freeVideoGranted: true,
                 lastUpdated: now
             }, { merge: true }).catch(() => {});
@@ -1535,7 +1570,7 @@ export const subscribeToUserCredits = (
                 localStorage.setItem('user_balance_raw_' + userId, '0');
                 localStorage.setItem('user_plan_' + userId, 'free');
                 localStorage.setItem('user_remaining_images_' + userId, '0');
-                localStorage.setItem('user_remaining_video_seconds_' + userId, String(FREE_ACCOUNT_VIDEO_SECONDS));
+                localStorage.setItem('user_remaining_video_seconds_' + userId, String(freeVideoSec));
                 localStorage.setItem('user_plan_expires_' + userId, '0');
                 localStorage.setItem('user_credits_' + userId, '0');
             }
@@ -1545,11 +1580,11 @@ export const subscribeToUserCredits = (
                 dailyFreeUsed: getCachedDailyFreeUsed(userId),
                 dailyFreeDate: today,
                 remainingImages: 0,
-                remainingVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS,
+                remainingVideoSeconds: freeVideoSec,
                 planStartedAt: null,
                 planExpiresAt: null,
                 planAllowanceImages: 0,
-                planAllowanceVideoSeconds: FREE_ACCOUNT_VIDEO_SECONDS
+                planAllowanceVideoSeconds: freeVideoSec
             });
         }
     });

@@ -98,3 +98,30 @@ test('new paid subscription accepts a free account with only daily usage fields'
   assert.equal(result.remainingImages, 300);
   assert.equal(state.docs.get('userCredits/user-a').credits, undefined);
 });
+
+test('order.planSnapshot locks in price and quotas at checkout time even if config changes later', async () => {
+  const state = fakeDb();
+  const snapOrder = {
+    orderCode: 99999,
+    paymentLinkId: 'link-snap',
+    userId: 'user-a',
+    amount: 75000,
+    plan: 'plus',
+    status: 'PENDING',
+    planSnapshot: {
+      id: 'plus',
+      price: 75000,
+      durationDays: 45,
+      unlimitedImages: false,
+      totalImages: 450,
+      videoSeconds: 120,
+    },
+  };
+  state.docs.set('payosOrders/99999', snapOrder);
+  const snapPayment = { status: 'PAID', orderCode: 99999, id: 'link-snap', amount: 75000, amountPaid: 75000 };
+  const result = await creditPaidOrder(state.db, 99999, snapPayment);
+  assert.equal(result.status, 'PAID');
+  assert.equal(result.remainingImages, 450);
+  assert.equal(result.remainingVideoSeconds, 120);
+  assert.equal(state.docs.get('approvedBills/PAYOS_99999').amount, 75000);
+});
