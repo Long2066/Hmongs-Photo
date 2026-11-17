@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MagicWandIcon } from './Icons';
-import { generateBatchPromptsText, optimizePrompt } from '../services/aiService';
+import { generateBatchPromptsText, optimizePrompt, type IdentityPreservationMode } from '../services/aiService';
 import { extractSceneLines, MAX_STORY_SCENES } from '../services/scenePromptUtils';
 import type { CreativeRefImages } from '../services/aiService';
 import * as storage from '../services/storageService';
@@ -14,6 +14,11 @@ import {
     setConcurrencySetting
 } from '../services/concurrencyService';
 
+export interface CreativePromptPanelOptions {
+    identityMode: IdentityPreservationMode;
+    autoQaEnabled: boolean;
+}
+
 interface PromptPanelProps {
     onGenerate: (
         prompts: string[],
@@ -22,7 +27,8 @@ interface PromptPanelProps {
         outputMode: 'single' | 'couple',
         filenamePrefix: string,
         style?: string,
-        shotType?: string
+        shotType?: string,
+        options?: CreativePromptPanelOptions
     ) => void;
     onCancel?: () => void;
     isLoading: boolean;
@@ -124,6 +130,8 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     const [shotType, setShotType] = useState(shotTypes[0]);
     const [style, setStyle] = useState(styles[0]);
     const [outputMode, setOutputMode] = useState<'single' | 'couple'>('single');
+    const [identityMode, setIdentityMode] = useState<IdentityPreservationMode>('strict_original');
+    const [autoQaEnabled, setAutoQaEnabled] = useState<boolean>(true);
     const [filenamePrefix, setFilenamePrefix] = useState('ImageTool');
 
     const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
@@ -201,7 +209,8 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                 refImages,
                 {
                     globalContext: globalContext.trim(),
-                    sceneLines: isLineByLineMode ? parsedSceneLines.slice(0, MAX_CREATIVE_IMAGES) : undefined
+                    sceneLines: isLineByLineMode ? parsedSceneLines.slice(0, MAX_CREATIVE_IMAGES) : undefined,
+                    identityMode
                 }
             );
             let prompts = parsePromptsFromText(text);
@@ -218,7 +227,10 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                 prompts = prompts.slice(0, effectiveQuantity);
             }
             const selectedResolution = getSelectedResolution();
-            onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType);
+            onGenerate(prompts, aspectRatio, selectedResolution, outputMode, filenamePrefix, style, shotType, {
+                identityMode,
+                autoQaEnabled
+            });
         } catch (e: any) {
             setPromptError(`Lỗi tạo prompt: ${e?.message || 'Lỗi không xác định'}`);
         } finally {
@@ -300,18 +312,93 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                             <button
                                 type="button"
                                 onClick={() => setOutputMode('single')}
-                                className={`flex-1 py-2 text-xs sm:text-[13px] rounded-lg transition-all ${outputMode === 'single' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
+                                className={`flex-1 min-h-[44px] sm:min-h-[36px] py-2 text-xs sm:text-[13px] rounded-lg transition-all cursor-pointer active:scale-[0.98] ${outputMode === 'single' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
                             >
                                 Ảnh đơn (Riêng)
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setOutputMode('couple')}
-                                className={`flex-1 py-2 text-xs sm:text-[13px] rounded-lg transition-all ${outputMode === 'couple' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
+                                className={`flex-1 min-h-[44px] sm:min-h-[36px] py-2 text-xs sm:text-[13px] rounded-lg transition-all cursor-pointer active:scale-[0.98] ${outputMode === 'couple' ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/5' : 'text-slate-600 hover:text-slate-900 font-semibold'}`}
                             >
                                 Ảnh đôi (Ghép)
                             </button>
                         </div>
+                    </div>
+
+                    {/* Character Identity Lock Mode */}
+                    <div className="col-span-2">
+                        <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5">
+                            Chế độ Nhân vật
+                        </label>
+                        <div className="flex bg-slate-100 p-1 rounded-xl ring-1 ring-slate-900/5 gap-1">
+                            <button
+                                type="button"
+                                onClick={() => setIdentityMode('strict_original')}
+                                className={`flex-1 min-h-[44px] sm:min-h-[36px] px-2 py-2 text-xs rounded-lg transition-all cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                                    identityMode === 'strict_original'
+                                        ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/10'
+                                        : 'text-slate-600 hover:text-slate-900 font-semibold'
+                                }`}
+                            >
+                                Khóa Mặt &amp; Đồ Gốc 100%
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIdentityMode('korean_idol')}
+                                className={`flex-1 min-h-[44px] sm:min-h-[36px] px-2 py-2 text-xs rounded-lg transition-all cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                                    identityMode === 'korean_idol'
+                                        ? 'bg-white text-indigo-700 font-bold shadow-xs ring-1 ring-slate-900/10'
+                                        : 'text-slate-600 hover:text-slate-900 font-semibold'
+                                }`}
+                            >
+                                Idol Hàn (Chỉ lấy đồ)
+                            </button>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-600 leading-snug">
+                            {identityMode === 'strict_original'
+                                ? 'Giữ tuyệt đối 100% khuôn mặt, kiểu tóc & trang phục từ ảnh tham chiếu gốc.'
+                                : 'Thay mặt bằng phong cách Idol Hàn Quốc/Cổ trang, giữ 100% trang phục gốc.'}
+                        </p>
+                    </div>
+
+                    {/* Auto-QA Identity Guard Switch */}
+                    <div className="col-span-2">
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={autoQaEnabled}
+                            onClick={() => setAutoQaEnabled(v => !v)}
+                            className={`w-full min-h-[48px] flex items-center justify-between gap-3 rounded-xl p-3 text-left transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                                autoQaEnabled
+                                    ? 'bg-emerald-50/80 ring-1 ring-emerald-500/25 shadow-2xs'
+                                    : 'bg-slate-50 ring-1 ring-slate-900/5 hover:bg-slate-100/80'
+                            }`}
+                        >
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${autoQaEnabled ? 'bg-emerald-600' : 'bg-slate-400'}`} />
+                                    <span className="text-xs font-bold text-slate-900">
+                                        Khóa 100% Ảnh Gốc (Auto-QA)
+                                    </span>
+                                </div>
+                                <p className="mt-0.5 text-[11px] text-slate-600 leading-snug">
+                                    Tự chấm điểm mặt &amp; trang phục (ngưỡng 85%). Ảnh lệch tự sửa lại miễn phí.
+                                </p>
+                            </div>
+                            <span
+                                aria-hidden="true"
+                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                    autoQaEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                                }`}
+                            >
+                                <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                                        autoQaEnabled ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                />
+                            </span>
+                        </button>
                     </div>
 
                     {/* Model Selector */}

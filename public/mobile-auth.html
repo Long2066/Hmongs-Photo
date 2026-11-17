@@ -185,13 +185,58 @@
     const signinBtn = document.getElementById('signin-btn');
     const returnBtn = document.getElementById('return-btn');
     const statusBox = document.getElementById('status-container');
+    const urlParams = new URLSearchParams(window.location.search);
+    const desktopPortParam = urlParams.get('desktopPort');
+    if (desktopPortParam) {
+      sessionStorage.setItem('desktop_auth_port', desktopPortParam);
+    }
 
-    function returnToAndroidApp(user, credential) {
-      const idToken = credential?.idToken || '';
+    async function completeAuthSession(user, credential) {
+      const idToken = credential?.idToken || (await user.getIdToken().catch(() => ''));
       const accessToken = credential?.accessToken || '';
 
       if (!idToken && !accessToken) {
         statusBox.innerHTML = '<span style="color: #f87171;">Không lấy được mã xác thực Google. Vui lòng thử lại:</span>';
+        signinBtn.style.display = 'inline-flex';
+        return;
+      }
+
+      const activeDesktopPort = sessionStorage.getItem('desktop_auth_port');
+      if (activeDesktopPort) {
+        statusBox.innerHTML = '<span class="spinner"></span><span>Đăng nhập thành công! Đang chuyển tiếp về ImageTool...</span>';
+        signinBtn.style.display = 'none';
+
+        const payload = {
+          uid: user.uid || '',
+          email: user.email || '',
+          displayName: user.displayName || user.email?.split('@')[0] || 'User',
+          photoURL: user.photoURL || '',
+          idToken,
+          accessToken
+        };
+
+        try {
+          const response = await fetch(`http://localhost:${activeDesktopPort}/api/auth-complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (response.ok) {
+            sessionStorage.removeItem('desktop_auth_port');
+            statusBox.innerHTML = `
+              <div class="success-icon">✓</div>
+              <strong style="color: #34d399; font-size: 16px;">Đăng nhập thành công!</strong><br>
+              <span style="color: #cbd5e1; font-size: 13px;">Tài khoản: <strong>${user.email || ''}</strong><br>ImageTool đang tự động mở lại. Tab này sẽ đóng sau 2 giây...</span>
+            `;
+            setTimeout(() => { try { window.close(); } catch (e) {} }, 2000);
+            return;
+          }
+        } catch (err) {
+          console.warn('Error posting auth to Electron loopback:', err);
+        }
+
+        statusBox.innerHTML = '<span style="color: #f87171;">Không thể kết nối về ứng dụng ImageTool trên máy. Vui lòng kiểm tra app đang mở và bấm thử lại bên dưới.</span>';
         signinBtn.style.display = 'inline-flex';
         return;
       }
@@ -238,7 +283,7 @@
         signinBtn.style.display = 'none';
         const result = await signInWithPopup(auth, provider);
         const credential = GoogleAuthProvider.credentialFromResult(result);
-        returnToAndroidApp(result.user, credential);
+        await completeAuthSession(result.user, credential);
       } catch (popupErr) {
         console.warn('Popup fallback to redirect:', popupErr);
         await startRedirectLogin();
@@ -253,7 +298,7 @@
         if (result && result.user) {
           sessionStorage.removeItem('mobile_auth_redirecting');
           const credential = GoogleAuthProvider.credentialFromResult(result);
-          returnToAndroidApp(result.user, credential);
+          await completeAuthSession(result.user, credential);
           return;
         }
 

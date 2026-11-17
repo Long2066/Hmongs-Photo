@@ -9,6 +9,8 @@ import { optimizeReferenceImages, createCompositeReferenceImage } from './imageO
 import { getVideoConfig } from './videoConfigService';
 import { getCachedSubscriptionPlansConfig, isImageModelAllowedByConfig } from './subscriptionPlanConfigService';
 import { computeJitteredBackoffMs, isTransientHttpOrNetworkError, sleepWithAbort } from './concurrencyService';
+import { canFallbackToTextOnlyImageGeneration } from './videoFidelityUtils';
+export { canFallbackToTextOnlyImageGeneration };
 
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'https://753c-158-178-235-87.ngrok-free.app/v1';
@@ -30,6 +32,8 @@ export interface NineRouterStatus {
     lastChecked: number;
 }
 
+export type IdentityPreservationMode = 'strict_original' | 'korean_idol';
+
 export interface NineRouterImageRequest {
     prompt: string;
     referenceImages?: Array<{ data: string; mimeType: string; label?: string }>;
@@ -41,6 +45,8 @@ export interface NineRouterImageRequest {
     // Task-specific routing and prompt handling
     taskType?: 'create' | 'extract' | 'edit' | 'relight' | 'profile' | 'upscale' | 'mix' | 'restore' | 'poster' | 'raw';
     rawPrompt?: boolean;
+    // Identity lock mode: strict_original locks 100% original face + outfit; korean_idol only clones clothing onto a K-Pop idol
+    identityMode?: IdentityPreservationMode;
     // VIP-related options
     useVIPPrompt?: boolean;
     hasMaleAccessories?: boolean;
@@ -1527,7 +1533,29 @@ Examine all ${referenceImages.length} attached reference photo(s). Compose a com
 ${request.prompt}`;
     } else if (isCoupleScene) {
         // Couple / Dual-subject Creative Generation
-        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+        if (request.identityMode !== 'korean_idol') {
+            systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
+- PHYSICAL GROUNDING (CRITICAL): Both subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic gravitational contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky or towering like giants over miniature landscapes.
+- 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements.
+
+*** ABSOLUTE ORIGINAL FACE & OUTFIT LOCK PROTOCOL (COUPLE — ZERO IDENTITY DRIFT) ***
+- DUAL CHARACTER FIDELITY (100% MANDATORY): Preserve 100% of BOTH original people from the input reference images. If input reference photos depict real faces or specific animated characters, CLONE EVERY FACIAL FEATURE (eyes, eyebrows, nose bridge, lips, jawline, face shape, skin tone, age, hairstyle, expression) pixel-faithfully! ZERO face-swap, ZERO generic AI model beautification!
+- POSITION-INDEPENDENT 1-TO-1 BINDING:
+  1. MALE SUBJECT: Clone the EXACT face, hair, and 100% of the garments/colors/patterns from "MALE" / "MALE FACE" reference(s), regardless of left/right/foreground/background placement.
+  2. FEMALE SUBJECT: Clone the EXACT face, hair, and 100% of the garments/colors/patterns/headdress from "FEMALE" / "FEMALE FACE" reference(s), regardless of placement.
+- ZERO HALLUCINATION & ZERO CROSS-CONTAMINATION: NEVER change outfit colors, NEVER swap male patterns onto the female outfit, and NEVER add unrequested props unless explicitly instructed.
+- ANTI-STIFFNESS & NATURAL CANDID POSING: Natural posture, fluid anatomy, authentic gaze/interaction.
+- CANVAS SAFE ZONE (Ratio ${ratio}): Strictly keep heads, hair, hats, and garments completely inside the frame.`;
+
+            geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (STRICT ORIGINAL COUPLE LOCK) ***
+Inspect all ${referenceImages.length} attached input reference image(s), including any FACE CLOSE-UP ANCHOR images.
+CRITICAL RULES (100% NON-NEGOTIABLE):
+1. CLONE EXACT FACES & IDENTITY: Preserve 100% of both original people's exact faces, eye shapes, noses, lips, jawlines, skin tones, ages, and hairstyles from their respective references. NEVER replace their faces with generic K-Pop idols or different people!
+2. CLONE EXACT OUTFITS & COLORS: Replicate 100% of the MALE outfit onto the male and 100% of the FEMALE outfit onto the female with identical colors, cuts, embroidery, patterns, and headwear. Zero wardrobe changes!
+3. PHYSICAL GROUNDING & 1:1 SCALE: Feet firmly on solid ground with realistic shadows and natural human interaction matching the scene description below (do NOT copy reference backgrounds unless requested).`;
+        } else {
+            systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
 *** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
 - PHYSICAL GROUNDING (CRITICAL): Both subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic gravitational contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky, hovering above mountains, or rendered as giant titans towering over miniature landscapes.
 - 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements (market stalls, houses, tents, fences, and trees).
@@ -1547,7 +1575,7 @@ Regardless of whether the character is positioned on the left side, right side, 
 5. ACCESSORY INTEGRITY: Do not add random unrequested props (umbrellas, flowers, fans, etc.) unless specified in the prompt or accessory reference.
 - CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose both subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
 
-        geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (COUPLE SCENE) ***
+            geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (COUPLE SCENE) ***
 Inspect all ${referenceImages.length} attached input reference image(s).
 CRITICAL RULES FOR COUPLE GENERATION:
 1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Both subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape.
@@ -1559,10 +1587,30 @@ CRITICAL RULES FOR COUPLE GENERATION:
    - ZERO HALLUCINATION & ZERO CROSS-OVER: The female MUST wear her exact authentic dress colors, bodice, and skirt from Image 2. Never borrow the male's patterns or colors for the female.
 4. ANTI-STIFFNESS: Render natural candid posture, fluid body lines, and genuine human interaction instead of rigid mannequin stances.
 5. The background and action must strictly follow the scene description below, NOT the reference photos' backgrounds.`;
+        }
     } else {
         // Standard Creative Generation (Single Character)
-        const targetGender = hasFemaleRef ? 'FEMALE' : hasMaleRef ? 'MALE' : 'SOLO';
-        systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+        if (request.identityMode !== 'korean_idol') {
+            systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
+*** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
+- PHYSICAL GROUNDING (CRITICAL): Subjects MUST have their feet firmly planted on solid physical terrain with realistic contact shadows at exact 1:1 human proportions.
+
+*** ABSOLUTE 100% ORIGINAL FACE, CHARACTER & OUTFIT LOCK PROTOCOL (ZERO DRIFT) ***
+- EXACT IDENTITY CLONING (PRIORITY #1): If any human/character is shown in the input reference image(s) or FACE CLOSE-UP ANCHOR, you MUST clone their 100% IDENTICAL face (eye shape, inter-pupillary distance, eyebrows, nose bridge & tip, lip thickness, jawline, cheekbones, skin tone, moles/marks, age, ethnicity, and exact hairstyle).
+- FORBIDDEN FACE MODIFICATIONS: Strictly FORBIDDEN to turn the subject into a generic K-Pop idol, slim/reshape the face, change skin tone, change age, or alter hairstyle unless explicitly requested!
+- EXACT OUTFIT & COLOR CLONING (100% NON-NEGOTIABLE): Clone 100% of the exact clothing, fabric texture, cut, colors, stripes, patterns, embroidery, buttons, collar, sleeves, footwear, and headwear directly from the input photo(s). NEVER invent a different shirt/dress/color!
+- STYLE CONSISTENCY: Keep the same photographic/stylistic look and character identity while placing the person into the exact setting/action described in the scene prompt.
+- CANVAS SAFE ZONE (Ratio ${ratio}): Keep the full head, crown/hat, and essential outfit completely inside safe borders.`;
+
+            geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION (100% STRICT ORIGINAL LOCK) ***
+Inspect all ${referenceImages.length} attached input reference image(s) carefully (especially any FACE CLOSE-UP ANCHOR).
+CRITICAL NON-NEGOTIABLE RULES:
+1. 100% IDENTICAL FACE & IDENTITY: Reproduce the EXACT SAME person/character from the reference photo(s) pixel-faithfully: identical eyes, nose, mouth, face structure, skin tone, age, and hair. A family member comparing side-by-side MUST immediately recognize it is the exact same person. NEVER perform generic AI beautification or Korean idol face-swap!
+2. 100% IDENTICAL OUTFIT & COLORS: Clone the exact garments, colors (red, white, black, blue, etc.), patterns, cuts, and accessories from the reference photo(s). NEVER change outfit colors or design across different scenes!
+3. SCENE & ACTION ACCURACY: Render the subject naturally performing the action in the requested setting/background at 1:1 human scale, grounded on solid terrain.`;
+        } else {
+            const targetGender = hasFemaleRef ? 'FEMALE' : hasMaleRef ? 'MALE' : 'SOLO';
+            systemHeader = `*** MANDATORY CANVAS ASPECT RATIO: ${ratio} ***
 *** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
 - PHYSICAL GROUNDING (CRITICAL): Subjects MUST have their feet firmly planted on solid physical terrain (dirt trail, cobblestones, stone terrace steps, market floor) with realistic contact shadows. ABSOLUTELY FORBIDDEN to depict subjects floating in the sky, hovering above mountains, or rendered as giant titans towering over miniature landscapes.
 - 1:1 REALISTIC HUMAN SCALE: Characters must be depicted in exact 1:1 human proportions relative to all surrounding elements (market stalls, houses, tents, fences, and trees).
@@ -1572,13 +1620,14 @@ CRITICAL RULES FOR COUPLE GENERATION:
 - OUTFIT REPLICATION: Faithfully clone 100% of the authentic traditional garments, hand-embroidery, brocade motifs, and accessories directly from the input reference photos onto the Korean idol, faithfully preserving the original outfit's colors (whether red, blue, green, black, white, or indigo) and textures. DO NOT hallucinate or change colors!
 - CANVAS SAFE ZONE (Ratio ${ratio}): Strictly compose all subjects completely within canvas safe zone without cutting heads, hair, or ornaments.`;
 
-        geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
+            geminiInstruction = `*** DIRECT MULTIMODAL REFERENCE INSTRUCTION ***
 Inspect all ${referenceImages.length} attached input reference image(s).
 CRITICAL RULES:
 1. PHYSICAL GROUNDING & 1:1 HUMAN SCALE: Subjects MUST have their feet firmly planted on solid ground (dirt path, stone steps, market floor) with realistic contact shadows. NEVER depict humans floating in the sky or rendered as giant titans above the landscape. Human scale relative to surrounding stalls and buildings must be strictly 1:1.
 2. CHARACTER VISUAL: The character MUST be an ultra-attractive Korean K-Pop Idol / Ulzzang (flawless luminous porcelain glass skin, double eyelids, captivating eyes, sharp jawline, high fashion charisma).
 3. CLOTHING & ACCESSORIES ONLY: Attached images provide CLOTHING, TEXTILES, EMBROIDERY, AND ACCESSORIES ONLY. DO NOT use the face, skin tone, or identity from the reference image. Clone 100% of the authentic garment embroidery, colors, patterns, and accessories directly from the reference photo(s) onto this Korean idol model, faithfully preserving the original colors (red, white, black, blue, etc.) and craftsmanship.
 4. The background must strictly follow the scene description below, NOT the reference photos' backgrounds.`;
+        }
     }
 
     const fullDirective = request.rawPrompt
@@ -1714,17 +1763,24 @@ CRITICAL RULES:
                     text: geminiInstruction
                 }];
 
+                const isStrictOriginal = request.identityMode !== 'korean_idol';
                 referenceImages.forEach((img, idx) => {
                     let labelDesc = img.label || `Subject / Outfit ${idx + 1}`;
                     const labelUpper = labelDesc.toUpperCase();
-                    if (labelUpper.includes('MALE OUTFIT') || labelUpper.includes('NAM')) {
-                        labelDesc += ' (MUST be worn 100% by the handsome Korean MALE idol - suit/jacket, pants, colors, embroidery)';
+                    if (labelUpper.includes('FACE CLOSE-UP') || labelUpper.includes('FACE ANCHOR')) {
+                        labelDesc += ' (HIGH-RES FACIAL ANCHOR: Strictly copy 100% of these exact eyes, nose, lips, jawline, skin tone, and hair onto the subject)';
+                    } else if (labelUpper.includes('MALE OUTFIT') || labelUpper.includes('NAM')) {
+                        labelDesc += isStrictOriginal
+                            ? ' (MUST keep the EXACT MALE face/hair if shown AND replicate 100% of the outfit colors, cut, pants, and embroidery)'
+                            : ' (MUST be worn 100% by the handsome Korean MALE idol - suit/jacket, pants, colors, embroidery)';
                     } else if (labelUpper.includes('FEMALE OUTFIT') || labelUpper.includes('NỮ') || labelUpper.includes('NU')) {
-                        labelDesc += ' (MUST be worn 100% by the gorgeous Korean FEMALE idol - replicate exact dress colors, bodice, skirt, and headdress. DO NOT replace with black/indigo)';
+                        labelDesc += isStrictOriginal
+                            ? ' (MUST keep the EXACT FEMALE face/hair if shown AND replicate 100% of the exact dress colors, bodice, skirt, and headdress)'
+                            : ' (MUST be worn 100% by the gorgeous Korean FEMALE idol - replicate exact dress colors, bodice, skirt, and headdress. DO NOT replace with black/indigo)';
                     } else if (labelUpper.includes('MALE ACCESSORY')) {
-                        labelDesc += ' (Held/carried exclusively by the MALE idol)';
+                        labelDesc += ' (Held/carried exclusively by the MALE subject)';
                     } else if (labelUpper.includes('FEMALE ACCESSORY')) {
-                        labelDesc += ' (Held/carried exclusively by the FEMALE idol)';
+                        labelDesc += ' (Held/carried exclusively by the FEMALE subject)';
                     }
                     userContent.push({
                         type: 'text',
@@ -1873,62 +1929,66 @@ CRITICAL RULES:
                 }
             }
 
-            // PATH C: Text-to-Image / Fallback via /v1/images/generations
-            try {
-                const genPayload: any = {
-                    model: candidateModel,
-                    prompt: combinedPrompt,
-                    n: 1,
-                    response_format: 'b64_json',
-                    size: standardSize,
-                    quality: 'high',
-                    aspect_ratio: ratio,
-                    image_config: {
-                        aspect_ratio: ratio
-                    },
-                    extra_body: {
+            // PATH C: Text-to-Image ONLY when there are NO reference images (never drop references!)
+            if (canFallbackToTextOnlyImageGeneration(referenceImages.length)) {
+                try {
+                    const genPayload: any = {
+                        model: candidateModel,
+                        prompt: combinedPrompt,
+                        n: 1,
+                        response_format: 'b64_json',
+                        size: standardSize,
+                        quality: 'high',
                         aspect_ratio: ratio,
-                        size: standardSize
-                    }
-                };
+                        image_config: {
+                            aspect_ratio: ratio
+                        },
+                        extra_body: {
+                            aspect_ratio: ratio,
+                            size: standardSize
+                        }
+                    };
 
-                const respGen = await fetchWithTimeout(`${baseUrl}/images/generations`, {
-                    method: 'POST',
-                    headers,
-                    signal: abortSignal,
-                    body: JSON.stringify(genPayload)
-                }, 90000);
-
-                if (respGen.ok) {
-                    const parsed = await parseNineRouterResponse(respGen);
-                    const image = await extractAnyImageFromResponse(parsed);
-                    if (image) {
-                        console.log(`[CLIProxyAPI] Successfully generated image via /images/generations (${candidateModel})`);
-                        return image;
-                    }
-                } else if (respGen.status === 400 && standardSize !== '1024x1024') {
-                    // Fallback to square size if gateway rejects custom aspect size
-                    const respSquare = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                    const respGen = await fetchWithTimeout(`${baseUrl}/images/generations`, {
                         method: 'POST',
                         headers,
                         signal: abortSignal,
-                        body: JSON.stringify({
-                            ...genPayload,
-                            size: '1024x1024'
-                        })
+                        body: JSON.stringify(genPayload)
                     }, 90000);
 
-                    if (respSquare.ok) {
-                        const parsed = await parseNineRouterResponse(respSquare);
+                    if (respGen.ok) {
+                        const parsed = await parseNineRouterResponse(respGen);
                         const image = await extractAnyImageFromResponse(parsed);
                         if (image) {
-                            console.log(`[CLIProxyAPI] Generated image via /images/generations fallback square (${candidateModel})`);
+                            console.log(`[CLIProxyAPI] Successfully generated image via /images/generations (${candidateModel})`);
                             return image;
                         }
+                    } else if (respGen.status === 400 && standardSize !== '1024x1024') {
+                        // Fallback to square size if gateway rejects custom aspect size
+                        const respSquare = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+                            method: 'POST',
+                            headers,
+                            signal: abortSignal,
+                            body: JSON.stringify({
+                                ...genPayload,
+                                size: '1024x1024'
+                            })
+                        }, 90000);
+
+                        if (respSquare.ok) {
+                            const parsed = await parseNineRouterResponse(respSquare);
+                            const image = await extractAnyImageFromResponse(parsed);
+                            if (image) {
+                                console.log(`[CLIProxyAPI] Generated image via /images/generations fallback square (${candidateModel})`);
+                                return image;
+                            }
+                        }
                     }
+                } catch (genErr) {
+                    console.warn('[CLIProxyAPI] /images/generations failed:', genErr);
                 }
-            } catch (genErr) {
-                console.warn('[CLIProxyAPI] /images/generations failed:', genErr);
+            } else {
+                console.warn(`[CLIProxyAPI] Candidate ${candidateModel} skipped PATH C (/images/generations) to protect ${referenceImages.length} locked reference image(s). Trying next image-capable candidate...`);
             }
         } catch (candidateErr: any) {
             console.error(`[CLIProxyAPI] Candidate ${candidateModel} failed:`, candidateErr);
@@ -1941,6 +2001,98 @@ CRITICAL RULES:
     }
 
     throw new Error('Máy chủ Cấu hình không trả về dữ liệu ảnh. Vui lòng kiểm tra lại trạng thái kết nối.');
+};
+
+/**
+ * Vision Helper: Fast multimodal analysis via CLIProxyAPI Flash/Argon models.
+ * Used both for 1-time Character/Outfit DNA extraction and closed-loop Auto-QA comparison.
+ */
+export const analyzeMultimodalVisionViaNineRouter = async (options: {
+    systemInstruction?: string;
+    prompt: string;
+    images: Array<{ data: string; mimeType?: string; label?: string }>;
+    temperature?: number;
+    maxTokens?: number;
+    timeoutMs?: number;
+    abortSignal?: AbortSignal;
+}): Promise<string | null> => {
+    if (!isNineRouterEnabled()) return null;
+
+    const baseUrl = getNineRouterUrl();
+    const apiKey = getNineRouterApiKey();
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
+    if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const userContent: any[] = [];
+    options.images.forEach((img, idx) => {
+        const cleanData = img.data.includes(',') ? img.data.split(',')[1] : img.data;
+        if (!cleanData) return;
+        userContent.push({
+            type: 'text',
+            text: `[IMAGE ${idx + 1}: ${img.label || `Frame ${idx + 1}`}]`
+        });
+        userContent.push({
+            type: 'image_url',
+            image_url: {
+                url: img.data.startsWith('data:')
+                    ? img.data
+                    : `data:${img.mimeType || 'image/jpeg'};base64,${cleanData}`,
+                detail: 'high'
+            }
+        });
+    });
+    userContent.push({ type: 'text', text: options.prompt });
+
+    const messages: Array<{ role: string; content: any }> = [];
+    if (options.systemInstruction) {
+        messages.push({ role: 'system', content: options.systemInstruction });
+    }
+    messages.push({ role: 'user', content: userContent });
+
+    const visionCandidates = [
+        'gemini-3.8-flash-high',
+        'gemini-3.8-flash',
+        'gemini-3-flash',
+        'gemini-4-argon-high'
+    ];
+
+    for (const candidateModel of visionCandidates) {
+        if (options.abortSignal?.aborted) {
+            return null;
+        }
+        try {
+            const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers,
+                signal: options.abortSignal,
+                body: JSON.stringify({
+                    model: candidateModel,
+                    messages,
+                    temperature: options.temperature ?? 0.15,
+                    max_tokens: options.maxTokens ?? 700,
+                    max_completion_tokens: options.maxTokens ?? 700,
+                    stream: false
+                })
+            }, options.timeoutMs ?? 28000);
+
+            if (!resp.ok) {
+                continue;
+            }
+            const parsed = await parseNineRouterResponse(resp);
+            const text = extractTextResponse(parsed);
+            if (text && text.trim()) {
+                return text.trim();
+            }
+        } catch (err) {
+            console.warn(`[VisionQA] Candidate ${candidateModel} skipped:`, err);
+        }
+    }
+
+    return null;
 };
 
 

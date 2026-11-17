@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { downloadImage, isElectronPlatform } from '../services/downloadService';
+import type { ConsistencyQaReport } from '../services/consistencyQaService';
 import { ErrorIcon } from './Icons';
 import { StudioHeroStage } from './StudioHeroStage';
 
@@ -14,6 +15,9 @@ interface OutputDisplayProps {
     titlePrefix?: string; // Tiêu đề / Tên file output nhập từ input
     onReplaySlideshow?: () => void;
     onDismissError?: () => void;
+    qaReports?: (ConsistencyQaReport | null)[];
+    retryingIndices?: number[];
+    onRetryImage?: (index: number) => void;
 }
 
 const isVideoUrl = (url: string | null): boolean => {
@@ -104,7 +108,15 @@ const OutputVideo: React.FC<{ url: string; index: number; prompt: string; title?
     );
 };
 
-const OutputImage: React.FC<{ base64: string; index: number; titlePrefix?: string; onClick: () => void }> = ({ base64, index, titlePrefix, onClick }) => {
+const OutputImage: React.FC<{
+    base64: string;
+    index: number;
+    titlePrefix?: string;
+    qaReport?: ConsistencyQaReport | null;
+    isRetrying?: boolean;
+    onRetry?: () => void;
+    onClick: () => void;
+}> = ({ base64, index, titlePrefix, qaReport, isRetrying = false, onRetry, onClick }) => {
     const [downloading, setDownloading] = useState(false);
     const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
 
@@ -134,50 +146,116 @@ const OutputImage: React.FC<{ base64: string; index: number; titlePrefix?: strin
         }
     };
 
+    const showQaFooter = Boolean(qaReport || onRetry);
+
     return (
-        <div className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-shadow hover:shadow-md">
-            <button
-                type="button"
-                onClick={onClick}
-                aria-label={`Xem chi tiết ảnh ${label}`}
-                className="relative flex aspect-square min-h-[44px] w-full cursor-pointer items-center justify-center overflow-hidden bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 active:scale-[0.99]"
-            >
-                <img src={imgSrc} alt={label} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
+        <div className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-shadow hover:shadow-md flex flex-col">
+            <div className="relative">
+                <button
+                    type="button"
+                    onClick={onClick}
+                    aria-label={`Xem chi tiết ảnh ${label}`}
+                    className="relative flex aspect-square min-h-[44px] w-full cursor-pointer items-center justify-center overflow-hidden bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 active:scale-[0.99]"
+                >
+                    <img src={imgSrc} alt={label} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
 
-                {/* Title / Number Badge */}
-                <span className="absolute left-2 top-2 z-10 flex h-7 max-w-[65%] items-center justify-center rounded-lg bg-white/95 px-2 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm border border-slate-200 truncate" title={label}>
-                    {label}
-                </span>
-
-                <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-slate-900/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    <span className="rounded-xl bg-white px-4 py-3 text-xs font-bold text-slate-900 shadow-sm">Xem chi tiết</span>
-                </span>
-            </button>
-
-            {/* Quick Download Button (Top Right) */}
-            <button
-                type="button"
-                onClick={handleQuickDownload}
-                disabled={downloading}
-                aria-label={`Tải ảnh ${label}`}
-                title={`Tải ảnh ${label} về máy`}
-                className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg bg-white/95 text-slate-700 shadow-sm border border-slate-200 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 active:scale-95 transition-all cursor-pointer"
-            >
-                {downloadStatus ? (
-                    <span className={`text-xs font-bold ${downloadStatus === '✓' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {downloadStatus}
+                    {/* Title / Number Badge */}
+                    <span className="absolute left-2 top-2 z-10 flex h-7 max-w-[65%] items-center justify-center rounded-lg bg-white/95 px-2 font-mono text-xs font-bold tabular-nums text-slate-900 shadow-sm ring-1 ring-slate-900/10 truncate" title={label}>
+                        {label}
                     </span>
-                ) : downloading ? (
-                    <svg className="w-3.5 h-3.5 animate-spin text-violet-600" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                    </svg>
-                ) : (
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
+
+                    <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-slate-900/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                        <span className="rounded-xl bg-white px-4 py-3 text-xs font-bold text-slate-900 shadow-sm">Xem chi tiết</span>
+                    </span>
+                </button>
+
+                {/* Quick Download Button (Top Right) */}
+                <button
+                    type="button"
+                    onClick={handleQuickDownload}
+                    disabled={downloading}
+                    aria-label={`Tải ảnh ${label}`}
+                    title={`Tải ảnh ${label} về máy`}
+                    className="absolute right-2 top-2 z-20 flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/95 text-slate-700 shadow-sm ring-1 ring-slate-900/10 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95 transition-all cursor-pointer"
+                >
+                    {downloadStatus ? (
+                        <span className={`text-xs font-bold ${downloadStatus === '✓' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {downloadStatus}
+                        </span>
+                    ) : downloading ? (
+                        <svg className="w-3.5 h-3.5 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                    ) : (
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                    )}
+                </button>
+
+                {isRetrying && (
+                    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-xs">
+                        <span className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+                        <span className="text-xs font-bold text-indigo-700">Đang tạo lại...</span>
+                    </div>
                 )}
-            </button>
+            </div>
+
+            {showQaFooter && (
+                <div className="bg-slate-50/80 px-2.5 py-2 border-t border-slate-100 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                        {qaReport && qaReport.status !== 'unverified' ? (
+                            <span
+                                title={`Mặt: ${qaReport.faceScore}% • Đồ: ${qaReport.outfitScore}% • Tổng: ${qaReport.overallScore}% — ${qaReport.reasonSummary}`}
+                                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-mono font-bold tabular-nums ${
+                                    qaReport.status === 'passed'
+                                        ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20'
+                                        : qaReport.status === 'repaired'
+                                        ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/20'
+                                        : 'bg-amber-50 text-amber-800 ring-1 ring-amber-600/25'
+                                }`}
+                            >
+                                {qaReport.status === 'passed' && `✓ ${qaReport.overallScore}%`}
+                                {qaReport.status === 'repaired' && `✨ Đã sửa ${qaReport.overallScore}%`}
+                                {qaReport.status === 'warning' && `⚠ ${qaReport.overallScore}%`}
+                            </span>
+                        ) : qaReport?.status === 'unverified' ? (
+                            <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-900/5">
+                                Đã xuất ảnh
+                            </span>
+                        ) : (
+                            <span className="text-[11px] font-mono font-medium text-slate-500">
+                                {label}
+                            </span>
+                        )}
+
+                        {onRetry && (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRetry();
+                                }}
+                                disabled={isRetrying}
+                                title="Tạo lại riêng ảnh này nếu chưa ưng ý"
+                                className="min-h-[44px] sm:min-h-[32px] inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-900/10 shadow-2xs hover:bg-indigo-50 hover:text-indigo-700 hover:ring-indigo-300 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
+                            >
+                                <svg className={`w-3 h-3 ${isRetrying ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                <span>Tạo lại</span>
+                            </button>
+                        )}
+                    </div>
+
+                    {qaReport && qaReport.status === 'warning' && qaReport.reasonSummary && (
+                        <p className="text-[11px] text-amber-800 leading-snug line-clamp-2" title={qaReport.reasonSummary}>
+                            {qaReport.reasonSummary}
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
@@ -235,7 +313,10 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
     metadata,
     titlePrefix,
     onReplaySlideshow,
-    onDismissError
+    onDismissError,
+    qaReports,
+    retryingIndices,
+    onRetryImage
 }) => {
     const [batchDownloading, setBatchDownloading] = useState(false);
     const [batchProgress, setBatchProgress] = useState<string | null>(null);
@@ -399,7 +480,18 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                             const promptText = prompts && prompts[index] ? prompts[index] : "Video AI Studio";
                             return <OutputVideo key={index} url={image} index={index} prompt={promptText} title={titlePrefix} />;
                         } else {
-                            return <OutputImage key={index} base64={image} index={index} titlePrefix={titlePrefix} onClick={() => onImageClick(image, index)} />;
+                            return (
+                                <OutputImage
+                                    key={index}
+                                    base64={image}
+                                    index={index}
+                                    titlePrefix={titlePrefix}
+                                    qaReport={qaReports?.[index] ?? null}
+                                    isRetrying={Boolean(retryingIndices?.includes(index))}
+                                    onRetry={onRetryImage ? () => onRetryImage(index) : undefined}
+                                    onClick={() => onImageClick(image, index)}
+                                />
+                            );
                         }
                     })}
                 </div>

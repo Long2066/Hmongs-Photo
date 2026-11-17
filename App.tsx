@@ -2,22 +2,23 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
-import { PromptPanel } from './components/PromptPanel';
+import { PromptPanel, type CreativePromptPanelOptions } from './components/PromptPanel';
 import { IdPhotoPanel } from './components/IdPhotoPanel';
 import { EditImagePanel } from './components/EditImagePanel';
 import { UpscalePanel } from './components/UpscalePanel';
 import { ProfileProPanel } from './components/ProfileProPanel';
 import { RestorePhotoPanel } from './components/RestorePhotoPanel';
-import { VideoPanel } from './components/VideoPanel';
-import { VideoWorkspace, type VideoEntry } from './components/VideoWorkspace';
+import { VideoPanel, type VideoFidelityPanelOptions } from './components/VideoPanel';
+import { VideoWorkspace, type VideoEntry, type VideoSceneItem } from './components/VideoWorkspace';
 import { PosterStudioPanel } from './components/PosterStudioPanel';
 import { PosterWorkspace } from './components/PosterWorkspace';
 import { renderStudioPoster, POSTER_TEMPLATES, type PosterOptions, type PosterTemplateId } from './services/posterRenderService';
 import { FlowEmbeddedPage } from './components/FlowEmbeddedPage';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { OutputDisplay } from './components/OutputDisplay';
-import { generateImagesFromPromptsList, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, generateAiPoster, getUsedSystemKey, resetUsedSystemKey, parallelWithConcurrency } from './services/aiService';
-import { generateOpenRouterVideo } from './services/openRouterVideoService';
+import { generateImagesFromPromptsList, regenerateSingleCreativeImage, generateIdPhotos, editImage, editImages, upscaleImage, upscaleImages, generateProfilePic, generateProfilePics, mixMatchOutfit, relightImage, extractClothing, restoreOldPhoto, generateAiPoster, getUsedSystemKey, resetUsedSystemKey, parallelWithConcurrency, type IdentityPreservationMode, type CreativeRefImages, type ConsistencyQaReport } from './services/aiService';
+import { generateOpenRouterVideo, type VideoFrameFitMode } from './services/openRouterVideoService';
+import { extractCharacterDnaSpec, verifyVideoClipConsistency, buildCorrectiveRetryPrompt, selectBestQaCandidate, DEFAULT_STRICT_QA_THRESHOLD, MAX_AUTO_QA_RETRIES, type QaCandidate } from './services/consistencyQaService';
 import { mergeVideos } from './services/videoMergeService';
 import { getVideoConfig, calculateVideoPriceVnd, getVideoModelMeta } from './services/videoConfigService';
 import { MAX_STORY_SCENES, parseVideoScenePrompts } from './services/scenePromptUtils';
@@ -71,6 +72,7 @@ interface ModeData {
     inputs: ImageState[];
     outputs: (string | null)[];
     prompts: string[];
+    qaReports?: (ConsistencyQaReport | null)[];
     // Specific for Creative Mode
     creativeInputs?: {
         male: ImageState[];
@@ -85,6 +87,7 @@ const initialModeState: ModeData = {
     inputs: [],
     outputs: [],
     prompts: [],
+    qaReports: [],
     creativeInputs: { male: [], female: [], maleAcc: [], femaleAcc: [] },
     cleanedInputs: []
 };
@@ -168,6 +171,35 @@ const App: React.FC = () => {
     const [posterTemplateId, setPosterTemplateId] = useState<PosterTemplateId>('creative_thanh_xuan_hoa_phuong');
     const [videoSubMode, setVideoSubMode] = useState<'text_to_video' | 'image_to_video'>('image_to_video');
     const [videoEntries, setVideoEntries] = useState<VideoEntry[]>([]);
+    const [videoSceneItems, setVideoSceneItems] = useState<VideoSceneItem[]>([]);
+    const [hasUnmergedVideoChanges, setHasUnmergedVideoChanges] = useState(false);
+    const [isMergingVideoScenes, setIsMergingVideoScenes] = useState(false);
+    const [retryingImageIndices, setRetryingImageIndices] = useState<number[]>([]);
+    const lastCreativeRunConfigRef = useRef<{
+        prompts: string[];
+        aspectRatio: string;
+        resolution: string;
+        outputMode: 'single' | 'couple';
+        cleanPrefix: string;
+        style?: string;
+        shotType?: string;
+        refImages: CreativeRefImages;
+        identityMode: IdentityPreservationMode;
+        autoQaEnabled: boolean;
+        characterDna: string;
+    } | null>(null);
+    const videoRunConfigRef = useRef<{
+        subMode: 'text_to_video' | 'image_to_video';
+        aspectRatio: '16:9' | '9:16' | '1:1';
+        model?: string;
+        duration: number;
+        cleanTitle: string;
+        frameFitMode: VideoFrameFitMode;
+        autoQaEnabled: boolean;
+        strictMotionLock: boolean;
+        characterDna: string;
+        inputs: ImageState[];
+    } | null>(null);
     const [currentOutputTitlePrefix, setCurrentOutputTitlePrefix] = useState<string>('ImageTool');
 
     // Persistent State for ALL Modes
@@ -665,7 +697,8 @@ const App: React.FC = () => {
         outputMode: 'single' | 'couple',
         filenamePrefix: string,
         style?: string,
-        shotType?: string
+        shotType?: string,
+        panelOptions?: CreativePromptPanelOptions
     ) => {
         const apiKey = getApiKeyOrAlert();
         if (!apiKey) return;
@@ -674,6 +707,9 @@ const App: React.FC = () => {
 
         const cleanPrefix = (filenamePrefix && filenamePrefix.trim()) ? filenamePrefix.trim().replace(/[/\\?%*:|"<>]/g, '_') : 'ImageTool';
         setCurrentOutputTitlePrefix(cleanPrefix);
+
+        const identityMode: IdentityPreservationMode = panelOptions?.identityMode ?? 'strict_original';
+        const autoQaEnabled = panelOptions?.autoQaEnabled ?? true;
 
         // Clamp resolution according to current plan's live maxResolution
         const effectivePlan: firebaseService.SubscriptionPlan = storage.isAdmin()
@@ -687,7 +723,16 @@ const App: React.FC = () => {
         const cInputs = modeStates['creative'].creativeInputs!;
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
-        updateModeState(() => ({ outputs: Array(prompts.length).fill(null), prompts: prompts }));
+        setRetryingImageIndices([]);
+        setModeStates(prev => ({
+            ...prev,
+            creative: {
+                ...prev.creative,
+                outputs: Array(prompts.length).fill(null),
+                prompts: prompts,
+                qaReports: Array(prompts.length).fill(null)
+            }
+        }));
 
         const localResults: (string | null)[] = Array(prompts.length).fill(null);
 
@@ -700,15 +745,51 @@ const App: React.FC = () => {
             const maleAccParts = cInputs.maleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType }));
             const femaleAccParts = cInputs.femaleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType }));
 
-            const refImages = { male: maleParts, female: femaleParts, maleAccessories: maleAccParts, femaleAccessories: femaleAccParts };
+            const refImages: CreativeRefImages = { male: maleParts, female: femaleParts, maleAccessories: maleAccParts, femaleAccessories: femaleAccParts };
+            let characterDna = '';
+
+            if (nineRouterService.isNineRouterEnabled()) {
+                const dnaRefs: nineRouterService.NineRouterLabeledReferenceImage[] = [
+                    ...maleParts.slice(0, 2).map((img, idx) => ({ ...img, label: `MALE REF ${idx + 1}` })),
+                    ...femaleParts.slice(0, 2).map((img, idx) => ({ ...img, label: `FEMALE REF ${idx + 1}` })),
+                    ...maleAccParts.slice(0, 1).map((img, idx) => ({ ...img, label: `MALE ACCESSORY ${idx + 1}` })),
+                    ...femaleAccParts.slice(0, 1).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` }))
+                ];
+                if (dnaRefs.length > 0) {
+                    setLoadingStatus('🧬 Đang trích xuất ADN khuôn mặt & trang phục gốc để đồng bộ nhiều cảnh...');
+                    characterDna = await extractCharacterDnaSpec({
+                        referenceImages: dnaRefs,
+                        outputMode,
+                        identityMode,
+                        abortSignal: abortController.signal
+                    });
+                }
+            }
+
+            lastCreativeRunConfigRef.current = {
+                prompts: [...prompts],
+                aspectRatio,
+                resolution: safeResolution,
+                outputMode,
+                cleanPrefix,
+                style,
+                shotType,
+                refImages,
+                identityMode,
+                autoQaEnabled,
+                characterDna
+            };
+
             setLoadingStatus('Đang khởi động Model...');
 
             await generateImagesFromPromptsList(
                 apiKey, prompts, refImages, aspectRatio, safeResolution,
                 (status) => setLoadingStatus(status),
                 (index, base64) => {
-                    updateModeState((prev) => {
-                        const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
+                    setModeStates(prev => {
+                        const n = [...prev.creative.outputs];
+                        n[index] = base64;
+                        return { ...prev, creative: { ...prev.creative, outputs: n } };
                     });
                     localResults[index] = base64;
                     if (autoDownload && base64) {
@@ -719,7 +800,19 @@ const App: React.FC = () => {
                 style,
                 shotType,
                 outputMode,
-                abortController.signal
+                abortController.signal,
+                {
+                    identityMode,
+                    autoQaEnabled,
+                    characterDna,
+                    onQaReport: (index, report) => {
+                        setModeStates(prev => {
+                            const nextReports = [...(prev.creative.qaReports || [])];
+                            nextReports[index] = report;
+                            return { ...prev, creative: { ...prev.creative, qaReports: nextReports } };
+                        });
+                    }
+                }
             );
 
             const validImages = localResults.filter((img): img is string => img !== null);
@@ -729,13 +822,19 @@ const App: React.FC = () => {
                 await deductBalanceForVIP(validImages.length, 'image_generation');
                 saveHistory(cleanPrefix, prompts[0], validImages, outputMode);
             } else {
-                updateModeState(() => ({ outputs: [] }));
+                setModeStates(prev => ({
+                    ...prev,
+                    creative: { ...prev.creative, outputs: [], qaReports: [] }
+                }));
             }
 
         } catch (e: any) {
             const hasAny = localResults.some(img => img !== null);
             if (!hasAny) {
-                updateModeState(() => ({ outputs: [] }));
+                setModeStates(prev => ({
+                    ...prev,
+                    creative: { ...prev.creative, outputs: [], qaReports: [] }
+                }));
             }
             if (abortController.signal.aborted || e?.name === 'AbortError' || e?.message?.includes('aborted')) {
                 console.log('[App] Creative generation aborted cleanly by user');
@@ -750,7 +849,86 @@ const App: React.FC = () => {
                 setLoadingStatus('');
             }
         }
-    }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate, plansConfig]);
+    }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate, plansConfig, currentSubscriptionPlan]);
+
+    const handleRetryCreativeImage = useCallback(async (index: number) => {
+        if (isLoading || retryingImageIndices.includes(index)) return;
+        const apiKey = getApiKeyOrAlert();
+        if (!apiKey) return;
+        if (!await validateSubscriptionBeforeGenerate(1)) return;
+
+        const creativeState = modeStates['creative'];
+        const cfg = lastCreativeRunConfigRef.current;
+        const slotPrompt = cfg?.prompts[index] || creativeState?.prompts[index] || '';
+        if (!slotPrompt.trim()) {
+            setError(`Không tìm thấy prompt gốc cho ảnh #${index + 1} để tạo lại.`);
+            return;
+        }
+
+        const cInputs = creativeState?.creativeInputs || { male: [], female: [], maleAcc: [], femaleAcc: [] };
+        const fallbackRefs: CreativeRefImages = {
+            male: cInputs.male.map(img => ({ data: img.base64, mimeType: img.mimeType })),
+            female: cInputs.female.map(img => ({ data: img.base64, mimeType: img.mimeType })),
+            maleAccessories: cInputs.maleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType })),
+            femaleAccessories: cInputs.femaleAcc.map(img => ({ data: img.base64, mimeType: img.mimeType }))
+        };
+
+        const refImages = cfg?.refImages || fallbackRefs;
+        const aspectRatio = cfg?.aspectRatio || '1:1';
+        const resolution = cfg?.resolution || 'FHD';
+        const outputMode = cfg?.outputMode || (refImages.male.length > 0 && refImages.female.length > 0 ? 'couple' : 'single');
+        const cleanPrefix = cfg?.cleanPrefix || currentOutputTitlePrefix || 'ImageTool';
+        const identityMode: IdentityPreservationMode = cfg?.identityMode ?? 'strict_original';
+        const autoQaEnabled = cfg?.autoQaEnabled ?? true;
+
+        setError(null);
+        setRetryingImageIndices(prev => (prev.includes(index) ? prev : [...prev, index]));
+        setLoadingStatus(`🔄 Đang tạo lại riêng Ảnh #${index + 1} với khóa khuôn mặt & Auto-QA...`);
+
+        try {
+            const regenerated = await regenerateSingleCreativeImage({
+                prompt: slotPrompt,
+                index,
+                refImages,
+                aspectRatio,
+                resolution,
+                style: cfg?.style,
+                shotType: cfg?.shotType,
+                outputMode,
+                identityMode,
+                autoQaEnabled,
+                characterDna: cfg?.characterDna,
+                onStatusUpdate: (st) => setLoadingStatus(st),
+                onQaReport: (slotIdx, report) => {
+                    setModeStates(prev => {
+                        const nextReports = [...(prev.creative.qaReports || [])];
+                        nextReports[slotIdx] = report;
+                        return { ...prev, creative: { ...prev.creative, qaReports: nextReports } };
+                    });
+                }
+            });
+
+            if (regenerated) {
+                setModeStates(prev => {
+                    const nextOutputs = [...prev.creative.outputs];
+                    nextOutputs[index] = regenerated;
+                    return { ...prev, creative: { ...prev.creative, outputs: nextOutputs } };
+                });
+                await deductBalanceForVIP(1, 'image_retry');
+                if (autoDownload) {
+                    const paddedIdx = String(index + 1).padStart(2, '0');
+                    triggerDownload(regenerated, `${cleanPrefix}_${paddedIdx}_retry.png`);
+                }
+            } else {
+                setError(`Chưa thể tạo lại Ảnh #${index + 1}. Vui lòng thử lại.`);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : `Lỗi khi tạo lại Ảnh #${index + 1}.`);
+        } finally {
+            setRetryingImageIndices(prev => prev.filter(i => i !== index));
+            setLoadingStatus('');
+        }
+    }, [isLoading, retryingImageIndices, modeStates, validateSubscriptionBeforeGenerate, currentOutputTitlePrefix, autoDownload]);
 
     // 3. Edit Image (Batch 1-to-1 Support, max 10 images)
     const handleEditImage = useCallback(async (prompt: string, type: 'general' | 'mix' | 'relight' | 'extract', _outputCount: number, extraData?: any) => {
@@ -997,7 +1175,117 @@ const App: React.FC = () => {
         finally { setIsLoading(false); setLoadingStatus(''); }
     }, [modeStates, currentUser, validateSubscriptionBeforeGenerate]);
 
-    // 8. Video Generation (Hỗ trợ 1-40 ảnh phân cảnh, 1 dòng prompt = 1 cảnh, auto ghép nối tuần tự Cảnh 1 -> Cảnh N)
+    // 8. Video Generation (Hỗ trợ 1-40 ảnh phân cảnh, 1 dòng prompt = 1 cảnh, khóa 100% ảnh gốc + Auto-QA + Bàn Duyệt)
+    const renderSingleVideoSceneWithQa = useCallback(async (params: {
+        sceneIndex: number;
+        scenePrompt: string;
+        inputImageBase64?: string;
+        aspectRatio: '16:9' | '9:16' | '1:1';
+        duration: number;
+        model?: string;
+        frameFitMode: VideoFrameFitMode;
+        autoQaEnabled: boolean;
+        strictMotionLock: boolean;
+        characterDna: string;
+        onProgress: (status: string) => void;
+    }): Promise<{ url: string; qaReport: ConsistencyQaReport | null; modelUsed?: string }> => {
+        const {
+            sceneIndex,
+            scenePrompt,
+            inputImageBase64,
+            aspectRatio,
+            duration,
+            model,
+            frameFitMode,
+            autoQaEnabled,
+            strictMotionLock,
+            characterDna,
+            onProgress
+        } = params;
+
+        const runAttempt = async (effectivePrompt: string) => {
+            const result = await generateOpenRouterVideo({
+                prompt: effectivePrompt,
+                aspectRatio,
+                duration,
+                modelOverride: model === 'auto' ? undefined : model,
+                outputCount: 1,
+                inputImageBase64,
+                frameFitMode,
+                strictIdentityLock: true,
+                strictMotionLock,
+                characterDna,
+                onProgress
+            });
+            const returnedUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
+                .filter((u): u is string => typeof u === 'string' && u.length > 0);
+            if (returnedUrls.length === 0) {
+                throw new Error(`Phân cảnh ${sceneIndex + 1} chưa nhận được video từ AI.`);
+            }
+            return { url: returnedUrls[0], modelUsed: result.modelUsed || model };
+        };
+
+        const firstClip = await runAttempt(scenePrompt);
+        const shouldRunVideoQa =
+            autoQaEnabled &&
+            Boolean(inputImageBase64) &&
+            nineRouterService.isNineRouterEnabled();
+
+        if (!shouldRunVideoQa || !inputImageBase64) {
+            return { url: firstClip.url, qaReport: null, modelUsed: firstClip.modelUsed };
+        }
+
+        const candidates: QaCandidate<{ url: string; modelUsed?: string }>[] = [];
+        onProgress('🛡️ Auto-QA: trích xuất khung hình 12%/50%/88% & đối chiếu gốc...');
+        let latestReport = await verifyVideoClipConsistency({
+            referenceFrameBase64: inputImageBase64,
+            videoUrl: firstClip.url,
+            scenePrompt,
+            strictOriginal: true,
+            threshold: DEFAULT_STRICT_QA_THRESHOLD
+        });
+        candidates.push({ result: firstClip, report: latestReport, attempt: 0 });
+
+        if (!latestReport.passed && latestReport.status !== 'unverified') {
+            for (let retry = 1; retry <= MAX_AUTO_QA_RETRIES; retry++) {
+                onProgress(`🔄 Auto-QA lệch (${latestReport.overallScore}%): tự render lại ${retry}/${MAX_AUTO_QA_RETRIES}...`);
+                const correctivePrompt = buildCorrectiveRetryPrompt(scenePrompt, latestReport, retry, true);
+                try {
+                    const retryClip = await runAttempt(correctivePrompt);
+                    onProgress(`🛡️ Auto-QA: kiểm định lại bản sửa ${retry}/${MAX_AUTO_QA_RETRIES}...`);
+                    latestReport = await verifyVideoClipConsistency({
+                        referenceFrameBase64: inputImageBase64,
+                        videoUrl: retryClip.url,
+                        scenePrompt,
+                        strictOriginal: true,
+                        threshold: DEFAULT_STRICT_QA_THRESHOLD
+                    });
+                    candidates.push({ result: retryClip, report: latestReport, attempt: retry });
+                    if (latestReport.passed) break;
+                } catch (retryErr) {
+                    console.warn(`[Video QA Retry ${retry}] Scene ${sceneIndex + 1} failed:`, retryErr);
+                    break;
+                }
+            }
+        }
+
+        const best = selectBestQaCandidate(candidates);
+        if (!best) {
+            return { url: firstClip.url, qaReport: latestReport, modelUsed: firstClip.modelUsed };
+        }
+
+        const finalReport: ConsistencyQaReport =
+            best.attempt > 0 && best.report.passed
+                ? { ...best.report, status: 'repaired', attemptsUsed: best.attempt + 1 }
+                : { ...best.report, attemptsUsed: best.attempt + 1 };
+
+        return {
+            url: best.result.url,
+            qaReport: finalReport,
+            modelUsed: best.result.modelUsed
+        };
+    }, []);
+
     const handleVideoGenerate = useCallback(async (
         prompt: string,
         aspectRatio: '16:9' | '9:16' | '1:1',
@@ -1005,7 +1293,8 @@ const App: React.FC = () => {
         model?: string,
         _outputCount: number = 1,
         duration: number = 5,
-        title?: string
+        title?: string,
+        fidelityOptions?: VideoFidelityPanelOptions
     ) => {
         const inputs = modeStates['video'].inputs;
         if (subMode === 'image_to_video' && inputs.length === 0) {
@@ -1017,6 +1306,10 @@ const App: React.FC = () => {
         const scenePrompts = parseVideoScenePrompts(prompt, sceneCount);
         const modelMeta = getVideoModelMeta(model);
         const totalSecondsNeeded = duration * sceneCount;
+
+        const frameFitMode: VideoFrameFitMode = fidelityOptions?.frameFitMode ?? 'safe_contain';
+        const autoQaEnabled = fidelityOptions?.autoQaEnabled ?? true;
+        const strictMotionLock = fidelityOptions?.strictMotionLock ?? true;
 
         if (!storage.isAdmin()) {
             let effectiveVideoSec = remainingVideoSeconds;
@@ -1049,14 +1342,50 @@ const App: React.FC = () => {
         setCurrentOutputTitlePrefix(cleanTitle);
         setLoadingStatus(`Đang chuẩn bị sản xuất ${sceneCount} phân cảnh (${duration}s/cảnh) qua ${modelMeta.shortName}...`);
         setVideoEntries([]);
-        updateModeState(() => ({
-            outputs: Array(1).fill(null),
-            prompts: Array(1).fill(prompt),
+        setVideoSceneItems([]);
+        setHasUnmergedVideoChanges(false);
+        setModeStates(prev => ({
+            ...prev,
+            video: { ...prev.video, outputs: Array(1).fill(null), prompts: Array(1).fill(prompt) }
         }));
 
         try {
-            const clipUrls: (string | null)[] = Array(sceneCount).fill(null);
-            const mandatoryPrefix = 'Giữ tuyệt đối khuôn mặt và nhân vật gốc.';
+            let characterDna = '';
+            if (subMode === 'image_to_video' && inputs.length > 0 && nineRouterService.isNineRouterEnabled()) {
+                setLoadingStatus('🧬 Đang trích xuất ADN khuôn mặt & trang phục để đồng bộ xuyên suốt các phân cảnh...');
+                const dnaRefs = inputs.slice(0, 4).map((img, idx) => ({
+                    data: img.base64,
+                    mimeType: img.mimeType || 'image/jpeg',
+                    label: `SCENE FRAME REF ${idx + 1}`
+                }));
+                characterDna = await extractCharacterDnaSpec({
+                    referenceImages: dnaRefs,
+                    outputMode: 'single',
+                    identityMode: 'strict_original'
+                });
+            }
+
+            videoRunConfigRef.current = {
+                subMode,
+                aspectRatio,
+                model,
+                duration,
+                cleanTitle,
+                frameFitMode,
+                autoQaEnabled,
+                strictMotionLock,
+                characterDna,
+                inputs: [...inputs]
+            };
+
+            const sceneResults: Array<{
+                url: string;
+                firstFrame?: string;
+                prompt: string;
+                modelUsed?: string;
+                qaReport: ConsistencyQaReport | null;
+            } | null> = Array(sceneCount).fill(null);
+
             const sceneStatuses: string[] = Array(sceneCount).fill('Đang chờ...');
 
             const updateSceneProgress = (sceneIdx: number, status: string) => {
@@ -1082,35 +1411,63 @@ const App: React.FC = () => {
                 // Đảm bảo mọi phân cảnh đều có ảnh tham chiếu neo cứng nhân vật:
                 // Nếu người dùng tải nhiều ảnh (inputs[i]), dùng đúng ảnh góc chụp của cảnh i.
                 // Nếu cảnh i thiếu ảnh, fallback về ảnh đầu tiên inputs[0] để không bao giờ bị rớt sang Text-to-Video.
-                const inputImageBase64 = subMode === 'image_to_video'
-                    ? (inputs[i]?.base64 || inputs[0]?.base64)
-                    : undefined;
+                const sourceInput = subMode === 'image_to_video' ? (inputs[i] || inputs[0]) : undefined;
+                const inputImageBase64 = sourceInput?.base64;
 
-                const result = await generateOpenRouterVideo({
-                    prompt: cleanScenePrompt,
+                const rendered = await renderSingleVideoSceneWithQa({
+                    sceneIndex: i,
+                    scenePrompt: cleanScenePrompt,
+                    inputImageBase64,
                     aspectRatio,
                     duration,
-                    modelOverride: model === 'auto' ? undefined : model,
-                    outputCount: 1,
-                    inputImageBase64,
-                    onProgress: (status) => updateSceneProgress(i, status),
+                    model,
+                    frameFitMode,
+                    autoQaEnabled,
+                    strictMotionLock,
+                    characterDna,
+                    onProgress: (status) => updateSceneProgress(i, status)
                 });
 
-                const returnedUrls = (result.urls && result.urls.length > 0 ? result.urls : [result.url])
-                    .filter((u): u is string => typeof u === 'string' && u.length > 0);
-                if (returnedUrls.length === 0) {
-                    throw new Error(`Phân cảnh ${i + 1} chưa nhận được video từ AI.`);
-                }
-                clipUrls[i] = returnedUrls[0];
+                const firstFrame = sourceInput
+                    ? sourceInput.base64.startsWith('data:') || /^https?:\/\//i.test(sourceInput.base64)
+                        ? sourceInput.base64
+                        : `data:${sourceInput.mimeType || 'image/jpeg'};base64,${sourceInput.base64}`
+                    : undefined;
+
+                sceneResults[i] = {
+                    url: rendered.url,
+                    firstFrame,
+                    prompt: cleanScenePrompt,
+                    modelUsed: rendered.modelUsed || model,
+                    qaReport: rendered.qaReport
+                };
                 updateSceneProgress(i, 'Hoàn thành');
-                return returnedUrls[0];
+                return rendered.url;
             });
 
             const videoConcurrency = resolveEffectiveConcurrency('video', sceneCount, { modelId: model });
-            setLoadingStatus(`Đang tạo song song ${sceneCount} phân cảnh (${videoConcurrency} luồng song song)...`);
+            setLoadingStatus(`Đang tạo song song ${sceneCount} phân cảnh (${videoConcurrency} luồng${autoQaEnabled ? ' + Auto-QA' : ''})...`);
             await parallelWithConcurrency(sceneTasks, videoConcurrency);
 
-            const successfulClips = clipUrls.filter((u): u is string => typeof u === 'string' && u.length > 0);
+            const builtSceneItems: VideoSceneItem[] = [];
+            sceneResults.forEach((item, idx) => {
+                if (item && item.url) {
+                    builtSceneItems.push({
+                        index: idx,
+                        url: item.url,
+                        firstFrame: item.firstFrame,
+                        prompt: item.prompt,
+                        modelUsed: item.modelUsed,
+                        duration,
+                        aspectRatio,
+                        qaReport: item.qaReport,
+                        included: true,
+                        isRegenerating: false
+                    });
+                }
+            });
+
+            const successfulClips = builtSceneItems.map(item => item.url);
             if (successfulClips.length === 0) {
                 throw new Error('Không thể tạo phân cảnh video nào. Vui lòng thử lại.');
             }
@@ -1132,7 +1489,7 @@ const App: React.FC = () => {
                 }
             }
 
-            // Trừ số giây tạo video thực tế đã tạo thành công
+            // Trừ số giây tạo video thực tế đã tạo thành công (retry nội bộ Auto-QA không trừ thêm quota)
             const consumedSeconds = duration * successfulClips.length;
             if (!storage.isAdmin() && currentUser && consumedSeconds > 0) {
                 try {
@@ -1144,12 +1501,7 @@ const App: React.FC = () => {
                 }
             }
 
-            const source = subMode === 'image_to_video' ? inputs[0] : undefined;
-            const firstFrame = source
-                ? source.base64.startsWith('data:') || /^https?:\/\//i.test(source.base64)
-                    ? source.base64
-                    : `data:${source.mimeType};base64,${source.base64}`
-                : undefined;
+            const firstFrame = builtSceneItems[0]?.firstFrame;
             const createdAt = Date.now();
 
             const mergedEntry: VideoEntry = {
@@ -1163,12 +1515,12 @@ const App: React.FC = () => {
                 title: cleanTitle
             };
 
-            // YÊU CẦU: Video cuối cùng chỉ hiển thị video đã ghép, không cần hiển thị các video đơn lẻ
+            setVideoSceneItems(builtSceneItems);
             setVideoEntries([mergedEntry]);
 
-            updateModeState(() => ({
-                outputs: [finalVideoUrl],
-                prompts: [prompt],
+            setModeStates(prev => ({
+                ...prev,
+                video: { ...prev.video, outputs: [finalVideoUrl], prompts: [prompt] }
             }));
 
             if (autoDownload && finalVideoUrl) {
@@ -1181,12 +1533,168 @@ const App: React.FC = () => {
             const msg = e instanceof Error ? e.message : 'Lỗi tạo video AI.';
             setError(msg === 'Failed to fetch' ? 'Lỗi kết nối mạng khi tải dữ liệu video (Failed to fetch). Vui lòng thử lại.' : msg);
             setVideoEntries([]);
-            updateModeState(() => ({ outputs: [] }));
+            setVideoSceneItems([]);
+            setModeStates(prev => ({ ...prev, video: { ...prev.video, outputs: [] } }));
         } finally {
             setIsLoading(false);
             setLoadingStatus('');
         }
-    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser, autoDownload, plansConfig]);
+    }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser, autoDownload, plansConfig, renderSingleVideoSceneWithQa]);
+
+    const handleToggleVideoSceneIncluded = useCallback((sceneIndex: number) => {
+        setVideoSceneItems(prev => prev.map(item => (
+            item.index === sceneIndex ? { ...item, included: !item.included } : item
+        )));
+        setHasUnmergedVideoChanges(true);
+    }, []);
+
+    const handleUpdateVideoScenePrompt = useCallback((sceneIndex: number, nextPrompt: string) => {
+        setVideoSceneItems(prev => prev.map(item => (
+            item.index === sceneIndex ? { ...item, prompt: nextPrompt } : item
+        )));
+    }, []);
+
+    const handleRegenerateVideoScene = useCallback(async (sceneIndex: number, editedPrompt: string) => {
+        if (isLoading || isMergingVideoScenes) return;
+        const targetScene = videoSceneItems.find(item => item.index === sceneIndex);
+        if (!targetScene || targetScene.isRegenerating) return;
+
+        if (!storage.isAdmin()) {
+            let effectiveVideoSec = remainingVideoSeconds;
+            try {
+                const refreshed = await refreshSubscription();
+                if (refreshed && Number.isSafeInteger(refreshed.remainingVideoSeconds)) {
+                    effectiveVideoSec = refreshed.remainingVideoSeconds;
+                    setRemainingVideoSeconds(effectiveVideoSec);
+                }
+            } catch {
+                // fallback to local remainingVideoSeconds
+            }
+
+            if (effectiveVideoSec < targetScene.duration) {
+                const planLabel = plansConfig[currentSubscriptionPlan]?.name || currentSubscriptionPlan;
+                setError(`Số giây video còn lại (${effectiveVideoSec}s) không đủ để tạo lại riêng Cảnh #${sceneIndex + 1} (${targetScene.duration}s) của ${planLabel}.`);
+                setPackagesVisible(true);
+                return;
+            }
+        }
+
+        const cfg = videoRunConfigRef.current;
+        const cleanEditedPrompt = editedPrompt.trim();
+        const fallbackRef = cfg?.inputs?.[sceneIndex]?.base64 || cfg?.inputs?.[0]?.base64 || modeStates['video'].inputs[sceneIndex]?.base64 || modeStates['video'].inputs[0]?.base64;
+        const inputImageBase64 = targetScene.firstFrame || fallbackRef;
+
+        setError(null);
+        setVideoSceneItems(prev => prev.map(item => (
+            item.index === sceneIndex ? { ...item, isRegenerating: true, prompt: cleanEditedPrompt } : item
+        )));
+        setLoadingStatus(`🔄 Đang tạo lại riêng Cảnh #${sceneIndex + 1} (${targetScene.duration}s)...`);
+
+        try {
+            const rendered = await renderSingleVideoSceneWithQa({
+                sceneIndex,
+                scenePrompt: cleanEditedPrompt,
+                inputImageBase64,
+                aspectRatio: targetScene.aspectRatio,
+                duration: targetScene.duration,
+                model: cfg?.model || targetScene.modelUsed,
+                frameFitMode: cfg?.frameFitMode ?? 'safe_contain',
+                autoQaEnabled: cfg?.autoQaEnabled ?? true,
+                strictMotionLock: cfg?.strictMotionLock ?? true,
+                characterDna: cfg?.characterDna ?? '',
+                onProgress: (st) => setLoadingStatus(`[Cảnh #${sceneIndex + 1}] ${st}`)
+            });
+
+            if (!storage.isAdmin() && currentUser && targetScene.duration > 0) {
+                try {
+                    const updatedEntitlement = await consumeSubscriptionVideoSeconds(targetScene.duration);
+                    setRemainingVideoSeconds(updatedEntitlement.remainingVideoSeconds);
+                    setCurrentSubscriptionPlan(updatedEntitlement.plan);
+                } catch (vErr) {
+                    console.warn('Lỗi trừ số giây khi tạo lại phân cảnh:', vErr);
+                }
+            }
+
+            setVideoSceneItems(prev => prev.map(item => (
+                item.index === sceneIndex
+                    ? {
+                        ...item,
+                        url: rendered.url,
+                        prompt: cleanEditedPrompt,
+                        modelUsed: rendered.modelUsed || item.modelUsed,
+                        qaReport: rendered.qaReport,
+                        included: true,
+                        isRegenerating: false
+                    }
+                    : item
+            )));
+            setHasUnmergedVideoChanges(true);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : `Lỗi khi tạo lại Cảnh #${sceneIndex + 1}.`);
+            setVideoSceneItems(prev => prev.map(item => (
+                item.index === sceneIndex ? { ...item, isRegenerating: false } : item
+            )));
+        } finally {
+            setLoadingStatus('');
+        }
+    }, [isLoading, isMergingVideoScenes, videoSceneItems, remainingVideoSeconds, plansConfig, currentSubscriptionPlan, modeStates, renderSingleVideoSceneWithQa, currentUser]);
+
+    const handleRemergeVideoScenes = useCallback(async () => {
+        if (isMergingVideoScenes || isLoading) return;
+        const included = [...videoSceneItems]
+            .filter(item => item.included && Boolean(item.url))
+            .sort((a, b) => a.index - b.index);
+
+        if (included.length === 0) {
+            setError('Vui lòng chọn ít nhất 1 phân cảnh ("Đưa vào MP4") để ghép video.');
+            return;
+        }
+
+        const cfg = videoRunConfigRef.current;
+        const cleanTitle = cfg?.cleanTitle || videoEntries[0]?.title || `Video_Merged_${Date.now()}`;
+        const aspectRatio = cfg?.aspectRatio || included[0].aspectRatio || '9:16';
+
+        setError(null);
+        setIsMergingVideoScenes(true);
+        setLoadingStatus(`🎬 Đang ghép lại ${included.length} phân cảnh thành [${cleanTitle}.mp4]...`);
+
+        try {
+            let finalVideoUrl = included[0].url;
+            if (included.length > 1) {
+                finalVideoUrl = await mergeVideos({
+                    videoUrls: included.map(s => s.url),
+                    aspectRatio,
+                    title: cleanTitle,
+                    onProgress: (mergeStatus) => setLoadingStatus(mergeStatus)
+                });
+            }
+
+            const totalSec = included.reduce((sum, s) => sum + (s.duration || 0), 0);
+            const combinedPrompt = included.map(s => s.prompt).filter(Boolean).join('\n');
+            const updatedEntry: VideoEntry = {
+                url: finalVideoUrl,
+                firstFrame: included[0].firstFrame || videoEntries[0]?.firstFrame,
+                createdAt: Date.now(),
+                prompt: combinedPrompt,
+                modelUsed: cfg?.model || included[0].modelUsed,
+                duration: totalSec,
+                aspectRatio,
+                title: cleanTitle
+            };
+
+            setVideoEntries([updatedEntry]);
+            setModeStates(prev => ({
+                ...prev,
+                video: { ...prev.video, outputs: [finalVideoUrl], prompts: [combinedPrompt] }
+            }));
+            setHasUnmergedVideoChanges(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Lỗi khi ghép lại các phân cảnh MP4.');
+        } finally {
+            setIsMergingVideoScenes(false);
+            setLoadingStatus('');
+        }
+    }, [isMergingVideoScenes, isLoading, videoSceneItems, videoEntries]);
 
     // 9. Poster Studio Generation (Client-Side High-DPI Canvas Engine - 0 API cost)
     const handleSwapPosterInputs = useCallback((i: number, j: number) => {
@@ -1698,6 +2206,13 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                                         loadingStatus={loadingStatus}
                                         error={error}
                                         onDismissError={() => setError(null)}
+                                        sceneItems={videoSceneItems}
+                                        hasUnmergedChanges={hasUnmergedVideoChanges}
+                                        isMergingScenes={isMergingVideoScenes}
+                                        onRegenerateScene={handleRegenerateVideoScene}
+                                        onToggleSceneIncluded={handleToggleVideoSceneIncluded}
+                                        onUpdateScenePrompt={handleUpdateVideoScenePrompt}
+                                        onRemergeScenes={handleRemergeVideoScenes}
                                     />
                                 ) : mode === 'poster' ? (
                                     <PosterWorkspace
@@ -1726,6 +2241,9 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                                         onImageClick={(url, idx) => setSelectedImage({ url, index: idx })}
                                         onDismissError={() => setError(null)}
                                         titlePrefix={currentOutputTitlePrefix}
+                                        qaReports={mode === 'creative' ? currentData.qaReports : undefined}
+                                        retryingIndices={mode === 'creative' ? retryingImageIndices : undefined}
+                                        onRetryImage={mode === 'creative' && !isLoading ? handleRetryCreativeImage : undefined}
                                     />
                                 )}
                             </div>

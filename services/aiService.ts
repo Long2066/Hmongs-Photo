@@ -4,13 +4,26 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import * as antigravityService from './antigravityService';
 import * as geminiOAuthService from './geminiOAuthService';
 import * as nineRouterService from './nineRouterService';
-import { optimizeReferenceImages, enforceResolutionAndAspect } from './imageOptimizer';
+import { optimizeReferenceImages, enforceResolutionAndAspect, extractFaceCloseUpAnchor } from './imageOptimizer';
+import {
+    extractCharacterDnaSpec,
+    verifyGeneratedImageConsistency,
+    buildCorrectiveRetryPrompt,
+    selectBestQaCandidate,
+    DEFAULT_STRICT_QA_THRESHOLD,
+    MAX_AUTO_QA_RETRIES,
+    type ConsistencyQaReport,
+    type QaCandidate
+} from './consistencyQaService';
 import {
     resolveEffectiveConcurrency,
     isTransientHttpOrNetworkError,
     computeJitteredBackoffMs,
     sleepWithAbort
 } from './concurrencyService';
+
+export type { IdentityPreservationMode } from './nineRouterService';
+export type { ConsistencyQaReport } from './consistencyQaService';
 
 // --- GENERATION MODE TYPES ---
 export type GenerationMode = 'ninerouter' | 'antigravity' | 'oauth' | 'vip' | 'free' | 'none';
@@ -1017,13 +1030,32 @@ export const CHINESE_PERIOD_DRAMA_CHARACTER_AESTHETICS = `
 - Clone 100% patterns, embroidery, and colors from the input photos, creatively adapted into breathtaking Chinese historical period costume robes with flowing silk sleeves and exquisite details.
 `;
 
+export const STRICT_ORIGINAL_IDENTITY_DIRECTIVE = `
+*** MANDATORY STRICT ORIGINAL IDENTITY & OUTFIT CLONING PROTOCOL (ZERO FACE SWAP - TOP PRIORITY) ***
+${FACE_IDENTITY_PRESERVATION}
+
+- SUBJECT FIDELITY RULE (NON-NEGOTIABLE):
+  * Clone the EXACT human subject(s) from the input reference photo(s): exact age, gender, ethnicity, facial bone structure, eye shape, nose bridge, lip shape, jawline, natural skin tone, hair color/length/parting, beard/glasses if present.
+  * 🚫 STRICTLY FORBIDDEN: Do NOT replace or "Koreanize" the original person into a generic K-Pop idol, Ulzzang model, or different person! Even subtle beautification that alters bone structure or identity is forbidden.
+- OUTFIT & ACCESSORY FIDELITY RULE (100% LOCKED):
+  * Replicate 100% of the exact garment colors, fabric weaves, embroidery patterns, sleeves, collar, buttons, skirt/trousers, footwear, and headwear from the reference photo(s).
+  * NEVER swap colors, restyle modern clothes into unrelated costumes, or borrow male vs female outfit patterns across subjects.
+- VISUAL MEDIUM & PHYSICAL SCALE:
+  * Preserve 1:1 realistic human scale relative to architecture, vehicles, walkways, and nature. Subjects' feet must rest firmly on solid ground with realistic contact shadows.
+`;
+
 // --- CHARACTER AESTHETIC DIRECTIVE HELPER ---
-export const getCharacterAestheticDirective = (style?: string): string => {
-    if (style === 'Phim Cổ trang Trung Hoa') {
-        return CHINESE_PERIOD_DRAMA_CHARACTER_AESTHETICS;
+export const getCharacterAestheticDirective = (
+    style?: string,
+    identityMode: nineRouterService.IdentityPreservationMode = 'strict_original'
+): string => {
+    if (identityMode === 'korean_idol') {
+        if (style === 'Phim Cổ trang Trung Hoa') {
+            return CHINESE_PERIOD_DRAMA_CHARACTER_AESTHETICS;
+        }
+        return KOREAN_CHARACTER_DEFAULTS;
     }
-    // Default character aesthetic: Korean K-Pop Idol / Ulzzang Hot Boy & Hot Girl wearing authentic H'Mông regalia
-    return KOREAN_CHARACTER_DEFAULTS;
+    return STRICT_ORIGINAL_IDENTITY_DIRECTIVE;
 };
 
 // --- PROMPT OPTIMIZER ---
@@ -1106,6 +1138,9 @@ export const optimizePrompt = async (apiKey: string, rawInput: string): Promise<
 export interface BatchPromptOptions {
     globalContext?: string;
     sceneLines?: string[];
+    identityMode?: nineRouterService.IdentityPreservationMode;
+    characterDna?: string;
+    enableDnaLock?: boolean;
 }
 
 const parseChunkPrompts = (text: string): string[] => {
@@ -1147,6 +1182,26 @@ export const generateBatchPromptsText = async (
     const safeTotalCount = Math.max(1, Math.min(40, count));
     const globalContext = options?.globalContext?.trim() || '';
     const sceneLines = (options?.sceneLines || []).map(l => l.trim()).filter(Boolean).slice(0, 40);
+    const identityMode: nineRouterService.IdentityPreservationMode = options?.identityMode ?? 'strict_original';
+    const isStrictOriginal = identityMode !== 'korean_idol';
+
+    // Layer 1 Multi-Scene Anchor: Extract an immutable Character & Wardrobe DNA Spec ONCE per batch
+    let resolvedCharacterDna = (options?.characterDna || '').trim();
+    if (!resolvedCharacterDna && options?.enableDnaLock !== false && refImages && nineRouterService.isNineRouterEnabled()) {
+        const dnaRefs: nineRouterService.NineRouterLabeledReferenceImage[] = [
+            ...(refImages.male || []).slice(0, 2).map((img, idx) => ({ ...img, label: `MALE REF ${idx + 1}` })),
+            ...(refImages.female || []).slice(0, 2).map((img, idx) => ({ ...img, label: `FEMALE REF ${idx + 1}` })),
+            ...(refImages.maleAccessories || []).slice(0, 1).map((img, idx) => ({ ...img, label: `MALE ACCESSORY ${idx + 1}` })),
+            ...(refImages.femaleAccessories || []).slice(0, 1).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` })),
+        ];
+        if (dnaRefs.length > 0) {
+            resolvedCharacterDna = await extractCharacterDnaSpec({
+                referenceImages: dnaRefs,
+                outputMode,
+                identityMode
+            });
+        }
+    }
 
     // Split >10 prompts (up to 40) into chunks of 10 and run chunks in parallel for faster story generation
     if (safeTotalCount > 10) {
@@ -1176,7 +1231,10 @@ export const generateBatchPromptsText = async (
                 refImages,
                 {
                     globalContext,
-                    sceneLines: chunkScenes
+                    sceneLines: chunkScenes,
+                    identityMode,
+                    characterDna: resolvedCharacterDna,
+                    enableDnaLock: false
                 }
             );
 
@@ -1189,7 +1247,7 @@ export const generateBatchPromptsText = async (
                 } else {
                     const fallbackScene = chunkScenes[j] || topic;
                     chunkPrompts.push(
-                        `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${fallbackScene}. Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
+                        `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${resolvedCharacterDna ? `[Locked Subject & Wardrobe DNA: ${resolvedCharacterDna}] ` : ''}${fallbackScene}. ${isStrictOriginal ? 'The exact original person(s) from the reference image(s) keeping 100% identical face and outfit' : 'Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery'}, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
                     );
                 }
             }
@@ -1206,7 +1264,7 @@ export const generateBatchPromptsText = async (
                 for (let j = 0; j < chunkCount; j++) {
                     const fallbackScene = chunkScenes[j] || topic;
                     allPrompts.push(
-                        `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${fallbackScene}. Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
+                        `${globalContext ? `Consistent setting: ${globalContext}. ` : ''}${resolvedCharacterDna ? `[Locked Subject & Wardrobe DNA: ${resolvedCharacterDna}] ` : ''}${fallbackScene}. ${isStrictOriginal ? 'The exact original person(s) from the reference image(s) keeping 100% identical face and outfit' : 'Real person(s) wearing the EXACT reference outfit with 100% original colors and embroidery'}, realistic 1:1 human scale, natural candid pose, cinematic lighting.`
                     );
                 }
             }
@@ -1219,47 +1277,54 @@ export const generateBatchPromptsText = async (
     const systemApiKey = getVIPApiKey();
     const useVip = systemApiKey !== null;
 
-    console.log('[VIP Debug] generateBatchPromptsText - VIP Mode:', useVip);
+    console.log('[VIP Debug] generateBatchPromptsText - VIP Mode:', useVip, 'IdentityMode:', identityMode);
+
+    const maleLabel = isStrictOriginal
+        ? 'original male person from the MALE input photo (keeping 100% identical face, age, hair, and build)'
+        : 'Male Korean idol';
+    const femaleLabel = isStrictOriginal
+        ? 'original female person from the FEMALE input photo (keeping 100% identical face, age, hair, and build)'
+        : 'Female Korean idol';
 
     let modeInstruction = "";
     if (outputMode === 'couple') {
         modeInstruction = `OUTPUT MODE: COUPLE (MALE AND FEMALE TOGETHER).
-        You MUST generate prompts where BOTH the Male Korean idol AND the Female Korean idol appear TOGETHER in the same scene interacting naturally.
+        You MUST generate prompts where BOTH the ${maleLabel} AND the ${femaleLabel} appear TOGETHER in the same scene interacting naturally.
 
         *** MANDATORY SPATIAL & POSING DIVERSITY (POSITION ALTERNATION MATRIX) ***
         DO NOT keep the male always on the left and the female always on the right across the prompts!
         Across the ${safeTotalCount} prompts, you MUST systematically rotate and vary:
         1. SCREEN POSITIONS (LEFT / RIGHT / FOREGROUND / BACKGROUND):
-           - In some prompts: The Female idol is on the LEFT side of the frame, and the Male idol is on the RIGHT side.
-           - In other prompts: The Male idol is on the LEFT side of the frame, and the Female idol is on the RIGHT side.
+           - In some prompts: The Female subject is on the LEFT side of the frame, and the Male subject is on the RIGHT side.
+           - In other prompts: The Male subject is on the LEFT side of the frame, and the Female subject is on the RIGHT side.
            - In other prompts: One is slightly in the foreground and one in the background (staggered depth), or one is seated (on wooden porch steps or stone ledges) while the other stands nearby.
         2. DYNAMIC CANDID INTERACTION BASED ON TOPIC: "${topic}":
            - Poses must be fluid, candid, and naturally inspired by the Topic: "${topic}".
            - NEVER depict both models standing straight and stiff like mannequins in a bridal shop.
            - Generate completely varied, authentic ways of taking the photo across all ${safeTotalCount} images: walking, turning around, sitting, subtle natural leans, candid expressions, looking toward the landscape or exchanging a warm glance.
 
-        *** POSITION-INDEPENDENT OUTFIT BINDING IN EVERY PROMPT ***
+        *** POSITION-INDEPENDENT OUTFIT & IDENTITY BINDING IN EVERY PROMPT ***
         Regardless of whether the character is on the left, right, foreground, background, standing, or sitting:
-        - The Male character: explicitly state "the male idol (positioned on [left/right/foreground/seated]) is wearing 100% of the authentic MALE REFERENCE OUTFIT shown in the input photo, replicating exact colors, jacket/suit cut, trousers, and embroidery".
-        - The Female character: explicitly state "the female idol (positioned on [left/right/foreground/seated]) is wearing 100% of the authentic FEMALE REFERENCE OUTFIT shown in the input photo, replicating exact dress colors, bodice, floral patterns, flared skirt, and matching headdress".
-        - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). NEVER borrow patterns or colors from the male outfit for the female. BOTH outfits MUST be explicitly designated to their respective models in every single prompt!`;
+        - The Male character: explicitly state "the ${maleLabel} (positioned on [left/right/foreground/seated]) wearing 100% of the authentic MALE REFERENCE OUTFIT shown in the input photo, replicating exact colors, jacket/suit cut, trousers, and embroidery".
+        - The Female character: explicitly state "the ${femaleLabel} (positioned on [left/right/foreground/seated]) wearing 100% of the authentic FEMALE REFERENCE OUTFIT shown in the input photo, replicating exact dress colors, bodice, floral patterns, flared skirt, and matching headdress".
+        - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). NEVER borrow patterns or colors from the male outfit for the female. BOTH outfits and faces MUST be explicitly anchored to their respective inputs in every single prompt!`;
     } else {
         // SINGLE MODE - Determine gender based on which input slots have images
         const hasMaleInput = inputCounts.male > 0;
         const hasFemaleInput = inputCounts.female > 0;
 
         if (hasMaleInput && !hasFemaleInput) {
-            modeInstruction = `OUTPUT MODE: SINGLE (MALE ONLY). 
-            ALL ${safeTotalCount} prompts MUST feature ONLY handsome male characters.
+            modeInstruction = `OUTPUT MODE: SINGLE (MALE ONLY).
+            ALL ${safeTotalCount} prompts MUST feature ONLY the ${maleLabel}.
             DO NOT generate ANY female characters in ANY prompt.
-            Every single prompt must describe a MALE person wearing the male outfit reference.
-            This is NON-NEGOTIABLE - all ${safeTotalCount} images will be of MALE characters only.`;
+            Every single prompt must describe the exact MALE person wearing the 100% original MALE reference outfit.
+            This is NON-NEGOTIABLE - all ${safeTotalCount} images will feature this exact MALE character only.`;
         } else if (hasFemaleInput && !hasMaleInput) {
-            modeInstruction = `OUTPUT MODE: SINGLE (FEMALE ONLY). 
-            ALL ${safeTotalCount} prompts MUST feature ONLY beautiful female characters.
+            modeInstruction = `OUTPUT MODE: SINGLE (FEMALE ONLY).
+            ALL ${safeTotalCount} prompts MUST feature ONLY the ${femaleLabel}.
             DO NOT generate ANY male characters in ANY prompt.
-            Every single prompt must describe a FEMALE person wearing the female outfit reference.
-            This is NON-NEGOTIABLE - all ${safeTotalCount} images will be of FEMALE characters only.`;
+            Every single prompt must describe the exact FEMALE person wearing the 100% original FEMALE reference outfit.
+            This is NON-NEGOTIABLE - all ${safeTotalCount} images will feature this exact FEMALE character only.`;
         } else if (hasMaleInput && hasFemaleInput) {
             modeInstruction = "OUTPUT MODE: SINGLE (SEPARATE). You MUST generate prompts for SOLO portraits (1 person per image). Since BOTH Male and Female inputs are present, ALTERNATE prompts between genders (Male, Female, Male...).";
         } else {
@@ -1268,7 +1333,7 @@ export const generateBatchPromptsText = async (
     }
 
     const styleDetail = getStylePrompt(style);
-    const characterAesthetics = getCharacterAestheticDirective(style);
+    const characterAesthetics = getCharacterAestheticDirective(style, identityMode);
     const shotDirective = nineRouterService.getShotTypeDirective(shotType);
 
     const labeledReferences: nineRouterService.NineRouterLabeledReferenceImage[] = refImages ? [
@@ -1282,6 +1347,10 @@ export const generateBatchPromptsText = async (
         ? `\n    *** MANDATORY GLOBAL SETTING & VISUAL CONTINUITY ANCHOR (APPLY TO ALL ${safeTotalCount} PROMPTS) ***\n    Global World / Setting / Style Anchor: "${globalContext}"\n    - EVERY single prompt (from 1 to ${safeTotalCount}) MUST stay strictly inside this EXACT world, architecture, cultural aesthetic, lighting tone, and color palette so all generated images look like sequential scenes from the SAME movie!\n    - Do NOT randomly jump to an unrelated setting or architectural style.\n    `
         : '';
 
+    const dnaLockDirective = resolvedCharacterDna
+        ? `\n    *** IMMUTABLE CHARACTER & WARDROBE DNA SPEC (APPLY IDENTICALLY TO ALL ${safeTotalCount} SCENES) ***\n    LOCKED VISUAL DNA: "${resolvedCharacterDna}"\n    - EVERY single prompt (from 1 to ${safeTotalCount}) MUST include and strictly enforce these exact physical features, hairstyle, garment colors, fabrics, and accessories verbatim so NO scene drifts in identity or clothing.\n    `
+        : '';
+
     const orderedScenesDirective = sceneLines.length > 0
         ? `\n    *** STRICT 1-TO-1 ORDERED SCENE SCRIPT (NON-NEGOTIABLE) ***\n    The user provided exact sequential scenes. Map Prompt 1 to Scene 1, Prompt 2 to Scene 2, ..., Prompt ${safeTotalCount} to Scene ${safeTotalCount} in EXACT order:\n${sceneLines.slice(0, safeTotalCount).map((line, idx) => `    - Scene ${idx + 1}: ${line}`).join('\n')}\n    - Do NOT reorder, merge, or skip any scene.\n    - If any scene line mentions audio/voice keywords (like "no voice" or spoken dialogue), translate ONLY the visual action & expression into the image prompt and NEVER draw text, captions, or speech bubbles on the image.\n    `
         : '';
@@ -1290,12 +1359,13 @@ export const generateBatchPromptsText = async (
     You are an AI Art Director for a professional Photography Studio.
     Task: Generate exactly ${safeTotalCount} distinct but thematically linked English prompts based on the Topic: "${topic}".
     ${globalContextDirective}
+    ${dnaLockDirective}
     ${orderedScenesDirective}
     *** CRITICAL OUTPUT FORMAT ***
     Every prompt MUST describe a COMPLETE SCENE with REAL PERSON(S) wearing the clothing.
     - NEVER create prompts for: just clothing without people, mannequins, flat-lay displays, or product photography
     - ALWAYS describe the PERSON in the scene: their pose, expression, and action
-    - MANDATORY: Include phrases like "a person wearing...", "model dressed in...", "character standing/walking/posing in..."
+    - MANDATORY: Include phrases like "the exact original person wearing..." or "model dressed in..." (strictly matching identity mode)
     
     *** MANDATORY PHYSICAL GROUNDING & HUMAN SCALE RULES (STRICT NON-NEGOTIABLE) ***
     1. REALISTIC 1:1 HUMAN SCALE: Characters MUST be rendered in true-to-life 1:1 human scale relative to all surrounding objects, market stalls, houses, tents, and trees. NEVER create prompts that allow characters to appear as giant titans towering over miniature landscapes.
@@ -1306,12 +1376,13 @@ export const generateBatchPromptsText = async (
     ${characterAesthetics}
     
     *** ABSOLUTE RULES FOR INPUT ACCURACY (NON-NEGOTIABLE) ***
-    1. REFERENCE OUTFIT CLONING: The outfit reference images are NOT inspiration - they are TEXTURES to be mapped EXACTLY.
+    1. REFERENCE OUTFIT & IDENTITY CLONING: The reference images are NOT loose inspiration - they are FIXED GROUND-TRUTH IDENTITY & TEXTURES to be cloned EXACTLY.
        - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing directly from the input photo(s).
-       - CRITICAL: DO NOT invent specific colors or clothing items (e.g. NEVER write "indigo skirt", "silver collar", etc.).
+       ${isStrictOriginal ? '- Clone 100% of the original person\'s exact face, facial bone structure, skin tone, hair color/style, and apparent age. NEVER substitute a Korean K-Pop idol or generic model face.' : '- Preserve clothing 100% while rendering high-fashion idol facial aesthetics.'}
+       - CRITICAL: DO NOT invent specific colors or alter outfit pieces (NEVER swap clothing palette away from the reference photo).
        ${outputMode === 'couple' ?
-         `- COUPLE REQUIREMENT: Every prompt MUST explicitly describe BOTH the Male idol wearing the MALE Reference Outfit (100% original colors, cuts, and embroidery) AND the Female idol wearing the FEMALE Reference Outfit (100% original colors, bodice, flared skirt, and matching headdress).` :
-         `- Every prompt MUST contain: "THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures"`
+         `- COUPLE REQUIREMENT: Every prompt MUST explicitly describe BOTH the ${maleLabel} wearing the MALE Reference Outfit (100% original colors, cuts, and embroidery) AND the ${femaleLabel} wearing the FEMALE Reference Outfit (100% original colors, bodice, flared skirt, and matching headdress).` :
+         `- Every prompt MUST clearly state: "${isStrictOriginal ? 'THE EXACT ORIGINAL PERSON from the input photo, keeping 100% identical face and wearing the EXACT Reference Outfit replicated 100% with original colors and textures' : 'THE PERSON is wearing the EXACT Reference Outfit shown in the input photo, replicated 100% with original colors and textures'}"`
        }
     2. ACCESSORIES & PROPS RULES (STRICT & PRECISE):
        - If accessory images are provided in the input slots:
@@ -1333,11 +1404,8 @@ export const generateBatchPromptsText = async (
     
     *** PROMPT STRUCTURE ***
     ${outputMode === 'couple' ?
-      `Each prompt should follow: "[Dynamic camera angle & natural candid pose based on topic] + [Male idol position (left/right/foreground/seated)] wearing 100% of the authentic Male Reference Outfit + [Female idol position (left/right/foreground/seated)] wearing 100% of the authentic Female Reference Outfit with exact colors and headdress + [candid interaction & relaxed posture with empty hands or input accessories only] + [scene/background in realistic 1:1 scale] + [cinematic lighting/mood]"
-    Example 1 (Female on Left, Male on Right): "A full-length candid environmental photograph. On the left side of the frame, an extraordinarily gorgeous Korean female idol wearing 100% of the authentic Female Reference Outfit with exact vibrant colors, floral bodice, flared skirt, and matching headdress strolls naturally along a mountain village pathway, glancing back with a warm smile toward the handsome Korean male idol positioned on the right side of the frame who is wearing 100% of the authentic Male Reference Outfit with exact cut and embroidery, relaxed body posture with empty hands, authentic cobblestone terrain, cinematic golden hour lighting"
-    Example 2 (Male on Left, Female on Right, Staggered Depth): "A cinematic dynamic fashion photograph. Positioned slightly in the foreground on the left, a charismatic Korean male idol wearing 100% of the authentic Male Reference Outfit steps forward naturally, while on the right side slightly angled, an elegant Korean female idol wearing 100% of the authentic Female Reference Outfit with exact original colors, embroidery, and headdress pauses near a traditional wooden veranda, relaxed fluid body language, authentic highland scenery in realistic 1:1 human scale"` :
-      `Each prompt should follow: "[Person description with cultural/aesthetic fidelity] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"
-    Example: "A breathtakingly handsome Korean male K-pop idol center visual, flawless porcelain glass skin, captivating eyes, tall athletic build, wearing the EXACT authentic outfit from the input reference photo with 100% color and embroidery fidelity, standing firmly on a stone terrace path with feet grounded on solid rock, surrounded by authentic highland market stalls at realistic 1:1 human scale, shot with authentic photographic composition, cinematic lighting"`
+      `Each prompt should follow: "[Dynamic camera angle & natural candid pose based on topic] + [${maleLabel} position (left/right/foreground/seated)] wearing 100% of the authentic Male Reference Outfit + [${femaleLabel} position (left/right/foreground/seated)] wearing 100% of the authentic Female Reference Outfit with exact colors and headdress + [candid interaction & relaxed posture with empty hands or input accessories only] + [scene/background in realistic 1:1 scale] + [cinematic lighting/mood]"` :
+      `Each prompt should follow: "[${isStrictOriginal ? 'Exact original subject identity & hair anchored to input photo' : 'Person description matching Korean idol aesthetic'}] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"`
     }
 
     Output format: STRICT numbered list from 1 to ${safeTotalCount}. Format exactly as:
@@ -1349,8 +1417,8 @@ export const generateBatchPromptsText = async (
     `;
 
     const userTaskPrompt = sceneLines.length > 0
-        ? `${globalContext ? `Global Setting: ${globalContext}\n` : ''}Generate exactly ${safeTotalCount} prompts matching these ordered scenes:\n${sceneLines.slice(0, safeTotalCount).map((s, idx) => `${idx + 1}. ${s}`).join('\n')}`
-        : `${globalContext ? `Global Setting: ${globalContext}\n` : ''}Generate ${safeTotalCount} sequential prompts for topic: ${topic}`;
+        ? `${globalContext ? `Global Setting: ${globalContext}\n` : ''}${resolvedCharacterDna ? `Locked Visual DNA: ${resolvedCharacterDna}\n` : ''}Generate exactly ${safeTotalCount} prompts matching these ordered scenes:\n${sceneLines.slice(0, safeTotalCount).map((s, idx) => `${idx + 1}. ${s}`).join('\n')}`
+        : `${globalContext ? `Global Setting: ${globalContext}\n` : ''}${resolvedCharacterDna ? `Locked Visual DNA: ${resolvedCharacterDna}\n` : ''}Generate ${safeTotalCount} sequential prompts for topic: ${topic}`;
 
     // PRIORITY -1: NineRouter mode (isolated; never fall back to billable providers)
     if (nineRouterService.isNineRouterEnabled()) {
@@ -1434,6 +1502,220 @@ export const generateBatchPromptsText = async (
 };
 
 // --- IMAGE GENERATION ---
+export interface CreativeGenerationOptions {
+    identityMode?: nineRouterService.IdentityPreservationMode;
+    autoQaEnabled?: boolean;
+    qaThreshold?: number;
+    characterDna?: string;
+    onQaReport?: (index: number, report: ConsistencyQaReport) => void;
+    onItemStatus?: (index: number, text: string) => void;
+}
+
+export interface SingleCreativeRegenerateParams {
+    prompt: string;
+    index: number;
+    refImages: CreativeRefImages;
+    aspectRatio: string;
+    resolution: string;
+    style?: string;
+    shotType?: string;
+    outputMode?: 'single' | 'couple';
+    identityMode?: nineRouterService.IdentityPreservationMode;
+    autoQaEnabled?: boolean;
+    qaThreshold?: number;
+    characterDna?: string;
+    onStatusUpdate: (status: string) => void;
+    onQaReport?: (index: number, report: ConsistencyQaReport) => void;
+    abortSignal?: AbortSignal;
+}
+
+interface PreparedCreativeRefBundle {
+    labeledNineRouterReferences: nineRouterService.NineRouterLabeledReferenceImage[];
+    optimizedAllRefImages: ImagePart[];
+    allRefParts: Array<{ inlineData: { data: string; mimeType: string } }>;
+}
+
+const buildCreativeRefBundle = async (
+    refImages: CreativeRefImages,
+    identityMode: nineRouterService.IdentityPreservationMode
+): Promise<PreparedCreativeRefBundle> => {
+    const faceAnchorsRaw: Array<ImagePart & { label: string }> = [];
+    if (identityMode !== 'korean_idol' && typeof window !== 'undefined') {
+        const [maleFaceAnchor, femaleFaceAnchor] = await Promise.all([
+            refImages.male?.[0]
+                ? extractFaceCloseUpAnchor(refImages.male[0], 'MALE FACE CLOSE-UP ANCHOR (STRICTLY CLONE THIS EXACT FACE)').catch(() => null)
+                : Promise.resolve(null),
+            refImages.female?.[0]
+                ? extractFaceCloseUpAnchor(refImages.female[0], 'FEMALE FACE CLOSE-UP ANCHOR (STRICTLY CLONE THIS EXACT FACE)').catch(() => null)
+                : Promise.resolve(null),
+        ]);
+        if (maleFaceAnchor) faceAnchorsRaw.push(maleFaceAnchor);
+        if (femaleFaceAnchor) faceAnchorsRaw.push(femaleFaceAnchor);
+    }
+
+    const rawNineRouterReferences: nineRouterService.NineRouterLabeledReferenceImage[] = [
+        ...faceAnchorsRaw,
+        ...refImages.male.map((img, index) => ({ ...img, label: `MALE OUTFIT & SUBJECT ${index + 1}` })),
+        ...refImages.female.map((img, index) => ({ ...img, label: `FEMALE OUTFIT & SUBJECT ${index + 1}` })),
+        ...refImages.maleAccessories.map((img, index) => ({ ...img, label: `MALE ACCESSORY ${index + 1}` })),
+        ...refImages.femaleAccessories.map((img, index) => ({ ...img, label: `FEMALE ACCESSORY ${index + 1}` }))
+    ];
+
+    const allRefImages: ImagePart[] = [
+        ...faceAnchorsRaw.map(({ data, mimeType }) => ({ data, mimeType })),
+        ...refImages.male,
+        ...refImages.female,
+        ...refImages.maleAccessories,
+        ...refImages.femaleAccessories
+    ];
+
+    const [labeledNineRouterReferences, optimizedAllRefImages] = await Promise.all([
+        optimizeReferenceImages(rawNineRouterReferences),
+        optimizeReferenceImages(allRefImages)
+    ]);
+
+    const allRefParts = optimizedAllRefImages.map(img => ({
+        inlineData: {
+            data: img.data,
+            mimeType: img.mimeType
+        }
+    }));
+
+    return {
+        labeledNineRouterReferences,
+        optimizedAllRefImages,
+        allRefParts
+    };
+};
+
+interface CreativeSingleExecutionContext {
+    refImages: CreativeRefImages;
+    bundle: PreparedCreativeRefBundle;
+    aspectRatio: string;
+    resolution: string;
+    style?: string;
+    shotType?: string;
+    outputMode?: 'single' | 'couple';
+    identityMode: nineRouterService.IdentityPreservationMode;
+    autoQaEnabled: boolean;
+    qaThreshold: number;
+    characterDna: string;
+    sessionSeed: number;
+    totalCount: number;
+    useNineRouterMode: boolean;
+    nineRouterConnected: boolean;
+    useAntigravityMode: boolean;
+    antigravityConnected: boolean;
+    systemApiKey: string | null;
+    useVipMode: boolean;
+    ai: any;
+    activeImageModel: string;
+    onStatusUpdate: (status: string) => void;
+    onQaReport?: (index: number, report: ConsistencyQaReport) => void;
+    onItemStatus?: (index: number, text: string) => void;
+    abortSignal?: AbortSignal;
+}
+
+const buildCreativeImageBasePrompt = (
+    prompt: string,
+    ctx: CreativeSingleExecutionContext
+): { fullPrompt: string; isCouple: boolean; hasMaleAccessories: boolean; hasFemaleAccessories: boolean } => {
+    const {
+        refImages,
+        aspectRatio,
+        resolution,
+        style,
+        shotType,
+        outputMode,
+        identityMode,
+        characterDna,
+        sessionSeed
+    } = ctx;
+
+    const isStrictOriginal = identityMode !== 'korean_idol';
+    const hasMaleAccessories = refImages.maleAccessories.length > 0;
+    const hasFemaleAccessories = refImages.femaleAccessories.length > 0;
+
+    const characterAesthetics = getCharacterAestheticDirective(style, identityMode);
+    const shotDirective = nineRouterService.getShotTypeDirective(shotType);
+    const framingDirective = nineRouterService.getAspectFramingDirective(aspectRatio, shotType);
+
+    const resUpper = (resolution || "FHD").toUpperCase();
+    const resolutionDirective = resUpper === "4K"
+        ? "*** MANDATORY RESOLUTION: ULTRA-HD 4K (3840px / 2160px canvas) ***\n- Microscopic detail on fabric embroidery, silver jewelry, and skin texture. Absolutely zero blur or digital compression artifacts."
+        : resUpper === "2K"
+        ? "*** MANDATORY RESOLUTION: 2K QUAD-HD (2560px / 1440px canvas) ***\n- Highly defined textures and crisp contours."
+        : "*** RESOLUTION: FULL HD 1080P (High Fidelity) ***";
+
+    const isPortrait = shotType?.toLowerCase().includes("chân dung") || shotType?.toLowerCase().includes("portrait");
+    const isMacro = shotType?.toLowerCase().includes("cận cảnh") || shotType?.toLowerCase().includes("macro");
+    const isCouple = outputMode === 'couple' || ((refImages.male && refImages.male.length > 0) && (refImages.female && refImages.female.length > 0));
+
+    const maleSubjText = isStrictOriginal
+        ? 'the EXACT original male person from MALE FACE/SUBJECT REFERENCE (identical face, age, ethnicity, hair, build)'
+        : 'handsome Korean male K-Pop idol';
+    const femaleSubjText = isStrictOriginal
+        ? 'the EXACT original female person from FEMALE FACE/SUBJECT REFERENCE (identical face, age, ethnicity, hair, build)'
+        : 'exquisitely beautiful Korean female idol';
+
+    const outfitTryOnDirective = isCouple
+        ? `*** COUPLE SCENE & STRICT DUAL-SUBJECT / DUAL-OUTFIT PROTOCOL (MANDATORY) ***
+            - DUAL SUBJECT & POSITION INDEPENDENCE: Both ${maleSubjText} AND ${femaleSubjText} appear together in the scene. Their positions and poses are dynamic and natural (one on the left, one on the right, or one seated, one standing, walking, or staggered in depth).
+            - POSITION-INDEPENDENT MALE BINDING: Map 100% of MALE REFERENCE (Face & Outfit colors, suit/jacket cut, pants, embroidery) exclusively onto the Male subject, REGARDLESS of screen position.
+            - POSITION-INDEPENDENT FEMALE BINDING: Map 100% of FEMALE REFERENCE (Face & Outfit dress colors, bodice, sleeves, flared skirt, embroidery, and headdress) exclusively onto the Female subject, REGARDLESS of screen position.
+            - ZERO HALLUCINATION & ZERO CROSS-OVER: Strictly FORBIDDEN to change facial identity or alter clothing color/palette across scenes.
+            - ANTI-STIFFNESS: Render natural candid posture, fluid body lines, and genuine human interaction instead of rigid mannequin stances.
+            - COMPLETE REPLICATION: Faithfully reproduce all embroidery motifs, textile patterns, trims, and accessories from both reference photos with 100% fidelity.`
+        : (refImages.female && refImages.female.length > 0)
+        ? `*** FEMALE SOLO SCENE & STRICT IDENTITY/OUTFIT PROTOCOL ***
+            - FEMALE BINDING: Render ${femaleSubjText} wearing 100% of the exact FEMALE REFERENCE OUTFIT (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
+            - ZERO DRIFT: Strictly FORBIDDEN to alter her face or swap clothing colors/design away from the input reference.`
+        : (refImages.male && refImages.male.length > 0)
+        ? `*** MALE SOLO SCENE & STRICT IDENTITY/OUTFIT PROTOCOL ***
+            - MALE BINDING: Render ${maleSubjText} wearing 100% of the exact MALE REFERENCE OUTFIT (exact colors, suit/jacket cut, pants, embroidery).
+            - ZERO DRIFT: Strictly FORBIDDEN to alter his face or swap clothing colors/design away from the input reference.`
+        : `*** VIRTUAL TRY-ON ENFORCEMENT ***
+            - Clone 100% the patterns, colors, cuts, and every detail of the clothing directly from the input photo(s).`;
+
+    const personFramingRule = isPortrait
+        ? "- MANDATORY FRAMING: TIGHT VERTICAL PORTRAIT (Head and chest bust shot). The person MUST be wearing the upper garment and neck jewelry/accessories. DO NOT PULL BACK to full body; legs/feet must NOT be shown."
+        : isMacro
+        ? "- MANDATORY FRAMING: EXTREME CLOSE-UP (MACRO). Tight focus on the intricate embroidery craft, silver accessories, or facial details."
+        : "- MANDATORY FRAMING & PHYSICAL GROUNDING: FULL BODY OR THREE-QUARTER SHOT. The person MUST have their feet firmly planted on solid physical terrain (dirt path, stone terrace steps, market floor) with realistic contact shadows and exact 1:1 human scale to the environment. ABSOLUTELY NO floating in the air, NO giant titans towering over miniature landscapes.";
+
+    const dnaSection = characterDna
+        ? `\n*** IMMUTABLE CHARACTER & WARDROBE DNA SPEC (NON-NEGOTIABLE ACROSS ALL SCENES) ***\n${characterDna}\n`
+        : '';
+
+    const masterConstraint = `
+            🚨🚨🚨 ASPECT RATIO: ${aspectRatio} - THIS IS MANDATORY AND NON-NEGOTIABLE 🚨🚨🚨
+            ${ASPECT_RATIO_ENFORCEMENT}
+            ${resolutionDirective}
+            ${dnaSection}
+            *** MASTER IDENTITY & OUTFIT CONSTRAINT PROTOCOL ***
+            - OUTPUT MUST BE: A COMPLETE PHOTOGRAPH/ARTWORK of REAL PERSON(S) matching the exact input identity & outfit
+            - NEVER output: Just clothing without a person, mannequin displays, flat-lay product shots, or clothing on hangers
+            ${personFramingRule}
+            - ZERO HOVERING / NO GIANTS: Subjects must stand, walk, or sit firmly on solid physical ground with natural contact shadows and 1:1 human scale.
+            ${characterAesthetics}
+            *** STRICT CAMERA & COMPOSITION INSTRUCTION ***
+            ${shotDirective}
+            ${outfitTryOnDirective}
+            - IDENTITY LOCK SEED: ${sessionSeed} to anchor consistency across all sequential scenes.
+            ${hasMaleAccessories || hasFemaleAccessories ?
+                `- ACCESSORY CLONING: Provided accessory image(s) MUST appear accurately.\n- Male accessory: ${hasMaleAccessories ? 'YES - clone exactly' : 'NO - empty hands'}\n- Female accessory: ${hasFemaleAccessories ? 'YES - clone exactly' : 'NO - empty hands'}` :
+                `- NO ACCESSORIES PROVIDED: Characters keep natural empty hands unless scene inherently specifies otherwise.`
+            }
+            ${NO_EXTRA_ACCESSORIES}
+            ${CLEAN_OUTPUT_REQUIREMENTS}
+            ${ULTRA_SHARP_QUALITY}
+            ⚠️ FINAL REMINDER: OUTPUT MUST BE EXACTLY ${aspectRatio} ASPECT RATIO WITH ${resUpper} RESOLUTION QUALITY ⚠️`;
+
+    const fullPrompt = `${masterConstraint}\n\n${framingDirective}\n\nSCENE DESCRIPTION: ${prompt}\n\n*** FINAL COMPOSITION RULE ***\nRender the requested scene/background while locking the exact subject identity, face close-up anchor(s), hair, and labeled outfits from the original reference pixels at 100% fidelity. Do not copy reference backgrounds.\n\n[ASPECT RATIO CHECK: Generate this image with EXACTLY ${aspectRatio} dimensions at ${resUpper} resolution]`;
+
+    return { fullPrompt, isCouple, hasMaleAccessories, hasFemaleAccessories };
+};
+
 export const generateImagesFromPromptsList = async (
     apiKey: string,
     prompts: string[],
@@ -1445,9 +1727,13 @@ export const generateImagesFromPromptsList = async (
     style?: string,
     shotType?: string,
     outputMode?: 'single' | 'couple',
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    options?: CreativeGenerationOptions
 ): Promise<void> => {
-    // Check if NineRouter mode is enabled
+    const identityMode: nineRouterService.IdentityPreservationMode = options?.identityMode ?? 'strict_original';
+    const autoQaEnabled = options?.autoQaEnabled ?? true;
+    const qaThreshold = options?.qaThreshold ?? DEFAULT_STRICT_QA_THRESHOLD;
+
     const useNineRouterMode = nineRouterService.isNineRouterEnabled();
     let nineRouterConnected = false;
 
@@ -1458,7 +1744,6 @@ export const generateImagesFromPromptsList = async (
         console.log('[9Router Debug] Mode enabled, connected:', nineRouterConnected);
     }
 
-    // Check if Antigravity mode is enabled
     const useAntigravityMode = antigravityService.isAntigravityEnabled();
     let antigravityConnected = false;
 
@@ -1469,50 +1754,31 @@ export const generateImagesFromPromptsList = async (
         console.log('[Antigravity Debug] Mode enabled, connected:', antigravityConnected);
     }
 
-    // Check if VIP mode is enabled
     const systemApiKey = getVIPApiKey();
     const useVipMode = systemApiKey !== null;
 
-    console.log('[Debug] Antigravity:', useAntigravityMode && antigravityConnected, 'VIP Mode:', useVipMode, 'Key exists:', !!systemApiKey);
-
-    // Get Gemini API key for fallback (user's own key from storage)
     const geminiApiKey = getStoredApiKey('gemini');
-
-    // Create Gemini client for fallback or primary use
     const ai = await getEffectiveGeminiClient(geminiApiKey);
 
-    // Flatten reference images for Gemini
-    const allRefImages = [
-        ...refImages.male,
-        ...refImages.female,
-        ...refImages.maleAccessories,
-        ...refImages.femaleAccessories
-    ];
+    onStatusUpdate(
+        identityMode === 'korean_idol'
+            ? '👗 Đang tối ưu ảnh trang phục tham chiếu...'
+            : '🧬 Đang trích xuất Face Close-Up Anchor & khóa ADN nhân vật gốc...'
+    );
 
-    // Preserve category and gender binding in the native multimodal image request.
-    const rawNineRouterReferences: nineRouterService.NineRouterLabeledReferenceImage[] = [
-        ...refImages.male.map((img, index) => ({ ...img, label: `MALE OUTFIT ${index + 1}` })),
-        ...refImages.female.map((img, index) => ({ ...img, label: `FEMALE OUTFIT ${index + 1}` })),
-        ...refImages.maleAccessories.map((img, index) => ({ ...img, label: `MALE ACCESSORY ${index + 1}` })),
-        ...refImages.femaleAccessories.map((img, index) => ({ ...img, label: `FEMALE ACCESSORY ${index + 1}` }))
-    ];
+    const bundle = await buildCreativeRefBundle(refImages, identityMode);
 
-    // Automatically optimize reference images (downsample & compress JPEG, saving ~90% bandwidth)
-    const labeledNineRouterReferences = await optimizeReferenceImages(rawNineRouterReferences);
-    const optimizedAllRefImages = await optimizeReferenceImages(allRefImages);
+    let resolvedCharacterDna = (options?.characterDna || '').trim();
+    if (!resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected) {
+        resolvedCharacterDna = await extractCharacterDnaSpec({
+            referenceImages: bundle.labeledNineRouterReferences,
+            outputMode,
+            identityMode,
+            abortSignal
+        });
+    }
 
-    // Gemini format
-    const allRefParts = optimizedAllRefImages.map(img => ({
-        inlineData: {
-            data: img.data,
-            mimeType: img.mimeType
-        }
-    }));
-
-    // Fixed seed logic for consistency
     const sessionSeed = Math.floor(Math.random() * 1000000);
-
-    // Determine concurrency from user setting + active pool (8-10 parallel threads on Muse/9Router pools)
     const activeImageModel = nineRouterService.getNineRouterImageModel();
     const concurrency = resolveEffectiveConcurrency('image', prompts.length, {
         modelId: activeImageModel,
@@ -1520,115 +1786,156 @@ export const generateImagesFromPromptsList = async (
         isVipMode: useVipMode,
         isAntigravity: antigravityConnected
     });
-    onStatusUpdate(`🚀 Đang tạo ${prompts.length} ảnh song song (x${concurrency} luồng)...`);
+    onStatusUpdate(`🚀 Đang tạo ${prompts.length} ảnh song song (x${concurrency} luồng${autoQaEnabled && nineRouterConnected ? ' + Khóa 100% Auto-QA' : ''})...`);
 
-    // Create tasks for parallel execution
+    const execCtx: CreativeSingleExecutionContext = {
+        refImages,
+        bundle,
+        aspectRatio,
+        resolution,
+        style,
+        shotType,
+        outputMode,
+        identityMode,
+        autoQaEnabled,
+        qaThreshold,
+        characterDna: resolvedCharacterDna,
+        sessionSeed,
+        totalCount: prompts.length,
+        useNineRouterMode,
+        nineRouterConnected,
+        useAntigravityMode,
+        antigravityConnected,
+        systemApiKey,
+        useVipMode,
+        ai,
+        activeImageModel,
+        onStatusUpdate,
+        onQaReport: options?.onQaReport,
+        onItemStatus: options?.onItemStatus,
+        abortSignal
+    };
+
     const generateSingleImage = async (index: number): Promise<string | null> => {
         if (abortSignal?.aborted) {
             console.log(`[Parallel] Skipping image ${index + 1} because generation was aborted.`);
             return null;
         }
         const prompt = prompts[index];
+        return await executeCreativeImageSlotWithQa(prompt, index, execCtx);
+    };
+
+    // Execute all images in parallel with concurrency control
+    const tasks = prompts.map((_, index) => async () => {
+        const result = await generateSingleImage(index);
+        onImageGenerated(index, result);
+        return result;
+    });
+
+    const results = await parallelWithConcurrency(tasks, concurrency, (completed, total) => {
+        onStatusUpdate(`✨ Hoàn thành ${completed}/${total} ảnh...`);
+    }, 300, abortSignal);
+
+    if (abortSignal?.aborted) {
+        onStatusUpdate('⏹️ Đã dừng tạo ảnh theo yêu cầu.');
+    } else {
+        onStatusUpdate(`✅ Đã tạo xong ${results.filter(r => r !== null).length}/${prompts.length} ảnh!`);
+    }
+};
+
+export const regenerateSingleCreativeImage = async (
+    params: SingleCreativeRegenerateParams
+): Promise<string | null> => {
+    const identityMode: nineRouterService.IdentityPreservationMode = params.identityMode ?? 'strict_original';
+    const autoQaEnabled = params.autoQaEnabled ?? true;
+    const qaThreshold = params.qaThreshold ?? DEFAULT_STRICT_QA_THRESHOLD;
+
+    const useNineRouterMode = nineRouterService.isNineRouterEnabled();
+    const nineRouterConnected = useNineRouterMode ? (await nineRouterService.checkConnection()).connected : false;
+    const useAntigravityMode = antigravityService.isAntigravityEnabled();
+    const antigravityConnected = useAntigravityMode ? (await antigravityService.checkConnection()).connected : false;
+    const systemApiKey = getVIPApiKey();
+    const useVipMode = systemApiKey !== null;
+    const geminiApiKey = getStoredApiKey('gemini');
+    const ai = await getEffectiveGeminiClient(geminiApiKey);
+
+    const bundle = await buildCreativeRefBundle(params.refImages, identityMode);
+    let resolvedCharacterDna = (params.characterDna || '').trim();
+    if (!resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected) {
+        resolvedCharacterDna = await extractCharacterDnaSpec({
+            referenceImages: bundle.labeledNineRouterReferences,
+            outputMode: params.outputMode,
+            identityMode,
+            abortSignal: params.abortSignal
+        });
+    }
+
+    const execCtx: CreativeSingleExecutionContext = {
+        refImages: params.refImages,
+        bundle,
+        aspectRatio: params.aspectRatio,
+        resolution: params.resolution,
+        style: params.style,
+        shotType: params.shotType,
+        outputMode: params.outputMode,
+        identityMode,
+        autoQaEnabled,
+        qaThreshold,
+        characterDna: resolvedCharacterDna,
+        sessionSeed: Math.floor(Math.random() * 1000000),
+        totalCount: params.index + 1,
+        useNineRouterMode,
+        nineRouterConnected,
+        useAntigravityMode,
+        antigravityConnected,
+        systemApiKey,
+        useVipMode,
+        ai,
+        activeImageModel: nineRouterService.getNineRouterImageModel(),
+        onStatusUpdate: params.onStatusUpdate,
+        onQaReport: params.onQaReport,
+        abortSignal: params.abortSignal
+    };
+
+    return await executeCreativeImageSlotWithQa(params.prompt, params.index, execCtx);
+};
+
+const executeCreativeImageSlotWithQa = async (
+    rawScenePrompt: string,
+    index: number,
+    ctx: CreativeSingleExecutionContext
+): Promise<string | null> => {
+    const {
+        bundle,
+        aspectRatio,
+        resolution,
+        style,
+        shotType,
+        identityMode,
+        autoQaEnabled,
+        qaThreshold,
+        sessionSeed,
+        totalCount,
+        useNineRouterMode,
+        nineRouterConnected,
+        useAntigravityMode,
+        antigravityConnected,
+        systemApiKey,
+        useVipMode,
+        ai,
+        activeImageModel,
+        onStatusUpdate,
+        onQaReport,
+        abortSignal
+    } = ctx;
+
+    const { labeledNineRouterReferences, optimizedAllRefImages, allRefParts } = bundle;
+    const { fullPrompt: baseFullPrompt, isCouple, hasMaleAccessories, hasFemaleAccessories } = buildCreativeImageBasePrompt(rawScenePrompt, ctx);
+
+    const runSingleRenderAttempt = async (effectivePrompt: string): Promise<string | null> => {
+        if (abortSignal?.aborted) return null;
         try {
-            console.log(`[Parallel] Starting image ${index + 1}/${prompts.length}`);
-
-            // MASTER CONSTRAINT PROTOCOL - Enhanced with Cultural & Technical Compliance
-            const hasMaleAccessories = refImages.maleAccessories.length > 0;
-            const hasFemaleAccessories = refImages.femaleAccessories.length > 0;
-
-            const characterAesthetics = getCharacterAestheticDirective(style);
-            const shotDirective = nineRouterService.getShotTypeDirective(shotType);
-
-    const labeledReferences: nineRouterService.NineRouterLabeledReferenceImage[] = refImages ? [
-        ...(refImages.male || []).map((img, idx) => ({ ...img, label: `MALE OUTFIT ${idx + 1}` })),
-        ...(refImages.female || []).map((img, idx) => ({ ...img, label: `FEMALE OUTFIT ${idx + 1}` })),
-        ...(refImages.maleAccessories || []).map((img, idx) => ({ ...img, label: `MALE ACCESSORY ${idx + 1}` })),
-        ...(refImages.femaleAccessories || []).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` }))
-    ] : [];
-            const framingDirective = nineRouterService.getAspectFramingDirective(aspectRatio, shotType);
-
-            // Dynamic resolution directive
-            const resUpper = (resolution || "FHD").toUpperCase();
-            const resolutionDirective = resUpper === "4K"
-                ? "*** MANDATORY RESOLUTION: ULTRA-HD 4K (3840px / 2160px canvas) ***\n- Microscopic detail on fabric embroidery, silver jewelry, and skin texture. Absolutely zero blur or digital compression artifacts."
-                : resUpper === "2K"
-                ? "*** MANDATORY RESOLUTION: 2K QUAD-HD (2560px / 1440px canvas) ***\n- Highly defined textures and crisp contours."
-                : "*** RESOLUTION: FULL HD 1080P (High Fidelity) ***";
-
-            // Dynamic person framing enforcement based on shotType
-            const isPortrait = shotType?.toLowerCase().includes("chân dung") || shotType?.toLowerCase().includes("portrait");
-            const isMacro = shotType?.toLowerCase().includes("cận cảnh") || shotType?.toLowerCase().includes("macro");
-            const isCouple = outputMode === 'couple' || ((refImages.male && refImages.male.length > 0) && (refImages.female && refImages.female.length > 0));
-            const outfitTryOnDirective = isCouple
-                ? `*** COUPLE SCENE & STRICT DUAL-OUTFIT TRY-ON PROTOCOL (MANDATORY) ***
-            - DUAL SUBJECT & POSITION INDEPENDENCE: Both a handsome Korean male K-Pop idol and an exquisitely beautiful Korean female idol appear together in the scene. Their positions and poses are dynamic and natural (one on the left, one on the right, or one seated, one standing, walking, or staggered in depth).
-            - POSITION-INDEPENDENT MALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: MALE OUTFIT' (Image 1 / Left Reference) exclusively onto the Male model (exact colors, suit/jacket/vest cut, pants, embroidery), REGARDLESS of whether he is on the left, right, foreground, background, or seated.
-            - POSITION-INDEPENDENT FEMALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: FEMALE OUTFIT' (Image 2 / Right Reference) exclusively onto the Female model (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress), REGARDLESS of whether she is on the left, right, foreground, background, or seated.
-            - ZERO HALLUCINATION & ZERO CROSS-OVER: Strictly FORBIDDEN to render the female in generic black/indigo velvet or borrow the male vest's geometric patterns for the female! The female model MUST replicate the exact color palette and design from 'INPUT REFERENCE: FEMALE OUTFIT'.
-            - ANTI-STIFFNESS: Render natural candid posture, fluid body lines, and genuine human interaction instead of rigid mannequin stances.
-            - ACCESSORY COMPLIANCE: Do not add random unrequested accessories. If accessory inputs exist or topic requires it, map them accurately; otherwise both models keep empty hands.
-            - COMPLETE REPLICATION: Faithfully reproduce all embroidery motifs, textile patterns, trims, and accessories from both reference photos with 100% fidelity.`
-                : (refImages.female && refImages.female.length > 0)
-                ? `*** FEMALE SOLO SCENE & OUTFIT TRY-ON PROTOCOL ***
-            - FEMALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: FEMALE OUTFIT' exclusively onto the Female model (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
-            - ZERO HALLUCINATION ON FEMALE OUTFIT: Strictly FORBIDDEN to render the female in generic black/indigo velvet or generic silver collars. The female model MUST replicate the exact color palette and design from 'INPUT REFERENCE: FEMALE OUTFIT'.`
-                : (refImages.male && refImages.male.length > 0)
-                ? `*** MALE SOLO SCENE & OUTFIT TRY-ON PROTOCOL ***
-            - MALE OUTFIT BINDING: Map 100% of 'INPUT REFERENCE: MALE OUTFIT' exclusively onto the Male model (exact colors, suit/jacket cut, pants, embroidery).
-            - Faithfully replicate 100% of the reference garments onto the male model.`
-                : `*** VIRTUAL TRY-ON ENFORCEMENT ***
-            - Clone 100% the patterns, colors, cuts, and every detail of the clothing directly from the input photo(s).`;
-
-            const personFramingRule = isPortrait
-                ? "- MANDATORY FRAMING: TIGHT VERTICAL PORTRAIT (Head and chest bust shot). The person MUST be wearing the upper garment and neck jewelry/accessories. DO NOT PULL BACK to full body; legs/feet must NOT be shown."
-                : isMacro
-                ? "- MANDATORY FRAMING: EXTREME CLOSE-UP (MACRO). Tight focus on the intricate embroidery craft, silver accessories, or facial details."
-                : "- MANDATORY FRAMING & PHYSICAL GROUNDING: FULL BODY OR THREE-QUARTER SHOT. The person MUST have their feet firmly planted on solid physical terrain (dirt path, stone terrace steps, market floor) with realistic contact shadows and exact 1:1 human scale to the environment. ABSOLUTELY NO floating in the air, NO giant titans towering over miniature landscapes.";
-
-            const masterConstraint = `
-            🚨🚨🚨 ASPECT RATIO: ${aspectRatio} - THIS IS MANDATORY AND NON-NEGOTIABLE 🚨🚨🚨
-            ${ASPECT_RATIO_ENFORCEMENT}
-
-            ${resolutionDirective}
-            
-            *** MASTER IDENTITY & OUTFIT CONSTRAINT PROTOCOL ***
-            
-            *** CRITICAL: PERSON IN CLOTHING ENFORCEMENT ***
-            - OUTPUT MUST BE: A COMPLETE PHOTOGRAPH of REAL PERSON(S) wearing the clothing
-            - NEVER output: Just clothing without a person, mannequin displays, flat-lay product shots, or clothing on hangers
-            ${personFramingRule}
-            - The person(s) should be in a NATURAL POSE in the scene, interacting with the environment
-            - REJECT any output that shows only the garment/fabric without a human wearing it
-            
-            *** MANDATORY PHYSICAL REALISM & 1:1 HUMAN SCALE ***
-            - FEET FIRMLY ON SOLID GROUND: Subjects must stand, walk, or sit directly on visible solid ground with natural contact shadows.
-            - ZERO HOVERING / NO GIANTS: Never place subjects floating in the sky or scaled up like titans over miniature scenery. Exact 1:1 realistic human scale is non-negotiable.
-            
-            ${characterAesthetics}
-
-            *** STRICT CAMERA & COMPOSITION INSTRUCTION ***
-            ${shotDirective}
-            
-            ${outfitTryOnDirective}
-            - IDENTITY LOCK: Use SEED ${sessionSeed} to maintain consistent features across all generated images.
-            ${hasMaleAccessories || hasFemaleAccessories ?
-                    `- ACCESSORY CLONING: The accessory image(s) provided MUST appear in the output EXACTLY as shown.
-                 - Male has accessory: ${hasMaleAccessories ? 'YES - clone it exactly' : 'NO - empty hands'}
-                 - Female has accessory: ${hasFemaleAccessories ? 'YES - clone it exactly' : 'NO - empty hands'}` :
-                    `- NO ACCESSORIES PROVIDED: Both characters should have EMPTY HANDS. Do NOT add any props, instruments, or items.`
-                }
-            
-            ${NO_EXTRA_ACCESSORIES}
-            
-            ${CLEAN_OUTPUT_REQUIREMENTS}
-            
-            ${ULTRA_SHARP_QUALITY}
-            
-            ⚠️ FINAL REMINDER: OUTPUT MUST BE EXACTLY ${aspectRatio} ASPECT RATIO WITH ${resUpper} RESOLUTION QUALITY ⚠️
-            `;
-
-            const fullPrompt = `${masterConstraint}\n\n${framingDirective}\n\nSCENE DESCRIPTION: ${prompt}\n\n*** FINAL COMPOSITION RULE ***\nUse the requested scene/background exactly while preserving the labeled outfits and accessories from the original reference pixels. Do not reuse the backgrounds from input reference photos.\n\n[ASPECT RATIO CHECK: Generate this image with EXACTLY ${aspectRatio} dimensions at ${resUpper} resolution]`;
-
+            const fullPrompt = effectivePrompt;
             let base64Image: string | null = null;
             let usedVip = false;
             let usedAntigravity = false;
@@ -1636,7 +1943,7 @@ export const generateImagesFromPromptsList = async (
 
             // PRIORITY -1: NineRouter / Muse Gateway mode (multi-account pool with backoff+jitter rotation retry)
             if (useNineRouterMode && nineRouterConnected && !base64Image) {
-                onStatusUpdate(`[Cấu hình] Đang tạo ảnh ${index + 1}/${prompts.length}...`);
+                onStatusUpdate(`[Cấu hình] Đang tạo ảnh ${index + 1}/${totalCount}...`);
                 const maxGatewayAttempts = activeImageModel.toLowerCase().includes('muse') ? 4 : 3;
                 let sawQuotaExhaustion = false;
 
@@ -1654,6 +1961,7 @@ export const generateImagesFromPromptsList = async (
                             style: style,
                             taskType: 'create',
                             outputMode: isCouple ? 'couple' : 'single',
+                            identityMode: identityMode,
                             abortSignal: abortSignal
                         });
                         if (base64Image) {
@@ -1709,7 +2017,7 @@ export const generateImagesFromPromptsList = async (
 
             // PRIORITY 0: Antigravity mode (if enabled and connected)
             if (useAntigravityMode && antigravityConnected && !base64Image) {
-                onStatusUpdate(`[Antigravity] Đang tạo ảnh ${index + 1}/${prompts.length}...`);
+                onStatusUpdate(`[Antigravity] Đang tạo ảnh ${index + 1}/${totalCount}...`);
 
                 // SPEED OPTIMIZED: 3 retries with short delay
                 for (let attempt = 0; attempt < 3; attempt++) {
@@ -1779,7 +2087,7 @@ export const generateImagesFromPromptsList = async (
             // PRIORITY 1: VIP mode uses the system Gemini key only
             if (!base64Image && useVipMode) {
                 console.log('[VIP] Using Gemini system key for VIP generation');
-                onStatusUpdate(`[VIP] Đang tạo ảnh ${index + 1}/${prompts.length}...`);
+                onStatusUpdate(`[VIP] Đang tạo ảnh ${index + 1}/${totalCount}...`);
 
                 try {
                     base64Image = await callWithRetry(
@@ -1895,22 +2203,90 @@ export const generateImagesFromPromptsList = async (
         }
     };
 
-    // Execute all images in parallel with concurrency control
-    const tasks = prompts.map((_, index) => async () => {
-        const result = await generateSingleImage(index);
-        // IMMEDIATE UPDATE: Show image as soon as it is generated
-        onImageGenerated(index, result);
-        return result;
-    });
+    try {
+        const firstImage = await runSingleRenderAttempt(baseFullPrompt);
+        if (!firstImage || abortSignal?.aborted) {
+            return firstImage;
+        }
 
-    const results = await parallelWithConcurrency(tasks, concurrency, (completed, total) => {
-        onStatusUpdate(`✨ Hoàn thành ${completed}/${total} ảnh...`);
-    }, 300, abortSignal);
+        const shouldRunAutoQa =
+            autoQaEnabled &&
+            nineRouterConnected &&
+            labeledNineRouterReferences.length > 0;
 
-    if (abortSignal?.aborted) {
-        onStatusUpdate('⏹️ Đã dừng tạo ảnh theo yêu cầu.');
-    } else {
-        onStatusUpdate(`✅ Đã tạo xong ${results.filter(r => r !== null).length}/${prompts.length} ảnh!`);
+        if (!shouldRunAutoQa) {
+            return firstImage;
+        }
+
+        const candidates: Array<QaCandidate<string>> = [];
+        onStatusUpdate(`🛡️ [Auto-QA] Đang kiểm định ảnh ${index + 1} so với ảnh gốc...`);
+
+        let latestReport = await verifyGeneratedImageConsistency({
+            referenceImages: labeledNineRouterReferences,
+            generatedBase64: firstImage,
+            identityMode,
+            scenePrompt: rawScenePrompt,
+            threshold: qaThreshold,
+            abortSignal
+        });
+
+        candidates.push({ result: firstImage, report: latestReport, attempt: 0 });
+
+        if (!latestReport.passed && latestReport.status !== 'unverified') {
+            for (let retry = 1; retry <= MAX_AUTO_QA_RETRIES; retry++) {
+                if (abortSignal?.aborted) break;
+
+                onStatusUpdate(
+                    `🔄 [Auto-QA] Ảnh ${index + 1} lệch (${latestReport.overallScore}/100: ${latestReport.reasonSummary}) -> Tự sửa lần ${retry}/${MAX_AUTO_QA_RETRIES}...`
+                );
+
+                const correctivePrompt = buildCorrectiveRetryPrompt(
+                    baseFullPrompt,
+                    latestReport,
+                    retry,
+                    false
+                );
+
+                const retryImage = await runSingleRenderAttempt(correctivePrompt);
+                if (!retryImage || abortSignal?.aborted) break;
+
+                latestReport = await verifyGeneratedImageConsistency({
+                    referenceImages: labeledNineRouterReferences,
+                    generatedBase64: retryImage,
+                    identityMode,
+                    scenePrompt: rawScenePrompt,
+                    threshold: qaThreshold,
+                    abortSignal
+                });
+
+                candidates.push({ result: retryImage, report: latestReport, attempt: retry });
+
+                if (latestReport.passed) {
+                    break;
+                }
+            }
+        }
+
+        const best = selectBestQaCandidate(candidates);
+        if (!best) return firstImage;
+
+        const finalReport: ConsistencyQaReport = {
+            ...best.report,
+            status: best.report.status === 'unverified'
+                ? 'unverified'
+                : best.attempt > 0 && best.report.passed
+                ? 'repaired'
+                : best.report.passed
+                ? 'passed'
+                : 'warning',
+            attemptsUsed: candidates.length
+        };
+
+        onQaReport?.(index, finalReport);
+        return best.result;
+    } catch (error) {
+        console.error(`Error in QA execution for image ${index}:`, error);
+        return null;
     }
 };
 

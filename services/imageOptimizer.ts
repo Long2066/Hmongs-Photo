@@ -20,8 +20,8 @@ export interface OptimizedImageResult {
     previewUrl?: string; // Instant blob URL for UI preview
 }
 
-const DEFAULT_MAX_DIMENSION = 1280;
-const DEFAULT_QUALITY = 0.92;
+const DEFAULT_MAX_DIMENSION = 1920;
+const DEFAULT_QUALITY = 0.95;
 
 /**
  * Converts a small Blob into a base64 string without freezing the UI.
@@ -202,7 +202,7 @@ export const optimizeBase64Image = async (
     const originalSizeKB = Math.round(originalSizeBytes / 1024);
 
     // If already optimized and lightweight, skip re-encoding to prevent multi-pass quality loss
-    if (originalSizeKB <= 500) {
+    if (originalSizeKB <= 750) {
         return { data: cleanBase64, mimeType };
     }
 
@@ -217,7 +217,7 @@ export const optimizeBase64Image = async (
             try {
                 const { width, height, scaled } = calculateDimensions(img.width, img.height, maxDimension);
 
-                if (!scaled && originalSizeKB <= 350) {
+                if (!scaled && originalSizeKB <= 1400) {
                     return resolve({ data: cleanBase64, mimeType });
                 }
 
@@ -315,8 +315,8 @@ export const createCompositeReferenceImage = async (
             })
         );
 
-        const targetHeight = 1024;
-        const panelWidths = loadedBitmaps.map(bm => Math.max(100, Math.round((bm.width * targetHeight) / (bm.height || targetHeight))));
+        const targetHeight = 1280;
+        const panelWidths = loadedBitmaps.map(bm => Math.max(120, Math.round((bm.width * targetHeight) / (bm.height || targetHeight))));
         const totalWidth = panelWidths.reduce((a, b) => a + b, 0);
 
         const canvas = document.createElement('canvas');
@@ -328,6 +328,8 @@ export const createCompositeReferenceImage = async (
 
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, totalWidth, targetHeight);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
         let curX = 0;
         loadedBitmaps.forEach((bm, i) => {
@@ -343,7 +345,7 @@ export const createCompositeReferenceImage = async (
         });
 
         const outputFormat = 'image/jpeg';
-        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, outputFormat, 0.92));
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, outputFormat, 0.95));
         if (!blob) return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
 
         const base64 = await blobToBase64(blob);
@@ -352,6 +354,93 @@ export const createCompositeReferenceImage = async (
     } catch (e) {
         console.warn('[ImageOptimizer] Failed to create composite reference image, fallback to first image:', e);
         return { data: images[0].data, mimeType: images[0].mimeType || 'image/jpeg' };
+    }
+};
+
+/**
+ * Computes a square face close-up crop rectangle (with forehead/hair & jawline margins)
+ * Pure helper so bounds calculation can be unit tested cleanly.
+ */
+export const computeFaceCloseUpCropRect = (
+    imgWidth: number,
+    imgHeight: number,
+    faceBox: { x: number; y: number; width: number; height: number }
+): { sx: number; sy: number; size: number } => {
+    const faceCx = faceBox.x + faceBox.width / 2;
+    const faceCy = faceBox.y + faceBox.height * 0.44;
+    const rawSide = Math.max(faceBox.width * 1.95, faceBox.height * 1.95);
+    const maxAllowedSide = Math.min(imgWidth, imgHeight);
+    const size = Math.max(64, Math.min(maxAllowedSide, Math.round(rawSide)));
+
+    const sx = Math.max(0, Math.min(imgWidth - size, Math.round(faceCx - size / 2)));
+    const sy = Math.max(0, Math.min(imgHeight - size, Math.round(faceCy - size / 2)));
+    return { sx, sy, size };
+};
+
+/**
+ * Extracts a high-resolution 1:1 Face Close-Up Anchor (512x512) from a reference photo.
+ * Ensures multimodal image models receive crisp facial identity details even when the source is full-body.
+ */
+export const extractFaceCloseUpAnchor = async (
+    imagePart: { data: string; mimeType?: string },
+    label: string = 'FACE CLOSE-UP ANCHOR (STRICTLY CLONE THIS EXACT FACE)'
+): Promise<{ data: string; mimeType: string; label: string } | null> => {
+    if (typeof window === 'undefined' || typeof document === 'undefined' || !imagePart?.data) {
+        return null;
+    }
+
+    try {
+        const src = imagePart.data.startsWith('data:')
+            ? imagePart.data
+            : `data:${imagePart.mimeType || 'image/jpeg'};base64,${imagePart.data}`;
+
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const el = new Image();
+            el.crossOrigin = 'anonymous';
+            el.onload = () => resolve(el);
+            el.onerror = reject;
+            el.src = src;
+        });
+
+        const { detectFacesInImage } = await import('./aiFaceDetectService');
+        const faces = await detectFacesInImage(img);
+        if (!faces || faces.length === 0) {
+            return null;
+        }
+
+        // Pick highest-confidence / largest primary face
+        const primaryFace = [...faces].sort((a, b) => (b.width * b.height) - (a.width * a.height))[0];
+        if (!primaryFace || primaryFace.width < 24 || primaryFace.height < 24) {
+            return null;
+        }
+
+        const { sx, sy, size } = computeFaceCloseUpCropRect(img.naturalWidth || img.width, img.naturalHeight || img.height, primaryFace);
+
+        const targetSize = 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) return null;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetSize, targetSize);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, targetSize, targetSize);
+
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.96));
+        if (!blob) return null;
+
+        const base64 = await blobToBase64(blob);
+        return {
+            data: base64,
+            mimeType: 'image/jpeg',
+            label
+        };
+    } catch (err) {
+        console.warn('[ImageOptimizer] extractFaceCloseUpAnchor skipped:', err);
+        return null;
     }
 };
 

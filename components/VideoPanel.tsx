@@ -9,6 +9,7 @@ import {
     isVideoModelProviderEnabled
 } from '../services/videoConfigService';
 import { MAX_STORY_SCENES, summarizeVideoPromptLines } from '../services/scenePromptUtils';
+import type { VideoFrameFitMode } from '../services/videoFidelityUtils';
 import type { SubscriptionPlan } from '../services/firebaseService';
 import {
     DEFAULT_SUBSCRIPTION_PLANS_CONFIG,
@@ -63,6 +64,12 @@ const RotateCcwIcon = () => (
     </svg>
 );
 
+export interface VideoFidelityPanelOptions {
+    frameFitMode: VideoFrameFitMode;
+    autoQaEnabled: boolean;
+    strictMotionLock: boolean;
+}
+
 export interface VideoPanelProps {
     subMode: 'text_to_video' | 'image_to_video';
     onSubModeChange: (subMode: 'text_to_video' | 'image_to_video') => void;
@@ -73,7 +80,8 @@ export interface VideoPanelProps {
         model: string,
         outputCount: number,
         duration: number,
-        title?: string
+        title?: string,
+        fidelityOptions?: VideoFidelityPanelOptions
     ) => void;
     onImagesChange?: (images: { base64: string; mimeType: string; id: number; fileName?: string }[]) => void;
     isLoading: boolean;
@@ -112,6 +120,9 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
     const [formError, setFormError] = useState<string>('');
     const [plansConfig, setPlansConfig] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
     const [videoConcurrency, setVideoConcurrency] = useState<ConcurrencySetting>(() => getConcurrencySetting('video'));
+    const [frameFitMode, setFrameFitMode] = useState<VideoFrameFitMode>('safe_contain');
+    const [autoQaEnabled, setAutoQaEnabled] = useState<boolean>(true);
+    const [strictMotionLock, setStrictMotionLock] = useState<boolean>(true);
 
     useEffect(() => subscribeToSubscriptionPlansConfig(setPlansConfig), []);
 
@@ -239,7 +250,11 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
         }
 
         const rawUserPrompt = prompt.trim() || 'Chuyển động tự nhiên mượt mà điện ảnh, sắc nét chân thực';
-        onGenerate(rawUserPrompt, aspectRatio, subMode, activeModelMeta.id, 1, duration, videoTitle.trim() || 'Video_Series');
+        onGenerate(rawUserPrompt, aspectRatio, subMode, activeModelMeta.id, 1, duration, videoTitle.trim() || 'Video_Series', {
+            frameFitMode,
+            autoQaEnabled,
+            strictMotionLock
+        });
     };
 
     return (
@@ -524,6 +539,116 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
                             );
                         })}
                     </div>
+                </div>
+            </div>
+
+            {/* 3B. IDENTITY & FRAME LOCK CONTROLS */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-900/5 space-y-3">
+                <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                            Khớp ảnh gốc vào khung hình
+                        </label>
+                        <span className="text-[10.5px] font-semibold text-indigo-700">
+                            {frameFitMode === 'safe_contain' ? 'Không cắt đầu' : 'Lấp đầy'}
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl ring-1 ring-slate-900/5">
+                        <button
+                            type="button"
+                            onClick={() => setFrameFitMode('safe_contain')}
+                            className={`min-h-[44px] sm:min-h-[38px] px-2 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                                frameFitMode === 'safe_contain'
+                                    ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/10'
+                                    : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                        >
+                            Giữ trọn Đầu &amp; Áo
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFrameFitMode('smart_face_crop')}
+                            className={`min-h-[44px] sm:min-h-[38px] px-2 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                                frameFitMode === 'smart_face_crop'
+                                    ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-900/10'
+                                    : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                        >
+                            Lấp đầy (Face Crop)
+                        </button>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500 leading-snug">
+                        {frameFitMode === 'safe_contain'
+                            ? 'Tự đệm nền mờ nghệ thuật khi khác tỷ lệ để không cắt đầu hoặc mất trang phục.'
+                            : 'Tự nhận diện khuôn mặt và căn lề an toàn để lấp đầy khung video.'}
+                    </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={autoQaEnabled}
+                        onClick={() => setAutoQaEnabled(v => !v)}
+                        className={`w-full min-h-[44px] flex items-center justify-between gap-3 rounded-xl p-2.5 text-left transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                            autoQaEnabled
+                                ? 'bg-emerald-50/80 ring-1 ring-emerald-500/25'
+                                : 'bg-slate-50 ring-1 ring-slate-900/5 hover:bg-slate-100'
+                        }`}
+                    >
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${autoQaEnabled ? 'bg-emerald-600' : 'bg-slate-400'}`} />
+                                <span className="text-xs font-bold text-slate-900">
+                                    Khóa 100% Nhân Vật &amp; Hậu Kiểm (Auto-QA)
+                                </span>
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-slate-600 leading-snug">
+                                Kiểm tra 3 frame (đầu/giữa/cuối) ≥ 85%, cảnh lệch tự render lại.
+                            </p>
+                        </div>
+                        <span
+                            aria-hidden="true"
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                autoQaEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                                    autoQaEnabled ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                            />
+                        </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={strictMotionLock}
+                        onClick={() => setStrictMotionLock(v => !v)}
+                        className="w-full min-h-[44px] flex items-center justify-between gap-3 rounded-xl p-2.5 text-left bg-slate-50/90 ring-1 ring-slate-900/5 hover:bg-slate-100/80 transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                        <div className="min-w-0">
+                            <span className="text-xs font-bold text-slate-900 block">
+                                Ổn định chuyển động chống méo mặt
+                            </span>
+                            <p className="mt-0.5 text-[11px] text-slate-500 leading-snug">
+                                Giữ chuyển động máy quay dịu, cấm đổi trang phục &amp; xoay gắt góc mặt.
+                            </p>
+                        </div>
+                        <span
+                            aria-hidden="true"
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                strictMotionLock ? 'bg-indigo-600' : 'bg-slate-300'
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                                    strictMotionLock ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                            />
+                        </span>
+                    </button>
                 </div>
             </div>
 

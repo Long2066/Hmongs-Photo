@@ -283,6 +283,7 @@ function startLocalServer(distDir) {
             if (req.method === 'OPTIONS') {
                 res.writeHead(204, {
                     'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Private-Network': 'true',
                     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
                     'Access-Control-Allow-Headers': 'Content-Type'
                 });
@@ -307,13 +308,15 @@ function startLocalServer(distDir) {
 
                         res.writeHead(200, {
                             'Content-Type': 'application/json',
-                            'Access-Control-Allow-Origin': '*'
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Private-Network': 'true'
                         });
                         res.end(JSON.stringify({ ok: true }));
                     } catch (err) {
                         res.writeHead(400, {
                             'Content-Type': 'application/json',
-                            'Access-Control-Allow-Origin': '*'
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Private-Network': 'true'
                         });
                         res.end(JSON.stringify({ ok: false, error: err.message }));
                     }
@@ -825,10 +828,12 @@ ipcMain.handle('open-external', async (_event, url) => {
 });
 
 // Launch Google Auth in real external Google Chrome browser
+// Uses same-origin Firebase Hosting page (toolphoto-2025.firebaseapp.com) so Chrome never blocks
+// cross-origin redirect storage, jumping directly to Google Account Picker in 1 click.
 ipcMain.handle('start-external-google-auth', async () => {
     const port = localServerPort || (process.env.NODE_ENV === 'development' ? 3000 : 51121);
-    const bridgeUrl = `http://localhost:${port}/auth-bridge.html`;
-    console.log('[AuthBridge] Opening external Chrome for Google Auth:', bridgeUrl);
+    const bridgeUrl = `https://toolphoto-2025.firebaseapp.com/mobile-auth.html?desktopPort=${port}&t=${Date.now()}`;
+    console.log('[AuthBridge] Opening external Chrome for Direct Google Auth:', bridgeUrl);
     return openInChromeOrBrowser(bridgeUrl);
 });
 
