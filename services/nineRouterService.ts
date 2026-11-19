@@ -319,9 +319,10 @@ export const setNineRouterUrl = (url: string): void => {
 
 export const getNineRouterUrl = (): string => {
     const url = localStorage.getItem(NINEROUTER_URL_KEY);
-    if (url && !url.includes('158.178.235.87:20128') && !url.includes('ngrok')) {
+    if (url && (url.includes('127.0.0.1') || url.includes('localhost'))) {
         return normalizeNineRouterUrl(url);
     }
+    localStorage.setItem(NINEROUTER_URL_KEY, DEFAULT_NINEROUTER_URL);
     return DEFAULT_NINEROUTER_URL;
 };
 
@@ -608,50 +609,10 @@ const extractImageFromChatResponse = (parsed: ParsedNineRouterResponse): string 
 };
 
 /**
- * Check connection to 9Router
+ * Check connection to 9Router with auto-fallback to local All-in-One port 8317
  */
 export const checkConnection = async (customUrl?: string, customApiKey?: string): Promise<NineRouterStatus> => {
-    // Nếu đang chọn model muse-image và không truyền customUrl kiểm tra 9Router, kiểm tra thẳng Muse AI Gateway
-    if (customUrl === undefined && getNineRouterImageModel().toLowerCase().includes('muse')) {
-        try {
-            const videoCfg = await getVideoConfig();
-            if (videoCfg.museAiEnabled === false) {
-                return {
-                    connected: false,
-                    errorType: 'auth',
-                    errorMessage: 'Nguồn Muse AI Gateway đang tắt trên Admin Panel.',
-                    lastChecked: Date.now()
-                };
-            }
-            const museBase = (videoCfg.museAiBaseUrl || 'http://127.0.0.1:18610/v1').replace(/\/+$/, '');
-            const museKey = (videoCfg.museAiApiKey || '').trim();
-            const museHeaders: Record<string, string> = {};
-            if (museKey) museHeaders['Authorization'] = `Bearer ${museKey}`;
-
-            const museResp = await fetchWithTimeout(`${museBase}/models`, {
-                method: 'GET',
-                headers: museHeaders
-            }, 8000);
-            if (museResp.ok) {
-                const mData = await museResp.json().catch(() => ({}));
-                const mModels = Array.isArray(mData?.data) ? mData.data.map((m: any) => String(m.id || m)) : [];
-                return {
-                    connected: true,
-                    models: mModels,
-                    lastChecked: Date.now()
-                };
-            }
-        } catch (museErr: any) {
-            return {
-                connected: false,
-                errorType: 'network',
-                errorMessage: museErr?.message || 'Không thể kết nối tới Muse AI Gateway.',
-                lastChecked: Date.now()
-            };
-        }
-    }
-
-    const baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
+    let baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
     const apiKey = customApiKey !== undefined ? customApiKey.trim() : getNineRouterApiKey();
     const headers: Record<string, string> = {
         'ngrok-skip-browser-warning': 'true'
@@ -660,50 +621,42 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    try {
-        console.log('[9Router] Checking connection to:', `${baseUrl}/models`);
-        const resp = await fetchWithTimeout(`${baseUrl}/models`, {
+    const testUrl = async (targetUrl: string) => {
+        const resp = await fetchWithTimeout(`${targetUrl}/models`, {
             method: 'GET',
             headers
-        }, 10000);
-
+        }, 8000);
         if (!resp.ok) {
-            if (resp.status === 401 || resp.status === 403) {
-                return {
-                    connected: false,
-                    errorType: 'auth',
-                    errorMessage: 'API Key không hợp lệ hoặc thiếu quyền truy cập (HTTP 401/403). Vui lòng nhập API Key Cấu hình đúng.',
-                    lastChecked: Date.now()
-                };
-            }
-            if (resp.status === 404) {
-                return {
-                    connected: false,
-                    errorType: 'unknown',
-                    errorMessage: 'Không tìm thấy endpoint /models (HTTP 404). Hãy đảm bảo Endpoint URL kết thúc bằng /v1.',
-                    lastChecked: Date.now()
-                };
-            }
-            return {
-                connected: false,
-                errorType: 'unknown',
-                errorMessage: `Lỗi HTTP ${resp.status}`,
-                lastChecked: Date.now()
-            };
+            throw new Error(`HTTP ${resp.status}`);
         }
+        const data = await resp.json().catch(() => ({}));
+        return Array.isArray(data?.data) ? data.data.map((m: any) => String(m.id || m)) : [];
+    };
 
-        const data = await resp.json();
-        const models = Array.isArray(data?.data)
-            ? data.data.map((m: any) => String(m.id || m))
-            : [];
-
+    try {
+        console.log('[9Router] Checking connection to:', `${baseUrl}/models`);
+        const models = await testUrl(baseUrl);
         return {
             connected: true,
             models,
             lastChecked: Date.now()
         };
-    } catch (err: any) {
-        console.error('[9Router] Connection error:', err);
+    } catch (primaryErr: any) {
+        // Auto-heal fallback: if target URL is dead or remote, try local port 8317 immediately
+        if (baseUrl !== DEFAULT_NINEROUTER_URL) {
+            try {
+                console.log('[9Router] Primary URL failed, auto-healing to local 8317:', DEFAULT_NINEROUTER_URL);
+                const localModels = await testUrl(DEFAULT_NINEROUTER_URL);
+                setNineRouterUrl(DEFAULT_NINEROUTER_URL);
+                return {
+                    connected: true,
+                    models: localModels,
+                    lastChecked: Date.now()
+                };
+            } catch { }
+        }
+
+        console.error('[9Router] Connection error:', primaryErr);
         return {
             connected: false,
             errorType: 'network',

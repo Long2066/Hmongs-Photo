@@ -60,7 +60,9 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
 
     // Initial connection test
     useEffect(() => {
-        checkConnection(nineRouterUrl, nineRouterApiKey);
+        const activeUrl = nineRouterService.getNineRouterUrl();
+        setNineRouterUrlState(activeUrl);
+        checkConnection(activeUrl, nineRouterApiKey);
         refreshNativeStatus();
         let unsub: (() => void) | undefined;
         if (window.electronAPI?.onQuotaOAuthCaptured) {
@@ -155,6 +157,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
 
         try {
             const status = await nineRouterService.checkConnection(urlToCheck, keyToCheck);
+            const currentActualUrl = nineRouterService.getNineRouterUrl();
+            if (currentActualUrl !== nineRouterUrl) {
+                setNineRouterUrlState(currentActualUrl);
+            }
             setIsConnected(status.connected);
             if (!status.connected) {
                 setErrorMessage(status.errorMessage || 'Không thể kết nối tới Cấu hình');
