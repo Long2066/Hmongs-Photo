@@ -13,7 +13,7 @@ import { canFallbackToTextOnlyImageGeneration } from './videoFidelityUtils';
 export { canFallbackToTextOnlyImageGeneration };
 
 // --- Constants ---
-const DEFAULT_NINEROUTER_URL = 'https://753c-158-178-235-87.ngrok-free.app/v1';
+const DEFAULT_NINEROUTER_URL = 'http://127.0.0.1:8317/v1';
 const DEFAULT_NINEROUTER_API_KEY = '123456';
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
@@ -255,34 +255,26 @@ export const isModelPaid = (modelId: string): boolean => {
 };
 
 export const updateNineRouterConfigFromCloud = (config: Partial<AiProxyCloudConfig>): void => {
-    if (config.enabled !== undefined) {
-        localStorage.setItem(NINEROUTER_ENABLED_KEY, config.enabled ? 'true' : 'false');
-    }
-    if (config.url) {
-        localStorage.setItem(NINEROUTER_URL_KEY, normalizeNineRouterUrl(config.url));
-    }
-    if (config.apiKey !== undefined) {
-        localStorage.setItem(NINEROUTER_API_KEY_KEY, config.apiKey.trim());
-    }
+    // Model pricing synchronization only; DO NOT overwrite local All-in-One Gateway URL
     if (config.modelPricing) {
         localStorage.setItem(NINEROUTER_PRICING_KEY, JSON.stringify(config.modelPricing));
     }
     _cachedCloudConfig = {
-        enabled: config.enabled ?? isNineRouterEnabled(),
-        url: config.url ? normalizeNineRouterUrl(config.url) : getNineRouterUrl(),
-        apiKey: config.apiKey ?? getNineRouterApiKey(),
+        enabled: true,
+        url: DEFAULT_NINEROUTER_URL,
+        apiKey: getNineRouterApiKey(),
         defaultTextModel: config.defaultTextModel ?? DEFAULT_TEXT_MODEL,
         defaultImageModel: config.defaultImageModel ?? DEFAULT_IMAGE_MODEL,
         modelPricing: config.modelPricing ?? getModelPricing(),
         updatedAt: config.updatedAt ?? Date.now()
     };
     window.dispatchEvent(new CustomEvent('ninerouter-status-changed', {
-        detail: { enabled: _cachedCloudConfig.enabled }
+        detail: { enabled: true }
     }));
     window.dispatchEvent(new CustomEvent('ninerouter-pricing-changed', {
         detail: { pricing: _cachedCloudConfig.modelPricing }
     }));
-    console.log('[CLIProxyAPI] Đồng bộ cấu hình AI Tool từ Cloud:', _cachedCloudConfig);
+    console.log('[NativeGateway] Cấu hình AI Tool sử dụng Lõi Nội Bộ cục bộ:', _cachedCloudConfig.url);
 };
 
 // --- URL Normalization Helper ---
@@ -326,11 +318,8 @@ export const setNineRouterUrl = (url: string): void => {
 };
 
 export const getNineRouterUrl = (): string => {
-    if (_cachedCloudConfig?.url && !_cachedCloudConfig.url.includes('158.178.235.87:20128')) {
-        return normalizeNineRouterUrl(_cachedCloudConfig.url);
-    }
     const url = localStorage.getItem(NINEROUTER_URL_KEY);
-    if (url && !url.includes('158.178.235.87:20128')) {
+    if (url && !url.includes('158.178.235.87:20128') && !url.includes('ngrok')) {
         return normalizeNineRouterUrl(url);
     }
     return DEFAULT_NINEROUTER_URL;

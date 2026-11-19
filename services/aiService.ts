@@ -1731,7 +1731,7 @@ export const generateImagesFromPromptsList = async (
     options?: CreativeGenerationOptions
 ): Promise<void> => {
     const identityMode: nineRouterService.IdentityPreservationMode = options?.identityMode ?? 'strict_original';
-    const autoQaEnabled = options?.autoQaEnabled ?? true;
+    const autoQaEnabled = options?.autoQaEnabled ?? false;
     const qaThreshold = options?.qaThreshold ?? DEFAULT_STRICT_QA_THRESHOLD;
 
     const useNineRouterMode = nineRouterService.isNineRouterEnabled();
@@ -1769,7 +1769,7 @@ export const generateImagesFromPromptsList = async (
     const bundle = await buildCreativeRefBundle(refImages, identityMode);
 
     let resolvedCharacterDna = (options?.characterDna || '').trim();
-    if (!resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected) {
+    if (!resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected && autoQaEnabled) {
         resolvedCharacterDna = await extractCharacterDnaSpec({
             referenceImages: bundle.labeledNineRouterReferences,
             outputMode,

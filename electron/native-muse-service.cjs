@@ -15,6 +15,7 @@ const fs = require('fs');
 
 const MUSE_SITE = 'https://muse.ai';
 const SESSION_API = `${MUSE_SITE}/api/session`;
+const VM_WAKE_API = `${MUSE_SITE}/api/hatch/vm/wake`;
 const NEW_THREAD_URL = `${MUSE_SITE}/thread/new`;
 
 const PARTITION_NAME = 'persist:muse_session';
@@ -128,6 +129,15 @@ async function renewSession() {
                     await saveMuseCookies(updated);
                     console.log('[NativeMuse] Session renewed successfully! Cookies rotated.');
                 }
+
+                // Check VM state and pre-wake if needed
+                try {
+                    const body = JSON.parse(data);
+                    if (body && body.vm_id && body.vm_state !== 'RUNNING') {
+                        wakeMuseVm(body.vm_id, cookieHeader);
+                    }
+                } catch (e) { }
+
                 resolve({ ok: res.statusCode === 200, status: res.statusCode });
             });
         });
@@ -142,6 +152,34 @@ async function renewSession() {
 }
 
 /**
+ * Pre-wake Muse Cloud VM to keep it running and eliminate wake latency
+ */
+function wakeMuseVm(vmId, cookieHeader) {
+    try {
+        const payload = JSON.stringify({
+            vm_id: vmId,
+            retry_count: 0,
+            connect_attempt_id: require('crypto').randomUUID()
+        });
+        const req = https.request(VM_WAKE_API, {
+            method: 'POST',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                'Referer': NEW_THREAD_URL,
+                'Cookie': cookieHeader,
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
+            }
+        }, (res) => {
+            console.log(`[NativeMuse] Pre-waking cloud VM ${vmId} -> HTTP ${res.statusCode}`);
+        });
+        req.on('error', () => { });
+        req.write(payload);
+        req.end();
+    } catch (e) { }
+}
+
+/**
  * Start periodic keepalive heartbeat (every 10 minutes)
  */
 function startKeepalive(intervalMs = 10 * 60 * 1000) {
@@ -150,9 +188,13 @@ function startKeepalive(intervalMs = 10 * 60 * 1000) {
         renewSession().catch(e => console.warn('[NativeMuse] Heartbeat catch:', e));
     }, intervalMs);
 
-    // Run first renewal immediately after 5 seconds
+    // Run first renewal immediately after 5 seconds and pre-warm worker window
     setTimeout(() => {
-        renewSession().catch(() => { });
+        renewSession().then(res => {
+            if (res && res.ok) {
+                getWorkerWindow().catch(() => {});
+            }
+        }).catch(() => { });
     }, 5000);
     console.log('[NativeMuse] Session Keep-Alive Heartbeat activated.');
 }
@@ -348,13 +390,19 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
         const win = await getWorkerWindow();
         const wc = win.webContents;
 
-        // Navigate to new thread
-        await win.loadURL(NEW_THREAD_URL);
-        await new Promise(r => setTimeout(r, 2000));
+        // Navigate to new thread if not already there
+        if (wc.getURL() !== NEW_THREAD_URL) {
+            await win.loadURL(NEW_THREAD_URL);
+        }
 
-        // Inject prompt into textarea and click submit
+        // Dynamically wait for textarea to appear (up to 6s, 100ms intervals)
         const script = `
         (async () => {
+            let waited = 0;
+            while (!document.querySelector('textarea') && waited < 6000) {
+                await new Promise(r => setTimeout(r, 100));
+                waited += 100;
+            }
             const ta = document.querySelector('textarea');
             if (!ta) return { ok: false, error: 'Textarea not found' };
             
@@ -363,7 +411,7 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
             ta.dispatchEvent(new Event('input', { bubbles: true }));
             ta.dispatchEvent(new Event('change', { bubbles: true }));
             
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, 150));
             
             // Look for send button or press Enter
             const btn = document.querySelector('button[type="submit"]') || 
@@ -384,12 +432,12 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
             throw new Error(`Không thể nhập prompt vào Muse: ${injected?.error || 'Unknown'}`);
         }
 
-        // Wait for response bubble or media
+        // Wait for response bubble or media with fast 750ms polling
         const maxWaitSec = kind === 'video' ? 180 : (kind === 'image' ? 60 : 45);
         const startTime = Date.now();
 
         while ((Date.now() - startTime) < (maxWaitSec * 1000)) {
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 750));
 
             const checkScript = `
             (() => {

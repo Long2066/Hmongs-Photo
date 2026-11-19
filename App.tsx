@@ -753,7 +753,7 @@ const App: React.FC = () => {
                     ...maleAccParts.slice(0, 1).map((img, idx) => ({ ...img, label: `MALE ACCESSORY ${idx + 1}` })),
                     ...femaleAccParts.slice(0, 1).map((img, idx) => ({ ...img, label: `FEMALE ACCESSORY ${idx + 1}` }))
                 ];
-                if (dnaRefs.length > 0) {
+                if (dnaRefs.length > 0 && autoQaEnabled) {
                     setLoadingStatus('🧬 Đang trích xuất ADN khuôn mặt & trang phục gốc để đồng bộ nhiều cảnh...');
                     characterDna = await extractCharacterDnaSpec({
                         referenceImages: dnaRefs,

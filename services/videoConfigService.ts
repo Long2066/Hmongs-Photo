@@ -212,7 +212,7 @@ const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVid
         openRouterApiKey: raw.openRouterApiKey || '',
         ideaAiApiKey: raw.ideaAiApiKey || '',
         museAiEnabled: raw.museAiEnabled !== undefined ? Boolean(raw.museAiEnabled) : true,
-        museAiBaseUrl: raw.museAiBaseUrl || DEFAULT_VIDEO_CONFIG.museAiBaseUrl,
+        museAiBaseUrl: (raw.museAiBaseUrl && !raw.museAiBaseUrl.includes('ngrok')) ? raw.museAiBaseUrl : DEFAULT_VIDEO_CONFIG.museAiBaseUrl,
         museAiApiKey: raw.museAiApiKey !== undefined ? raw.museAiApiKey : DEFAULT_VIDEO_CONFIG.museAiApiKey
     };
     const validModelIds = OPENROUTER_VIDEO_MODELS.map(m => m.id);

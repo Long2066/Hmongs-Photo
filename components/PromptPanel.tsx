@@ -131,7 +131,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
     const [style, setStyle] = useState(styles[0]);
     const [outputMode, setOutputMode] = useState<'single' | 'couple'>('single');
     const [identityMode, setIdentityMode] = useState<IdentityPreservationMode>('strict_original');
-    const [autoQaEnabled, setAutoQaEnabled] = useState<boolean>(true);
+    const [autoQaEnabled, setAutoQaEnabled] = useState<boolean>(false);
     const [filenamePrefix, setFilenamePrefix] = useState('ImageTool');
 
     const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
