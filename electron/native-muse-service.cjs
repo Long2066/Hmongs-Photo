@@ -571,8 +571,9 @@ async function handleImageGeneration(body) {
     const rawPrompt = body.prompt || '';
     const size = body.size;
     const prompt = formatMediaPrompt(rawPrompt, 'image', size);
-    const image = body.image || (Array.isArray(body.images) ? body.images[0] : undefined);
-    const images = Array.isArray(body.images) ? body.images : (body.image ? [body.image] : []);
+    const rawImages = (Array.isArray(body.images) ? body.images : (body.image ? [body.image] : [])).flat(Infinity).filter(Boolean);
+    const image = rawImages[0];
+    const images = rawImages;
     const result = await executeMuseAutomation(prompt, 'image', { image, images, size, rawPrompt });
 
     let base64Data = '';
@@ -616,36 +617,73 @@ async function handleImageGeneration(body) {
 }
 
 /**
- * Handle Video Generation Task & Async Task Store
+ * Handle Video Generation Task & Async Task Store matching muse2api
  */
 async function handleVideoGeneration(body) {
     const rawPrompt = body.prompt || '';
     const size = body.size;
     const duration = body.duration;
     const prompt = formatMediaPrompt(rawPrompt, 'video', size, duration);
-    const image = body.image || body.input_image;
-    const images = image ? [image] : [];
-    const videoUrl = await executeMuseAutomation(prompt, 'video', { image, images, size, duration, rawPrompt });
+    const rawImages = (Array.isArray(body.images) ? body.images : (body.image || body.input_image ? [body.image || body.input_image] : [])).flat(Infinity).filter(Boolean);
+    const image = rawImages[0];
+    const images = rawImages;
 
-    const taskId = 'task-muse-' + Date.now().toString(36);
-    const resultObj = {
+    const taskId = 'task-muse-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    const initialTask = {
         id: taskId,
-        status: 'succeeded',
+        object: 'video',
+        status: 'processing',
+        progress: 10,
         created_at: Math.floor(Date.now() / 1000),
-        video_url: videoUrl,
-        result: {
-            url: videoUrl
-        },
-        output: {
-            url: videoUrl
-        }
+        result: null,
+        error: null
     };
-    taskStore.set(taskId, resultObj);
-    return resultObj;
+    taskStore.set(taskId, initialTask);
+
+    // Launch background generation asynchronously without blocking HTTP response
+    (async () => {
+        try {
+            console.log(`[NativeMuse] Starting background video generation for task ${taskId}...`);
+            const videoUrl = await executeMuseAutomation(prompt, 'video', { image, images, size, duration, rawPrompt });
+            taskStore.set(taskId, {
+                id: taskId,
+                object: 'video',
+                status: 'succeeded',
+                progress: 100,
+                created_at: initialTask.created_at,
+                video_url: videoUrl,
+                result: {
+                    url: videoUrl
+                },
+                output: {
+                    url: videoUrl
+                }
+            });
+            console.log(`[NativeMuse] Video task ${taskId} completed successfully:`, videoUrl);
+        } catch (err) {
+            console.error(`[NativeMuse] Video task ${taskId} failed:`, err.message);
+            taskStore.set(taskId, {
+                id: taskId,
+                object: 'video',
+                status: 'failed',
+                progress: 100,
+                created_at: initialTask.created_at,
+                error: {
+                    message: err.message || 'Video generation failed'
+                }
+            });
+        }
+    })();
+
+    return initialTask;
 }
 
 function getTaskStatus(taskId) {
-    return taskStore.get(taskId) || { id: taskId, status: 'succeeded', video_url: '', result: { url: '' } };
+    const task = taskStore.get(taskId);
+    if (!task) {
+        return { id: taskId, status: 'failed', error: { message: `Task ${taskId} not found` } };
+    }
+    return task;
 }
 
 /**
@@ -854,22 +892,33 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
     const existingImgSrcs = initRes.existingSrcs || [];
 
     // Reference image(s) attachment (single or multi-ref)
-    const refImageList = Array.isArray(options.images) && options.images.length > 0
-        ? options.images
-        : (options.image ? [options.image] : []);
+    const rawImages = (Array.isArray(options.images) ? options.images : (options.image ? [options.image] : [])).flat(Infinity);
+    const refImageList = rawImages.filter(Boolean);
 
     if (refImageList.length > 0) {
         try {
-            await wc.executeJavaScript(`
+            const attachRes = await wc.executeJavaScript(`
             (async () => {
                 try {
-                    const fileInput = document.querySelector('input[type="file"]');
-                    if (!fileInput) return;
+                    let input = document.querySelector('input[type="file"]');
+                    let waited = 0;
+                    while (!input && waited < 6000) {
+                        await new Promise(r => setTimeout(r, 150));
+                        waited += 150;
+                        input = document.querySelector('input[type="file"]');
+                    }
+                    if (!input) {
+                        return { ok: false, error: 'NO_FILE_INPUT' };
+                    }
+
                     const dt = new DataTransfer();
                     const imgs = ${JSON.stringify(refImageList)};
                     for (let idx = 0; idx < imgs.length; idx++) {
-                        const dataUri = imgs[idx];
-                        if (!dataUri) continue;
+                        let dataUri = imgs[idx];
+                        if (typeof dataUri !== 'string') continue;
+                        if (!dataUri.startsWith('data:')) {
+                            dataUri = 'data:image/jpeg;base64,' + dataUri;
+                        }
                         const parts = dataUri.split(',');
                         const mimeMatch = (parts[0] || '').match(/:(.*?);/);
                         const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
@@ -883,13 +932,33 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                         const blob = new Blob([u8], { type: mime });
                         dt.items.add(new File([blob], 'ref_' + idx + '.jpg', { type: mime }));
                     }
-                    fileInput.files = dt.files;
-                    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    await new Promise(r => setTimeout(r, 600));
-                } catch (e) { }
+
+                    input.files = dt.files;
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    // Wait up to 3s for composer to show attachment pill / preview chip
+                    let chipWaited = 0;
+                    while (chipWaited < 3000) {
+                        await new Promise(r => setTimeout(r, 200));
+                        chipWaited += 200;
+                        const chip = document.querySelector('[class*="attachment"], [class*="chip"], [data-testid*="attachment"], [class*="preview"], [aria-label*="remove" i], [aria-label*="delete" i]');
+                        if (chip) break;
+                    }
+
+                    return { ok: true, count: dt.items.length };
+                } catch (e) {
+                    return { ok: false, error: String(e.message || e) };
+                }
             })()
             `);
-        } catch (e) { }
+            console.log('[NativeMuse] Attached reference images result:', attachRes);
+            if (!attachRes || !attachRes.ok) {
+                console.warn('[NativeMuse] Warning: Could not attach reference images:', attachRes?.error);
+            }
+        } catch (err) {
+            console.warn('[NativeMuse] Attach images exception:', err.message);
+        }
     }
 
     // Send initial prompt into Muse
@@ -925,7 +994,7 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
             for (const att of attachments) {
                 ${kind === 'image' ? `
                 const img = att.querySelector('img');
-                if (img && img.complete && (img.naturalWidth >= 120 || img.width >= 120)) {
+                if (img && img.complete && (img.naturalWidth >= 100 || img.width >= 100)) {
                     const src = img.currentSrc || img.src || '';
                     if (src && !existingSet.has(src)) {
                         try {
@@ -983,11 +1052,11 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                 ${kind === 'image' ? `
                 const bubbleImgs = Array.from(lastBubble.querySelectorAll('img')).filter(img => {
                     const s = img.currentSrc || img.src || '';
-                    return s && !existingSet.has(s) && !/avatar|profile|logo|brand|icon/i.test(s);
+                    return s && !existingSet.has(s) && !/avatar|profile|logo|brand|icon|mascot/i.test(s);
                 });
                 if (bubbleImgs.length > 0) {
                     const img = bubbleImgs[bubbleImgs.length - 1];
-                    if (img.complete && (img.naturalWidth >= 120 || img.width >= 120)) {
+                    if (img.complete && (img.naturalWidth >= 100 || img.width >= 100)) {
                         try {
                             const c = document.createElement('canvas');
                             c.width = img.naturalWidth || img.width;
@@ -1024,52 +1093,6 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                     ${kind === 'chat' ? `return { done: true, type: 'text', text };` : ''}
                     return { done: false, hasFinishedText: true, text, deniedApproval };
                 }
-            }
-
-            // 3. Fallback: check any new img / video on page after 2.5s
-            if (elapsedSec >= 2.5) {
-                ${kind === 'image' ? `
-                const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
-                    if (!img.offsetParent) return false;
-                    const src = img.currentSrc || img.src || '';
-                    if (!src || existingSet.has(src)) return false;
-                    if (/avatar|profile|logo|brand|mascot|welcome|hero|badge|icon/i.test(src)) return false;
-                    if (img.closest('header, nav, [data-testid*="welcome"], [class*="welcome"]')) return false;
-                    const w = img.naturalWidth || img.width || 0;
-                    const h = img.naturalHeight || img.height || 0;
-                    return (w >= 120 && h >= 120);
-                });
-                if (imgs.length > 0) {
-                    const lastImg = imgs[imgs.length - 1];
-                    if (lastImg.complete && lastImg.naturalWidth >= 120) {
-                        try {
-                            const c = document.createElement('canvas');
-                            c.width = lastImg.naturalWidth;
-                            c.height = lastImg.naturalHeight;
-                            const ctx = c.getContext('2d');
-                            ctx.drawImage(lastImg, 0, 0);
-                            const b64 = c.toDataURL('image/png');
-                            if (b64 && b64.length > 1000) {
-                                return { done: true, type: 'image', base64: b64, url: lastImg.currentSrc || lastImg.src };
-                            }
-                        } catch (e) { }
-                        return { done: true, type: 'image', url: lastImg.currentSrc || lastImg.src };
-                    }
-                }
-                ` : ''}
-
-                ${kind === 'video' ? `
-                const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"]');
-                if (dlLink && dlLink.href) return { done: true, type: 'video', url: dlLink.href };
-
-                const vids = Array.from(document.querySelectorAll('video')).filter(v => {
-                    const src = v.currentSrc || v.src || '';
-                    return src && (v.readyState >= 2 || v.duration > 0 || (v.videoWidth && v.videoWidth > 0));
-                });
-                if (vids.length > 0) {
-                    return { done: true, type: 'video', url: vids[vids.length - 1].currentSrc || vids[vids.length - 1].src };
-                }
-                ` : ''}
             }
 
             return { done: false, deniedApproval };

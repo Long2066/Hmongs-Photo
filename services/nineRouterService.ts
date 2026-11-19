@@ -1528,12 +1528,11 @@ CRITICAL RULES:
             prompt: combinedPrompt,
             size: ratio,
             n: 1,
-            response_format: 'b64_json'
+            response_format: 'b64_json',
+            images: refsPayload
         };
-        if (refsPayload.length === 1) {
+        if (refsPayload.length > 0) {
             musePayload.image = refsPayload[0];
-        } else if (refsPayload.length > 1) {
-            musePayload.image = refsPayload.slice(0, 4);
         }
 
         console.log(`[MuseAI] Generating image via ${museUrl}/images/generations (ratio: ${ratio}, refs: ${refsPayload.length})`);
