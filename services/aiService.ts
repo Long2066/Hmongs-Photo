@@ -991,6 +991,9 @@ export const validateGeminiKey = async (apiKey: string): Promise<{ isValid: bool
 // --- STYLE TRANSLATION HELPER ---
 const getStylePrompt = (style: string): string => {
     const mapping: Record<string, string> = {
+        'Tự nhiên theo ảnh mẫu & bối cảnh': 'Authentic natural photography: Strictly preserve the exact clothing style, fabric, cut, and colors from the input reference image, naturally harmonized into the requested scene context in realistic 1:1 human scale with natural lighting.',
+        'Hiện đại – Thời trang & Đời thường': 'Modern contemporary lifestyle photography: Crisp focus, natural authentic daylight, clean candid look, faithfully matching the reference clothing and realistic human scale.',
+        'Điện ảnh Cinematic 4K': 'Cinematic 4K Masterpiece: Dramatic lighting (chiaroscuro / volumetric sunbeams), shallow depth of field, highly detailed skin texture, emotional atmosphere, grounded 1:1 realistic human scale, faithful to reference clothing.',
         'Phim Cổ trang Trung Hoa': 'Chinese Period Drama / Xianxia Historical Cinematic: Majestic ancient Chinese visual aesthetic, ethereal flowing silk robes, exquisite traditional craftsmanship, poetic atmospheric mood, dramatic volumetric lighting, cinematic color grading, 1:1 realistic human scale.',
         'Truyền thống H’Mông cổ điển': 'Classic Traditional Hmong Style: Authentic vintage aesthetic, documentary realism, focus on highly detailed hand-embroidery (Paj Ntaub), heavy silver jewelry (Xauv), hemp fabrics, natural mountain daylight, earthy tones, mountainous village background, realistic 1:1 human scale, respectful cultural representation.',
         'H’Mông hiện đại – bản sắc kết hợp thời trang': 'Modern Hmong Fusion: High-fashion editorial look, contemporary streetwear silhouettes mixed with authentic traditional Hmong batik patterns and embroidery, stylish highland backdrop, grounded natural posture, sharp focus.',
@@ -1378,6 +1381,7 @@ export const generateBatchPromptsText = async (
     *** ABSOLUTE RULES FOR INPUT ACCURACY (NON-NEGOTIABLE) ***
     1. REFERENCE OUTFIT & IDENTITY CLONING: The reference images are NOT loose inspiration - they are FIXED GROUND-TRUTH IDENTITY & TEXTURES to be cloned EXACTLY.
        - Clone 100% the patterns, colors, cuts, embroidery, and every detail of the clothing directly from the input photo(s).
+       - CRITICAL OUTFIT PRIORITY: The person in EVERY scene MUST wear that EXACT clothing from the reference photo (e.g. school uniform, student shirt, pants, casual jacket, suit, or dress). NEVER invent, change, or substitute the clothing with ancient costumes, Hanfu robes, fairy garments, or fantasy armor unless explicitly specified in the user's topic text!
        ${isStrictOriginal ? '- Clone 100% of the original person\'s exact face, facial bone structure, skin tone, hair color/style, and apparent age. NEVER substitute a Korean K-Pop idol or generic model face.' : '- Preserve clothing 100% while rendering high-fashion idol facial aesthetics.'}
        - CRITICAL: DO NOT invent specific colors or alter outfit pieces (NEVER swap clothing palette away from the reference photo).
        ${outputMode === 'couple' ?

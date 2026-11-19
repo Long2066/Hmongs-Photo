@@ -69,6 +69,9 @@ const shotTypes = [
 ];
 
 const styles = [
+    'Tự nhiên theo ảnh mẫu & bối cảnh',
+    'Hiện đại – Thời trang & Đời thường',
+    'Điện ảnh Cinematic 4K',
     'Phim Cổ trang Trung Hoa',
     'Truyền thống H’Mông cổ điển',
     'H’Mông hiện đại – bản sắc kết hợp thời trang',

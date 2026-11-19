@@ -8,6 +8,8 @@
  */
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const nativeAntigravity = require('./native-antigravity-service.cjs');
 const nativeMuse = require('./native-muse-service.cjs');
 
@@ -180,6 +182,29 @@ function startMuseGateway(port = 18610) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(task));
             return;
+        }
+
+        // Media streaming & download (served from local cache)
+        if (req.method === 'GET' && (url.startsWith('/media/') || url.startsWith('/v1/media/'))) {
+            const filename = path.basename(url);
+            const mediaDir = nativeMuse.getMediaDirectory();
+            const filePath = path.join(mediaDir, filename);
+            if (fs.existsSync(filePath)) {
+                const stat = fs.statSync(filePath);
+                const ext = path.extname(filename).toLowerCase();
+                const mimeType = ext === '.mp4' ? 'video/mp4' : (ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream'));
+                res.writeHead(200, {
+                    'Content-Type': mimeType,
+                    'Content-Length': stat.size,
+                    'Accept-Ranges': 'bytes'
+                });
+                fs.createReadStream(filePath).pipe(res);
+                return;
+            } else {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: `Media file ${filename} not found` } }));
+                return;
+            }
         }
 
         res.writeHead(404, { 'Content-Type': 'application/json' });

@@ -37,6 +37,22 @@ let currentAccountIndex = 0;
 const workerPool = new Map(); // accId -> { win, busy }
 const taskStore = new Map(); // taskId -> resultObj
 
+function getMediaDirectory() {
+    let userData = '';
+    try {
+        userData = (app && typeof app.getPath === 'function')
+            ? app.getPath('userData')
+            : path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    } catch {
+        userData = path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    }
+    const dir = path.join(userData, 'media_cache');
+    if (!fs.existsSync(dir)) {
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { }
+    }
+    return dir;
+}
+
 function downloadBuffer(urlStr) {
     return new Promise((resolve, reject) => {
         try {
@@ -544,21 +560,25 @@ async function handleChatCompletions(body) {
  * Prepends "Generate an image (aspect ratio ...):" or "Generate a video (...):"
  * to force Muse's AI Agent to trigger its generation tool rather than replying with text.
  */
-function formatMediaPrompt(rawPrompt, kind, size, duration) {
+function formatMediaPrompt(rawPrompt, kind, size, duration, hasRefImages = false) {
     const p = (rawPrompt || '').trim();
     if (kind === 'image') {
-        if (/^generate\s+(an?\s+)?image/i.test(p)) return p;
         const hints = [];
         if (size) hints.push(`aspect ratio ${size}`);
         const suffix = hints.length ? ` (${hints.join(', ')})` : '';
+        if (hasRefImages) {
+            return `Generate an image strictly based on the attached reference image clothing and appearance${suffix}: ${p}`;
+        }
         return `Generate an image${suffix}: ${p}`;
     }
     if (kind === 'video') {
-        if (/^generate\s+(an?\s+)?video/i.test(p)) return p;
         const hints = [];
         if (size) hints.push(`aspect ratio ${size}`);
         if (duration) hints.push(`${duration} seconds long`);
         const suffix = hints.length ? ` (${hints.join(', ')})` : '';
+        if (hasRefImages) {
+            return `Generate a video animating the subject in the attached first frame / reference image${suffix}: ${p}`;
+        }
         return `Generate a video${suffix}: ${p}`;
     }
     return p;
@@ -570,10 +590,10 @@ function formatMediaPrompt(rawPrompt, kind, size, duration) {
 async function handleImageGeneration(body) {
     const rawPrompt = body.prompt || '';
     const size = body.size;
-    const prompt = formatMediaPrompt(rawPrompt, 'image', size);
     const rawImages = (Array.isArray(body.images) ? body.images : (body.image ? [body.image] : [])).flat(Infinity).filter(Boolean);
     const image = rawImages[0];
     const images = rawImages;
+    const prompt = formatMediaPrompt(rawPrompt, 'image', size, undefined, rawImages.length > 0);
     const result = await executeMuseAutomation(prompt, 'image', { image, images, size, rawPrompt });
 
     let base64Data = '';
@@ -623,10 +643,10 @@ async function handleVideoGeneration(body) {
     const rawPrompt = body.prompt || '';
     const size = body.size;
     const duration = body.duration;
-    const prompt = formatMediaPrompt(rawPrompt, 'video', size, duration);
     const rawImages = (Array.isArray(body.images) ? body.images : (body.image || body.input_image ? [body.image || body.input_image] : [])).flat(Infinity).filter(Boolean);
     const image = rawImages[0];
     const images = rawImages;
+    const prompt = formatMediaPrompt(rawPrompt, 'video', size, duration, rawImages.length > 0);
 
     const taskId = 'task-muse-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
     const initialTask = {
@@ -1031,7 +1051,7 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                 const vid = att.querySelector('video');
                 if (vid) {
                     const src = vid.currentSrc || vid.src || '';
-                    if (src && (vid.readyState >= 2 || vid.duration > 0 || vid.videoWidth > 0)) {
+                    if (src) {
                         return { done: true, type: 'video', url: src };
                     }
                 }
@@ -1105,8 +1125,63 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                 throw new Error(`Muse báo lỗi: ${status.error}`);
             }
             if (kind === 'chat') return status.text || 'Hoàn tất kịch bản.';
-            if (kind === 'image') return status.base64 || status.url;
-            if (kind === 'video') return status.url;
+
+            if (kind === 'image') {
+                if (status.base64) return status.base64;
+                if (status.url) {
+                    try {
+                        const dlRes = await wc.executeJavaScript(`
+                            (async () => {
+                                try {
+                                    const r = await fetch(${JSON.stringify(status.url)});
+                                    const b = await r.blob();
+                                    const buf = new Uint8Array(await b.arrayBuffer());
+                                    let s = '';
+                                    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+                                    return { ok: true, mime: b.type || '', b64: btoa(s) };
+                                } catch (e) { return { ok: false, err: String(e.message || e) }; }
+                            })()
+                        `);
+                        if (dlRes && dlRes.ok && dlRes.b64) {
+                            return 'data:image/png;base64,' + dlRes.b64;
+                        }
+                    } catch (e) { }
+                    return status.url;
+                }
+            }
+
+            if (kind === 'video') {
+                const targetUrl = status.url;
+                if (!targetUrl) throw new Error('Không nhận được URL video từ Muse.');
+                console.log(`[NativeMuse] Detected video from Muse: ${targetUrl}. Downloading via in-page session...`);
+                try {
+                    const dlRes = await wc.executeJavaScript(`
+                        (async () => {
+                            try {
+                                const r = await fetch(${JSON.stringify(targetUrl)});
+                                const b = await r.blob();
+                                const buf = new Uint8Array(await b.arrayBuffer());
+                                let s = '';
+                                for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+                                return { ok: true, mime: b.type || '', b64: btoa(s) };
+                            } catch (e) { return { ok: false, err: String(e.message || e) }; }
+                        })()
+                    `);
+                    if (dlRes && dlRes.ok && dlRes.b64) {
+                        const buf = Buffer.from(dlRes.b64, 'base64');
+                        const mDir = getMediaDirectory();
+                        const filename = `vid_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`;
+                        const filePath = path.join(mDir, filename);
+                        fs.writeFileSync(filePath, buf);
+                        const localMediaUrl = `http://127.0.0.1:18610/v1/media/${filename}`;
+                        console.log(`[NativeMuse] Saved video (${(buf.length / 1024).toFixed(1)} KB) to ${filePath} -> ${localMediaUrl}`);
+                        return localMediaUrl;
+                    }
+                } catch (dlErr) {
+                    console.warn('[NativeMuse] In-page video fetch failed:', dlErr.message);
+                }
+                return targetUrl;
+            }
         }
 
         // Recovery mechanism from muse2api:
@@ -1157,6 +1232,7 @@ module.exports = {
     handleVideoGeneration,
     getTaskStatus,
     getModelsList,
+    getMediaDirectory,
     getStatus: async () => {
         if (museAccounts.length === 0) loadAllAccounts();
         return {
