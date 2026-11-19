@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onFlowAuthStatus: (callback) => ipcRenderer.on('flow-auth:status', (event, data) => callback(data)),
 
     // ============ NATIVE MUSE & GATEWAY ============
+    googleLogin: () => ipcRenderer.invoke('google-antigravity:login'),
     museLogin: () => ipcRenderer.invoke('muse:login'),
     museOpenChromeIncognito: () => ipcRenderer.invoke('muse:open-chrome-incognito'),
     museGetStatus: () => ipcRenderer.invoke('muse:status'),

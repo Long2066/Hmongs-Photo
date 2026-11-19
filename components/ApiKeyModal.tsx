@@ -62,6 +62,13 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
     useEffect(() => {
         checkConnection(nineRouterUrl, nineRouterApiKey);
         refreshNativeStatus();
+        let unsub: (() => void) | undefined;
+        if (window.electronAPI?.onQuotaOAuthCaptured) {
+            unsub = window.electronAPI.onQuotaOAuthCaptured(async () => {
+                setTimeout(refreshNativeStatus, 1500);
+            });
+        }
+        return () => { if (unsub) unsub(); };
     }, []);
 
     const handleMuseLogin = async () => {
@@ -117,9 +124,12 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
         }
     };
 
-    const handleGoogleLogin = () => {
-        // Open Google sign-in directly in the regular default browser
-        window.open('http://127.0.0.1:51121', '_blank');
+    const handleGoogleLogin = async () => {
+        if (window.electronAPI?.googleLogin) {
+            await window.electronAPI.googleLogin();
+        } else {
+            window.open('http://127.0.0.1:51121', '_blank');
+        }
         const pollTimer = setInterval(async () => {
             await refreshNativeStatus();
         }, 2000);
@@ -556,7 +566,11 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                             {nativeStatus.museStatus.accounts.map((acc: any, idx: number) => (
                                                 <div key={idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs">
                                                     <span className="truncate max-w-[170px] font-mono text-[10px] font-medium" title={acc.label || acc.id}>{acc.label || acc.id}</span>
-                                                    <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Active</span>
+                                                    {acc.status === 'expired' ? (
+                                                        <span className="text-[9px] font-bold text-red-500 shrink-0">🔴 Hết hạn</span>
+                                                    ) : (
+                                                        <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Active</span>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>

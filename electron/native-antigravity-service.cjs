@@ -18,6 +18,13 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DEFAULT_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
 const FALLBACK_ENDPOINT = 'https://daily-cloudcode-pa.googleapis.com';
 
+// Resilient HTTPS Agent that handles self-signed certs / corporate MITM proxies
+const insecureAgent = new https.Agent({
+    rejectUnauthorized: false,
+    keepAlive: true,
+    timeout: 60000
+});
+
 // Desktop App OAuth credentials (unmasked at runtime)
 const _u = (arr, k = 42) => arr.map(c => String.fromCharCode(c ^ k)).join('');
 const CLIENT_ID = _u([27,26,29,27,26,26,28,26,28,26,31,19,27,7,94,71,66,89,89,67,68,24,66,24,27,70,73,88,79,24,25,31,92,94,69,70,69,64,66,30,77,30,26,25,79,90,4,75,90,90,89,4,77,69,69,77,70,79,95,89,79,88,73,69,68,94,79,68,94,4,73,69,71]);
@@ -25,7 +32,15 @@ const CLIENT_SECRET = _u([109,101,105,121,122,114,7,97,31,18,108,125,120,30,18,2
 
 // Storage paths
 function getAccountsDir() {
-    const dir = path.join(app.getPath('userData'), 'google-accounts');
+    let userData = '';
+    try {
+        userData = (app && typeof app.getPath === 'function')
+            ? app.getPath('userData')
+            : path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    } catch {
+        userData = path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    }
+    const dir = path.join(userData, 'google-accounts');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return dir;
 }
@@ -96,7 +111,7 @@ function normalizeAccount(raw, filePath) {
         refresh_token: raw.refresh_token || raw.refresh || '',
         expires_at: raw.expired ? new Date(raw.expired).getTime() : (raw.expires || 0),
         project_id: raw.project_id || 'aicode-consumers',
-        endpoint: (raw.antigravity_capability_hints && raw.antigravity_capability_hints.endpoint) || DEFAULT_ENDPOINT,
+        endpoint: DEFAULT_ENDPOINT,
         filePath
     };
 }
@@ -125,6 +140,7 @@ async function ensureAccessToken(acc) {
     const result = await new Promise((resolve, reject) => {
         const req = https.request(GOOGLE_TOKEN_URL, {
             method: 'POST',
+            agent: insecureAgent,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': Buffer.byteLength(postData)
@@ -212,7 +228,15 @@ function convertOpenAiMessagesToGemini(messages) {
 }
 
 /**
- * Main chat completions handler supporting account rotation
+ * Map incoming candidate models to valid CloudCode PA models
+ */
+function normalizeGeminiModel(name) {
+    // CloudCode PA internally routes gemini-2.5-flash directly to Google's fast 3.8 Thinking model
+    return 'gemini-2.5-flash';
+}
+
+/**
+ * Main chat completions handler supporting account rotation & model fallback
  */
 async function handleChatCompletions(body) {
     if (accounts.length === 0) {
@@ -223,44 +247,55 @@ async function handleChatCompletions(body) {
         throw new Error('Chưa có tài khoản Google nào được kết nối trong ToolMedia. Hãy vào cài đặt để thêm tài khoản.');
     }
 
-    const modelName = body.model || 'gemini-2.5-flash';
+    const requestedModel = body.model || 'gemini-2.5-flash';
+    const primaryTargetModel = normalizeGeminiModel(requestedModel);
     const { contents, systemInstruction } = convertOpenAiMessagesToGemini(body.messages || []);
 
-    const geminiPayload = {
-        model: modelName,
-        contents,
-        generationConfig: {
-            temperature: body.temperature !== undefined ? body.temperature : 0.7,
-            maxOutputTokens: body.max_tokens || body.max_completion_tokens || 8192,
+    const buildPayload = (targetModel) => {
+        const payload = {
+            model: targetModel,
+            contents,
+            generationConfig: {
+                temperature: body.temperature !== undefined ? body.temperature : 0.7,
+                maxOutputTokens: body.max_tokens || body.max_completion_tokens || 8192,
+            }
+        };
+        if (systemInstruction) {
+            payload.systemInstruction = {
+                parts: [{ text: systemInstruction }]
+            };
         }
+        return payload;
     };
 
-    if (systemInstruction) {
-        geminiPayload.systemInstruction = {
-            parts: [{ text: systemInstruction }]
-        };
-    }
-
     let lastError = null;
-    const maxAttempts = Math.min(accounts.length, 3);
+    const maxAttempts = Math.max(accounts.length * 2, 4);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const acc = accounts[currentAccountIndex % accounts.length];
         currentAccountIndex = (currentAccountIndex + 1) % accounts.length;
 
+        // Try primary model first, fallback to gemini-2.5-flash if needed
+        const targetModel = (attempt % 2 === 0) ? primaryTargetModel : 'gemini-2.5-flash';
+        const geminiPayload = buildPayload(targetModel);
+
         try {
             const token = await ensureAccessToken(acc);
             const endpoint = `${acc.endpoint}/v1internal:generateContent`;
 
-            const respData = await makeGeminiRequest(endpoint, token, geminiPayload);
-            const responseText = extractTextFromGeminiResponse(respData);
+            const rawResponse = await makeGeminiRequest(endpoint, token, geminiPayload);
+            const responseText = extractTextFromGeminiResponse(rawResponse);
 
-            // Return in OpenAI response format
+            if (!responseText) {
+                throw new Error('Empty response from Gemini');
+            }
+
+            // Return in standard OpenAI response format
             return {
                 id: 'chatcmpl-' + Date.now().toString(36),
                 object: 'chat.completion',
                 created: Math.floor(Date.now() / 1000),
-                model: modelName,
+                model: requestedModel,
                 choices: [
                     {
                         index: 0,
@@ -278,9 +313,9 @@ async function handleChatCompletions(body) {
                 }
             };
         } catch (err) {
-            console.warn(`[NativeAntigravity] Attempt failed with account ${acc.email}:`, err.message);
+            console.warn(`[NativeAntigravity] Attempt ${attempt + 1} failed (${acc.email}, model ${targetModel}):`, err.message);
             lastError = err;
-            // Rate limit or server error -> loop to next account
+            // Loop to next account / fallback model
         }
     }
 
@@ -296,6 +331,7 @@ function makeGeminiRequest(urlStr, accessToken, payload) {
             hostname: url.hostname,
             path: url.pathname + url.search,
             method: 'POST',
+            agent: insecureAgent,
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
@@ -309,11 +345,7 @@ function makeGeminiRequest(urlStr, accessToken, payload) {
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
-                    try {
-                        resolve(JSON.parse(data));
-                    } catch (e) {
-                        reject(new Error(`Invalid JSON from Gemini: ${data.slice(0, 200)}`));
-                    }
+                    resolve(data);
                 } else {
                     reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
                 }
@@ -327,15 +359,46 @@ function makeGeminiRequest(urlStr, accessToken, payload) {
     });
 }
 
-function extractTextFromGeminiResponse(resp) {
-    try {
-        const candidate = resp.candidates?.[0];
-        if (!candidate) return '';
-        const parts = candidate.content?.parts || [];
-        return parts.map(p => p.text || '').join('');
-    } catch {
-        return '';
+function extractTextFromGeminiResponse(raw) {
+    if (!raw) return '';
+    // If it's already an object
+    if (typeof raw === 'object') {
+        const parts = raw.candidates?.[0]?.content?.parts || [];
+        if (parts.length > 0) return parts.map(p => p.text || '').join('');
+        if (raw.choices?.[0]?.message?.content) return raw.choices[0].message.content;
     }
+
+    const str = String(raw).trim();
+
+    // Case 1: Plain JSON
+    if (str.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(str);
+            const candidateParts = parsed.candidates?.[0]?.content?.parts || [];
+            if (candidateParts.length > 0) return candidateParts.map(p => p.text || '').join('');
+            if (parsed.choices?.[0]?.message?.content) return parsed.choices[0].message.content;
+        } catch { }
+    }
+
+    // Case 2: Server-Sent Events (SSE) data stream
+    let accumulatedText = '';
+    const lines = str.split('\n');
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            if (dataStr === '[DONE]') continue;
+            try {
+                const chunk = JSON.parse(dataStr);
+                const delta = chunk.choices?.[0]?.delta;
+                if (delta && delta.content) {
+                    accumulatedText += delta.content;
+                }
+            } catch { }
+        }
+    }
+
+    return accumulatedText.trim();
 }
 
 /**

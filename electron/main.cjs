@@ -1157,6 +1157,16 @@ ipcMain.handle('muse:open-chrome-incognito', async () => {
     }
 });
 
+ipcMain.handle('google-antigravity:login', async () => {
+    try {
+        const authData = nativeAntigravity.generateAuthUrl('http://localhost:51121/oauth-callback');
+        openInChromeOrBrowser(authData.url);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('native-gateway:status', async () => {
     return {
         port8317: true,

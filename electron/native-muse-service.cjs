@@ -14,6 +14,12 @@ const path = require('path');
 const https = require('https');
 const fs = require('fs');
 
+const insecureAgent = new https.Agent({
+    rejectUnauthorized: false,
+    keepAlive: true,
+    timeout: 30000
+});
+
 const MUSE_SITE = 'https://muse.ai';
 const SESSION_API = `${MUSE_SITE}/api/session`;
 const VM_WAKE_API = `${MUSE_SITE}/api/hatch/vm/wake`;
@@ -29,11 +35,27 @@ let museAccounts = [];
 let currentAccountIndex = 0;
 
 function getAccountsFilePath() {
-    return path.join(app.getPath('userData'), 'muse_accounts.json');
+    let userData = '';
+    try {
+        userData = (app && typeof app.getPath === 'function')
+            ? app.getPath('userData')
+            : path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    } catch {
+        userData = path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    }
+    return path.join(userData, 'muse_accounts.json');
 }
 
 function getLegacyCookieBackupPath() {
-    return path.join(app.getPath('userData'), 'muse_cookies.json');
+    let userData = '';
+    try {
+        userData = (app && typeof app.getPath === 'function')
+            ? app.getPath('userData')
+            : path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    } catch {
+        userData = path.join(process.env.APPDATA || process.env.HOME || '.', 'ImageTool');
+    }
+    return path.join(userData, 'muse_cookies.json');
 }
 
 /**
@@ -190,6 +212,7 @@ function renewAccountSession(acc) {
 
         const req = https.request(SESSION_API, {
             method: 'GET',
+            agent: insecureAgent,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 'Referer': NEW_THREAD_URL,
@@ -200,6 +223,13 @@ function renewAccountSession(acc) {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
+                if (res.statusCode === 200) {
+                    acc.status = 'active';
+                } else if (res.statusCode === 401 || res.statusCode === 403) {
+                    acc.status = 'expired';
+                    console.warn(`[NativeMuse] Account ${acc.label || acc.id} cookies expired (HTTP ${res.statusCode})`);
+                }
+
                 const setCookies = res.headers['set-cookie'];
                 if (setCookies && Array.isArray(setCookies)) {
                     for (const sc of setCookies) {
@@ -477,7 +507,7 @@ async function handleVideoGeneration(body) {
 }
 
 /**
- * In-Page execution via Electron webContents with Multi-Account Rotation
+ * In-Page execution via Electron webContents with Multi-Account Rotation & Failover
  */
 async function executeMuseAutomation(prompt, kind = 'chat') {
     while (isWorkerBusy) {
@@ -491,117 +521,166 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
             throw new Error('Chưa có tài khoản Muse nào được nạp cookie trong ToolMedia. Hãy vào cài đặt để thêm tài khoản.');
         }
 
-        // Rotate through accounts
-        const acc = museAccounts[currentAccountIndex % museAccounts.length];
-        currentAccountIndex = (currentAccountIndex + 1) % museAccounts.length;
-        console.log(`[NativeMuse] Executing ${kind} using account: ${acc.label} (${currentAccountIndex}/${museAccounts.length})`);
+        // Filter valid accounts (not expired). If all expired, try all anyway
+        const pool = museAccounts.filter(a => a.status !== 'expired');
+        const candidateAccounts = pool.length > 0 ? pool : museAccounts;
+        const maxAttempts = Math.min(candidateAccounts.length, 3);
+        let lastError = null;
 
-        const win = await getWorkerWindow();
-        const wc = win.webContents;
-        const ses = win.webContents.session;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const acc = candidateAccounts[currentAccountIndex % candidateAccounts.length];
+            currentAccountIndex = (currentAccountIndex + 1) % candidateAccounts.length;
+            console.log(`[NativeMuse] Attempt ${attempt + 1}: Executing ${kind} with account: ${acc.label || acc.id}`);
 
-        // Apply account cookies into session
-        for (const [name, value] of Object.entries(acc.cookies || {})) {
-            if (!value) continue;
             try {
-                await ses.cookies.set({
-                    url: MUSE_SITE,
-                    name,
-                    value,
-                    domain: '.muse.ai',
-                    path: '/',
-                    secure: true,
-                    sameSite: 'lax'
-                });
-            } catch (e) { }
-        }
+                const win = await getWorkerWindow();
+                const wc = win.webContents;
+                const ses = win.webContents.session;
 
-        // Navigate to new thread
-        if (wc.getURL() !== NEW_THREAD_URL) {
-            await win.loadURL(NEW_THREAD_URL);
-        }
-
-        // Dynamically wait for textarea to appear (up to 6s, 100ms intervals)
-        const script = `
-        (async () => {
-            let waited = 0;
-            while (!document.querySelector('textarea') && waited < 6000) {
-                await new Promise(r => setTimeout(r, 100));
-                waited += 100;
-            }
-            const ta = document.querySelector('textarea');
-            if (!ta) return { ok: false, error: 'Textarea not found' };
-            
-            // Set value and trigger input events
-            ta.value = ${JSON.stringify(prompt)};
-            ta.dispatchEvent(new Event('input', { bubbles: true }));
-            ta.dispatchEvent(new Event('change', { bubbles: true }));
-            
-            await new Promise(r => setTimeout(r, 150));
-            
-            // Look for send button or press Enter
-            const btn = document.querySelector('button[type="submit"]') || 
-                        document.querySelector('button[aria-label*="Send" i]') ||
-                        ta.parentElement.querySelector('button');
-            
-            if (btn && !btn.disabled) {
-                btn.click();
-            } else {
-                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-            }
-            return { ok: true };
-        })()
-        `;
-
-        const injected = await wc.executeJavaScript(script);
-        if (!injected || !injected.ok) {
-            throw new Error(`Không thể nhập prompt vào Muse: ${injected?.error || 'Unknown'}`);
-        }
-
-        // Wait for response bubble or media with fast 750ms polling
-        const maxWaitSec = kind === 'video' ? 180 : (kind === 'image' ? 60 : 45);
-        const startTime = Date.now();
-
-        while ((Date.now() - startTime) < (maxWaitSec * 1000)) {
-            await new Promise(r => setTimeout(r, 750));
-
-            const checkScript = `
-            (() => {
-                // Check for videos
-                const video = document.querySelector('video source') || document.querySelector('video');
-                if (video && video.src && !video.src.startsWith('blob:')) {
-                    return { done: true, type: 'video', url: video.src };
+                // Apply account cookies into session
+                for (const [name, value] of Object.entries(acc.cookies || {})) {
+                    if (!value) continue;
+                    try {
+                        await ses.cookies.set({
+                            url: MUSE_SITE,
+                            name,
+                            value,
+                            domain: '.muse.ai',
+                            path: '/',
+                            secure: true,
+                            sameSite: 'lax'
+                        });
+                    } catch (e) { }
                 }
 
-                // Check for generated images
-                const imgs = Array.from(document.querySelectorAll('img[src*="musecdn"], img[src*="cloudflare"], img[src*="storage"]'));
-                if (imgs.length > 0) {
-                    const lastImg = imgs[imgs.length - 1];
-                    if (lastImg.src) return { done: true, type: 'image', url: lastImg.src };
+                // Navigate to new thread
+                if (wc.getURL() !== NEW_THREAD_URL) {
+                    await win.loadURL(NEW_THREAD_URL);
                 }
 
-                // Check for text assistant bubbles
-                const bubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
-                if (bubbles.length > 0) {
-                    const text = bubbles[bubbles.length - 1].innerText.trim();
-                    const isStopVisible = !!document.querySelector('button[aria-label*="Stop" i]');
-                    if (text && !isStopVisible) {
-                        return { done: true, type: 'text', text };
+                // Input script with React native setter & login check
+                const script = `
+                (async () => {
+                    // 1. Check if redirected to login
+                    if (location.pathname.includes('/login') || (document.body && document.body.innerText.includes('Log in to continue'))) {
+                        return { ok: false, error: 'NEED_LOGIN' };
+                    }
+
+                    // 2. Wait for textarea
+                    let waited = 0;
+                    while (!document.querySelector('textarea') && waited < 8000) {
+                        await new Promise(r => setTimeout(r, 150));
+                        waited += 150;
+                    }
+                    const ta = document.querySelector('textarea');
+                    if (!ta) {
+                        if (location.pathname.includes('/login')) return { ok: false, error: 'NEED_LOGIN' };
+                        return { ok: false, error: 'NO_TEXTAREA' };
+                    }
+                    
+                    ta.focus();
+                    // Native setter so React registers change
+                    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+                    if (setter) {
+                        setter.call(ta, ${JSON.stringify(prompt)});
+                    } else {
+                        ta.value = ${JSON.stringify(prompt)};
+                    }
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    
+                    await new Promise(r => setTimeout(r, 200));
+                    
+                    // Click send button
+                    const allBtns = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null);
+                    const sendBtn = allBtns.find(b => /send|发送/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '')));
+                    
+                    if (sendBtn && !sendBtn.disabled) {
+                        sendBtn.click();
+                    } else {
+                        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                    }
+                    return { ok: true };
+                })()
+                `;
+
+                const injected = await wc.executeJavaScript(script);
+                if (!injected || !injected.ok) {
+                    if (injected?.error === 'NEED_LOGIN') {
+                        acc.status = 'expired';
+                        saveAllAccounts();
+                        console.warn(`[NativeMuse] Account ${acc.label} expired, trying next account...`);
+                        continue;
+                    }
+                    throw new Error(`Không thể nhập prompt vào Muse: ${injected?.error || 'Unknown'}`);
+                }
+
+                // Wait for response bubble or media with fast 750ms polling
+                const maxWaitSec = kind === 'video' ? 180 : (kind === 'image' ? 60 : 45);
+                const startTime = Date.now();
+
+                while ((Date.now() - startTime) < (maxWaitSec * 1000)) {
+                    await new Promise(r => setTimeout(r, 750));
+
+                    const checkScript = `
+                    (() => {
+                        // Auto-deny any pending approval cards to unblock generation
+                        for (const card of document.querySelectorAll('[data-testid="hatch-inline-approval-card"]')) {
+                            const btn = [...card.querySelectorAll('button,[role=button]')]
+                                .find(b => /^(deny|decline|reject|don.t allow)$/i.test((b.innerText || '').trim()));
+                            if (btn && !btn.disabled) btn.click();
+                        }
+
+                        // Check for videos
+                        const videoAtt = document.querySelector('[data-testid^="hatch-chat-attachment-presentation-"] video') ||
+                                         document.querySelector('video source') || 
+                                         document.querySelector('video');
+                        if (videoAtt && (videoAtt.currentSrc || videoAtt.src) && !videoAtt.src.startsWith('blob:')) {
+                            return { done: true, type: 'video', url: videoAtt.currentSrc || videoAtt.src };
+                        }
+
+                        // Check for attachments (images/videos)
+                        const imgAtt = document.querySelector('[data-testid^="hatch-chat-attachment-presentation-"] img');
+                        if (imgAtt && (imgAtt.currentSrc || imgAtt.src)) {
+                            return { done: true, type: 'image', url: imgAtt.currentSrc || imgAtt.src };
+                        }
+
+                        // Fallback check for generated images
+                        const imgs = Array.from(document.querySelectorAll('img[src*="musecdn"], img[src*="cloudflare"], img[src*="storage"]'));
+                        if (imgs.length > 0) {
+                            const lastImg = imgs[imgs.length - 1];
+                            if (lastImg.src) return { done: true, type: 'image', url: lastImg.src };
+                        }
+
+                        // Check for text assistant bubbles
+                        const bubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
+                        if (bubbles.length > 0) {
+                            const text = bubbles[bubbles.length - 1].innerText.trim();
+                            const isStopVisible = !!document.querySelector('button[aria-label*="Stop" i]');
+                            if (text && !isStopVisible) {
+                                return { done: true, type: 'text', text };
+                            }
+                        }
+
+                        return { done: false };
+                    })()
+                    `;
+
+                    const status = await wc.executeJavaScript(checkScript);
+                    if (status && status.done) {
+                        if (kind === 'chat') return status.text || 'Hoàn tất kịch bản.';
+                        if (kind === 'image' || kind === 'video') return status.url || status.text || '';
                     }
                 }
 
-                return { done: false };
-            })()
-            `;
-
-            const status = await wc.executeJavaScript(checkScript);
-            if (status && status.done) {
-                if (kind === 'chat') return status.text || 'Hoàn tất kịch bản.';
-                if (kind === 'image' || kind === 'video') return status.url || status.text || '';
+                throw new Error(`Quá thời gian chờ Muse tạo ${kind} (${maxWaitSec}s).`);
+            } catch (err) {
+                console.warn(`[NativeMuse] Attempt with ${acc.label} encountered error:`, err.message);
+                lastError = err;
             }
         }
 
-        throw new Error(`Quá thời gian chờ Muse tạo ${kind} (${maxWaitSec}s).`);
+        throw lastError || new Error(`Không thể thực thi Muse với tất cả tài khoản khả dụng.`);
     } finally {
         isWorkerBusy = false;
     }
