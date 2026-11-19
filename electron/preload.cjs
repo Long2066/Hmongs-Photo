@@ -67,6 +67,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onFlowVideoProgress: (callback) => ipcRenderer.on('flow-video:progress', (event, data) => callback(data)),
     onFlowAuthStatus: (callback) => ipcRenderer.on('flow-auth:status', (event, data) => callback(data)),
 
+    // ============ NATIVE MUSE & GATEWAY ============
+    museLogin: () => ipcRenderer.invoke('muse:login'),
+    museOpenChromeIncognito: () => ipcRenderer.invoke('muse:open-chrome-incognito'),
+    museGetStatus: () => ipcRenderer.invoke('muse:status'),
+    museSaveCookies: (cookies) => ipcRenderer.invoke('muse:save-cookies', cookies),
+    getNativeGatewayStatus: () => ipcRenderer.invoke('native-gateway:status'),
+
     // ============ PLATFORM INFO ============
     isElectron: true,
     platform: process.platform

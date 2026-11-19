@@ -31,7 +31,6 @@ import { ImagePreviewModal } from './components/ImagePreviewModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { ActivityLog } from './components/ActivityLog';
 import { DownloadHelpModal } from './components/DownloadHelpModal';
-import { GoogleQuotaStationModal } from './components/GoogleQuotaStationModal';
 import { Marquee } from './components/Marquee';
 import { UpdateNotification } from './components/UpdateNotification';
 import { NotificationPopup } from './components/NotificationPopup';
@@ -120,7 +119,6 @@ const App: React.FC = () => {
     }, [isHistoryVisible]);
     const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
     const [isApiKeyModalOpen, setApiKeyModalOpen] = useState(false);
-    const [isQuotaStationOpen, setQuotaStationOpen] = useState(false);
     const [hasGeminiKey, setHasGeminiKey] = useState(true);
     const [selectedImage, setSelectedImage] = useState<{ url: string, index: number } | null>(null);
     const [isDownloadHelpOpen, setDownloadHelpOpen] = useState(false);
@@ -2029,6 +2027,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                 onLogout={handleLogout}
                 onHistoryClick={() => { setPackagesVisible(false); setHistoryVisible(true); }}
                 onBackFromProfile={handleCloseProfile}
+                onApiKeyClick={() => setApiKeyModalOpen(true)}
                 onQuotaStationClick={() => { setPackagesOrigin(isHistoryVisible); setHistoryVisible(false); setPackagesVisible(true); }}
                 onBotClick={() => setIsSupportBotOpen(true)}
                 isHistoryVisible={isHistoryVisible}
@@ -2268,17 +2267,6 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                 </main>
             </div>
             </>
-            )}
-
-            {isQuotaStationOpen && currentUser && (
-                <GoogleQuotaStationModal
-                    isOpen={isQuotaStationOpen}
-                    onClose={() => setQuotaStationOpen(false)}
-                    user={currentUser}
-                    onBalanceUpdated={() => {
-                        setUserBalance(getCachedBalance());
-                    }}
-                />
             )}
 
             {isApiKeyModalOpen && <ApiKeyModal onClose={() => setApiKeyModalOpen(false)} />}

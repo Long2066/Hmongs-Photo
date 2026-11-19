@@ -27,10 +27,98 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
     const [showKey, setShowKey] = useState(false);
     const [isSavedFeedback, setIsSavedFeedback] = useState(false);
 
+    // Native Gateway & Muse in-process status
+    const [nativeStatus, setNativeStatus] = useState<any>(null);
+    const [isMuseLoggingIn, setIsMuseLoggingIn] = useState(false);
+    const [manualCookieInput, setManualCookieInput] = useState('');
+    const [showCookieInput, setShowCookieInput] = useState(false);
+
+    const refreshNativeStatus = async () => {
+        try {
+            if (window.electronAPI?.getNativeGatewayStatus) {
+                const st = await window.electronAPI.getNativeGatewayStatus();
+                setNativeStatus(st);
+                return;
+            }
+            // Fallback for browser mode: check health via direct HTTP fetch
+            const res8317 = await fetch('http://127.0.0.1:8317/health').then(r => r.json()).catch(() => null);
+            const res18610 = await fetch('http://127.0.0.1:18610/health').then(r => r.json()).catch(() => null);
+            setNativeStatus({
+                port8317: res8317?.status === 'ok',
+                port18610: res18610?.status === 'ok',
+                googleAccounts: new Array(res8317?.accounts || 0).fill({}),
+                museStatus: { configured: res18610?.configured }
+            });
+        } catch { }
+    };
+
     // Initial connection test
     useEffect(() => {
         checkConnection(nineRouterUrl, nineRouterApiKey);
+        refreshNativeStatus();
     }, []);
+
+    const handleMuseLogin = async () => {
+        setIsMuseLoggingIn(true);
+        try {
+            if (window.electronAPI?.museLogin) {
+                const res = await window.electronAPI.museLogin();
+                if (res?.success) {
+                    await refreshNativeStatus();
+                }
+            } else {
+                window.open('https://muse.ai/login', '_blank');
+            }
+        } finally {
+            setIsMuseLoggingIn(false);
+        }
+    };
+
+    const handleMuseChromeIncognito = async () => {
+        if (window.electronAPI?.museOpenChromeIncognito) {
+            await window.electronAPI.museOpenChromeIncognito();
+        } else {
+            window.open('https://muse.ai/login', '_blank');
+        }
+    };
+
+    const handleSaveManualCookie = async () => {
+        if (!manualCookieInput.trim()) return;
+        let jar: Record<string, string> = {};
+        const str = manualCookieInput.trim();
+        if (str.startsWith('{') || str.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(str);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach((c: any) => { if (c.name && c.value) jar[c.name] = c.value; });
+                } else {
+                    jar = parsed;
+                }
+            } catch { }
+        } else {
+            str.split(';').forEach(pair => {
+                const [k, ...v] = pair.trim().split('=');
+                if (k && v.length) jar[k.trim()] = v.join('=').trim();
+            });
+        }
+        if (Object.keys(jar).length > 0) {
+            if (window.electronAPI?.museSaveCookies) {
+                await window.electronAPI.museSaveCookies(jar);
+            }
+            setManualCookieInput('');
+            setShowCookieInput(false);
+            await refreshNativeStatus();
+        }
+    };
+
+    const handleGoogleLogin = () => {
+        // Open Google sign-in directly in the regular default browser
+        window.open('http://127.0.0.1:51121', '_blank');
+        const pollTimer = setInterval(async () => {
+            await refreshNativeStatus();
+        }, 2000);
+        setTimeout(() => clearInterval(pollTimer), 30000);
+    };
 
     // Auto-focus admin password input on open if locked ("Bấm vào chìa khóa là yêu cầu nhập mật khẩu ngay")
     useEffect(() => {
@@ -339,6 +427,154 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                             </button>
                         </div>
                     )}
+
+                    {/* CỔNG TÍCH HỢP NỘI BỘ ALL-IN-ONE */}
+                    <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-slate-50 to-teal-50/50 border border-indigo-200/70 rounded-2xl ring-1 ring-indigo-500/15 shadow-xs">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                                    ⚡
+                                </div>
+                                <div>
+                                    <h3 className="text-xs font-bold text-slate-900 leading-tight">
+                                        Lõi Nội Bộ All-in-One (Nhúng sẵn trong App)
+                                    </h3>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                        Tự động kích hoạt cổng 8317 & 18610 — Không cần mở app thứ 3
+                                    </p>
+                                </div>
+                            </div>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                                ĐÃ KÍCH HOẠT
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                            {/* Google Accounts */}
+                            <div className="bg-white/95 p-3 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                                            <span>🔵 Google / Gemini (CLI)</span>
+                                        </span>
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            Port 8317
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">
+                                        {nativeStatus?.googleAccounts?.length
+                                            ? `Đã nhận ${nativeStatus.googleAccounts.length} tài khoản (Auto-rotation)`
+                                            : 'Đã sẵn sàng nhận tài khoản'}
+                                    </p>
+                                </div>
+                                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100">
+                                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                        Sẵn sàng
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={handleGoogleLogin}
+                                        className="px-2.5 py-1 text-[11px] font-bold bg-slate-800 hover:bg-slate-900 text-white rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        + Thêm Acc Google
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Muse Account */}
+                            <div className="bg-white/95 p-3 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                                            <span>🟣 Muse AI Media</span>
+                                        </span>
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                            Port 18610
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">
+                                        {nativeStatus?.museStatus?.configured ? '🟢 Đã nạp Cookie (Auto Keep-Alive Bật)' : 'Chưa có phiên làm việc'}
+                                    </p>
+                                </div>
+                                <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1.5">
+                                    <div className="flex items-center justify-between gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={handleMuseLogin}
+                                            disabled={isMuseLoggingIn}
+                                            className="flex-1 py-1 px-2 text-[10.5px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer text-center"
+                                            title="Mở trình duyệt ẩn danh mới hoàn toàn, tự động lưu cookie khi đăng nhập xong"
+                                        >
+                                            {isMuseLoggingIn ? 'Đang mở...' : '🕵️ Ẩn danh mới (Tự lưu)'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleMuseChromeIncognito}
+                                            className="py-1 px-2 text-[10.5px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                                            title="Mở trình duyệt Google Chrome ngoài chế độ ẩn danh"
+                                        >
+                                            🌐 Chrome Ẩn danh
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[10px]">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowCookieInput(!showCookieInput)}
+                                            className="text-slate-400 hover:text-indigo-600 underline cursor-pointer"
+                                        >
+                                            {showCookieInput ? 'Ẩn ô dán cookie' : 'Dán Cookie thủ công'}
+                                        </button>
+                                        <span className="text-indigo-600 font-bold">Auto Heartbeat</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Ô nhập Cookie thủ công (nếu người dùng muốn dán) */}
+                        {showCookieInput && (
+                            <div className="mt-2.5 p-2.5 bg-white rounded-xl border border-indigo-200 shadow-xs animate-fade-in">
+                                <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                                    Dán Cookie Muse (hatch_sess hoặc chuỗi Cookie / JSON):
+                                </label>
+                                <div className="flex gap-1.5">
+                                    <input
+                                        type="text"
+                                        value={manualCookieInput}
+                                        onChange={(e) => setManualCookieInput(e.target.value)}
+                                        placeholder="hatch_sess=...; hatch_native_auth_device=..."
+                                        className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono outline-none focus:border-indigo-500"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveManualCookie}
+                                        className="px-3 py-1 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
+                                    >
+                                        Lưu
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Preset nhanh trỏ về Localhost */}
+                        <div className="mt-2.5 pt-2 border-t border-indigo-100/80 flex items-center justify-between">
+                            <span className="text-[11px] text-slate-600 font-medium">
+                                Định tuyến nội bộ siêu nhẹ:
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setNineRouterUrlState('http://127.0.0.1:8317/v1');
+                                    nineRouterService.setNineRouterUrl('http://127.0.0.1:8317/v1');
+                                    checkConnection('http://127.0.0.1:8317/v1', nineRouterApiKey);
+                                }}
+                                className="px-2.5 py-1 text-[10px] font-bold bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg transition-colors cursor-pointer"
+                            >
+                                🚀 Trỏ ngay về Localhost:8317
+                            </button>
+                        </div>
+                    </div>
 
                     {/* Inputs Section */}
                     <div className="space-y-4">

@@ -37,3 +37,4 @@ flow-py-main/**/__pycache__/
 
 browser-main/
 giao dien dang nhap/
+.test_userData/

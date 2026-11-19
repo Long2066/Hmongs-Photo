@@ -18,7 +18,6 @@ import {
     type SubscriptionPlansConfig
 } from '../services/subscriptionPlanConfigService';
 import { PayOSCheckoutModal } from './PayOSCheckoutModal';
-import { GoogleQuotaStationModal } from './GoogleQuotaStationModal';
 import { refreshSubscription } from '../services/subscriptionService';
 
 interface PackagesPageProps { user: User; onBack: () => void; onBalanceUpdated: () => void }
@@ -109,11 +108,11 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
         <div className="mx-auto w-full max-w-7xl p-4 pb-20 sm:p-6 lg:p-8 animate-fade-in">
             <button type="button" onClick={onBack} className="mb-6 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-900/5 transition-all hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 active:scale-[0.98]">← Quay lại</button>
             <div className="mb-8">
-                <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">Cấu hình & gói dịch vụ</h1>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">Theo dõi lượt ảnh, số giây tạo video và cấu hình bên dưới, sau đó kéo xuống để chọn gói phù hợp.</p>
+                <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">Gói dịch vụ & quyền lợi</h1>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">Theo dõi lượt ảnh, số giây tạo video và chọn gói phù hợp với nhu cầu sáng tạo.</p>
             </div>
-            <section aria-label="Lượt miễn phí và cấu hình" className="mb-10">
-                <div className="mb-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
+            <section aria-label="Lượt sử dụng" className="mb-10">
+                <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">Lượt tạo ảnh miễn phí hôm nay</p>
                         <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-slate-900">{freeRemaining} / {freeDailyLimit} ảnh hôm nay</p>
@@ -124,7 +123,6 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                         <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-amber-600">{remainingVideoSeconds} giây</p>
                     </div>
                 </div>
-                <GoogleQuotaStationModal embedded isOpen onClose={onBack} user={user} onBalanceUpdated={onBalanceUpdated} />
             </section>
             <section aria-label="Gói dịch vụ">
             {/* 3 Subscription Packages Section */}

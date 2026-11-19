@@ -7,6 +7,9 @@ const https = require('https');
 const { spawn } = require('child_process');
 const oauthHandler = require('./oauth-handler.cjs');
 const flowProfileManager = require('./flow-profile-manager.cjs');
+const nativeGateway = require('./native-gateway.cjs');
+const nativeMuse = require('./native-muse-service.cjs');
+const nativeAntigravity = require('./native-antigravity-service.cjs');
 
 // Modern Chrome User-Agent to bypass Google OAuth "disallowed_useragent" / insecure browser check
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -150,6 +153,20 @@ function startQuotaCallbackServer() {
                     const fullCallbackUrl = `http://localhost:51121${reqUrl}`;
                     console.log('[QuotaOAuth] Intercepted Google OAuth Callback on 51121:', fullCallbackUrl);
 
+                    try {
+                        const parsedUrl = new URL(reqUrl, 'http://localhost:51121');
+                        const code = parsedUrl.searchParams.get('code');
+                        if (code) {
+                            nativeAntigravity.handleOAuthCallback(code, 'http://localhost:51121/oauth-callback').then(() => {
+                                console.log('[QuotaOAuth] Account auto-saved and reloaded into native engine!');
+                            }).catch(err => {
+                                console.error('[QuotaOAuth] Auto code exchange error:', err.message);
+                            });
+                        }
+                    } catch (codeErr) {
+                        console.warn('[QuotaOAuth] Code parse error:', codeErr);
+                    }
+
                     res.writeHead(200, {
                         'Content-Type': 'text/html; charset=utf-8',
                         'Access-Control-Allow-Origin': '*'
@@ -230,8 +247,12 @@ function startQuotaCallbackServer() {
                     return;
                 }
 
-                res.writeHead(404);
-                res.end('Not found');
+                // If user visits http://127.0.0.1:51121 directly from their browser, redirect to Google OAuth consent
+                const authData = nativeAntigravity.generateAuthUrl('http://localhost:51121/oauth-callback');
+                console.log('[QuotaOAuth] Direct visit: redirecting regular browser to Google OAuth consent URL...');
+                res.writeHead(302, { 'Location': authData.url });
+                res.end();
+                return;
             } catch (e) {
                 console.error('[QuotaOAuth] Handler error:', e);
                 res.writeHead(500);
@@ -1100,8 +1121,59 @@ ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, b
     }
 });
 
+// ============ NATIVE MUSE & IN-PROCESS GATEWAY IPC ============
+ipcMain.handle('muse:login', async () => {
+    try {
+        const res = await nativeMuse.openLoginWindow(mainWindow);
+        return res;
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('muse:status', async () => {
+    try {
+        return await nativeMuse.getStatus();
+    } catch (e) {
+        return { configured: false, error: e.message };
+    }
+});
+
+ipcMain.handle('muse:save-cookies', async (_e, cookies) => {
+    try {
+        await nativeMuse.saveMuseCookies(cookies);
+        await nativeMuse.renewSession();
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('muse:open-chrome-incognito', async () => {
+    try {
+        return nativeMuse.openExternalChromeIncognito('https://muse.ai/login');
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('native-gateway:status', async () => {
+    return {
+        port8317: true,
+        port18610: true,
+        googleAccounts: nativeAntigravity.getAccountsStatus(),
+        museStatus: await nativeMuse.getStatus()
+    };
+});
+
 // ============ APP LIFECYCLE ============
 app.whenReady().then(() => {
+    // Start Native In-Process Gateways (8317 & 18610)
+    try {
+        nativeGateway.startAll();
+    } catch (gwErr) {
+        console.error('[NativeGateway] Failed to start:', gwErr);
+    }
     // Intercept web requests to ensure Chrome headers and remove Electron markers
     if (session && session.defaultSession) {
         session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -1132,6 +1204,9 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+    try {
+        nativeGateway.stopAll();
+    } catch (e) { }
     if (localServer) {
         try { localServer.close(); } catch (e) { }
     }

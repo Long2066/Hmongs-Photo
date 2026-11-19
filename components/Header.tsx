@@ -10,6 +10,7 @@ interface HeaderProps {
     onHistoryClick: () => void;
     onBackFromProfile?: () => void;
     onApiKeyClick?: () => void;
+    onPackagesClick?: () => void;
     onQuotaStationClick?: () => void;
     onBotClick?: () => void;
     isHistoryVisible: boolean;
@@ -106,6 +107,7 @@ export const Header: React.FC<HeaderProps> = ({
     onHistoryClick,
     onBackFromProfile,
     onApiKeyClick,
+    onPackagesClick,
     onQuotaStationClick,
     onBotClick,
     isHistoryVisible,
@@ -215,6 +217,18 @@ export const Header: React.FC<HeaderProps> = ({
 
                         {/* GÓC PHẢI: Con bot AI lên đầu trang góc phải */}
                         <div className="flex items-center gap-2 flex-shrink-0">
+                            {/* Nút Cổng AI (Google & Muse) Mobile */}
+                            <button
+                                type="button"
+                                onClick={onApiKeyClick}
+                                aria-label="Cổng Tài khoản AI"
+                                className="min-h-[44px] px-2.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold"
+                                title="Quản lý Tài khoản AI (Google CLI & Muse)"
+                            >
+                                <span>⚡ Cổng AI</span>
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            </button>
+
                             {/* Nút Bot Hỗ trợ AI (Touch target 44x44px) */}
                             <button
                                 type="button"
@@ -297,12 +311,24 @@ export const Header: React.FC<HeaderProps> = ({
 
                         {/* User & Actions */}
                         <div className="flex items-center gap-2.5 flex-shrink-0">
-                            {/* Bánh răng Cấu hình */}
+                            {/* Nút Cổng Tài khoản AI (Google CLI & Muse) Desktop */}
                             <button
-                                onClick={onQuotaStationClick}
-                                title="Cấu hình & gói dịch vụ"
+                                onClick={onApiKeyClick}
+                                title="Quản lý Tài khoản AI (Google CLI & Muse)"
+                                className="h-10 px-3.5 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200/90 rounded-full transition-all shadow-xs active:scale-95 flex items-center gap-2 cursor-pointer text-xs font-bold"
+                                aria-label="Quản lý Tài khoản AI (Google CLI & Muse)"
+                            >
+                                <span className="text-sm">⚡</span>
+                                <span>Tài khoản AI</span>
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            </button>
+
+                            {/* Bánh răng Cấu hình & Gói dịch vụ */}
+                            <button
+                                onClick={onPackagesClick || onQuotaStationClick}
+                                title="Gói dịch vụ & quyền lợi"
                                 className="w-10 h-10 bg-white hover:bg-violet-50 text-slate-600 hover:text-violet-700 border border-slate-200/90 hover:border-violet-200 rounded-full transition-all shadow-xs active:scale-95 flex items-center justify-center relative group cursor-pointer"
-                                aria-label="Cấu hình & gói dịch vụ"
+                                aria-label="Gói dịch vụ & quyền lợi"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" className="w-5 h-5 group-hover:rotate-45 transition-transform duration-300">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
@@ -456,7 +482,7 @@ export const Header: React.FC<HeaderProps> = ({
                                 type="button"
                                 onClick={() => {
                                     setDrawerOpen(false);
-                                    onQuotaStationClick?.();
+                                    (onPackagesClick || onQuotaStationClick)?.();
                                 }}
                                 className="w-full min-h-[50px] p-3 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-200/80 hover:border-amber-300 text-left flex items-center justify-between shadow-2xs active:scale-[0.99] transition-all cursor-pointer group"
                             >
