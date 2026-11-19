@@ -173,6 +173,15 @@ function startMuseGateway(port = 18610) {
             return;
         }
 
+        // Video task polling status (GET /videos/:id or /v1/videos/:id)
+        if (req.method === 'GET' && (url.startsWith('/videos/') || url.startsWith('/v1/videos/') || url.startsWith('/tasks/videos/') || url.startsWith('/v1/tasks/videos/'))) {
+            const taskId = url.split('/').pop();
+            const task = nativeMuse.getTaskStatus(taskId);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(task));
+            return;
+        }
+
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: `Route not found: ${url}` } }));
     });

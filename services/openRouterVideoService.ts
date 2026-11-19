@@ -1138,6 +1138,14 @@ const executeMuseAiVideoCall = async (
     }
 
     const taskId = submitData?.id;
+    if (submitData?.status === 'succeeded' || submitData?.status === 'completed') {
+        const directUrl = submitData?.video_url || submitData?.result?.url || submitData?.output?.url;
+        if (directUrl) {
+            console.log('[MuseAI Video] Task completed immediately with direct URL:', directUrl);
+            return directUrl;
+        }
+    }
+
     if (!taskId) {
         throw new Error('Muse AI Gateway không trả về mã tác vụ (Task ID).');
     }

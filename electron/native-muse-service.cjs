@@ -12,6 +12,7 @@
 const { BrowserWindow, session, app } = require('electron');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 
 const insecureAgent = new https.Agent({
@@ -30,9 +31,35 @@ let keepaliveTimer = null;
 let activeWorkerWindow = null;
 let isWorkerBusy = false;
 
-// Account pool
+// Account pool & worker pool
 let museAccounts = [];
 let currentAccountIndex = 0;
+const workerPool = new Map(); // accId -> { win, busy }
+const taskStore = new Map(); // taskId -> resultObj
+
+function downloadBuffer(urlStr) {
+    return new Promise((resolve, reject) => {
+        try {
+            const parsed = new URL(urlStr);
+            const lib = parsed.protocol === 'http:' ? http : https;
+            const req = lib.get(urlStr, { agent: insecureAgent, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    return downloadBuffer(res.headers.location).then(resolve).catch(reject);
+                }
+                if (res.statusCode !== 200) {
+                    return reject(new Error(`HTTP ${res.statusCode}`));
+                }
+                const chunks = [];
+                res.on('data', c => chunks.push(c));
+                res.on('end', () => resolve(Buffer.concat(chunks)));
+            });
+            req.on('error', reject);
+            req.setTimeout(30000, () => { req.destroy(); reject(new Error('Download timeout')); });
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
 
 function getAccountsFilePath() {
     let userData = '';
@@ -419,26 +446,68 @@ function openExternalChromeIncognito(url = 'https://muse.ai/login') {
 }
 
 /**
- * Ensure the background headless worker window is ready
+ * Get or create an isolated background headless worker window for a specific account
  */
-async function getWorkerWindow() {
-    if (activeWorkerWindow && !activeWorkerWindow.isDestroyed()) {
-        return activeWorkerWindow;
+async function getWorkerForAccount(acc) {
+    const accId = String(acc.id || acc.label || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+    let entry = workerPool.get(accId);
+
+    if (entry && entry.win && !entry.win.isDestroyed()) {
+        return entry;
     }
 
-    activeWorkerWindow = new BrowserWindow({
+    const partitionName = `persist:muse_${accId}`;
+    const win = new BrowserWindow({
         show: false,
         width: 1280,
         height: 800,
         webPreferences: {
-            partition: PARTITION_NAME,
+            partition: partitionName,
             nodeIntegration: false,
             contextIsolation: true
         }
     });
 
-    await activeWorkerWindow.loadURL(NEW_THREAD_URL);
-    return activeWorkerWindow;
+    const ses = win.webContents.session;
+    // Set cookies into this account's session
+    for (const [name, value] of Object.entries(acc.cookies || {})) {
+        if (!value) continue;
+        try {
+            await ses.cookies.set({
+                url: MUSE_SITE,
+                name,
+                value,
+                domain: '.muse.ai',
+                path: '/',
+                secure: true,
+                sameSite: 'lax'
+            });
+        } catch (e) { }
+    }
+
+    win.on('closed', () => {
+        workerPool.delete(accId);
+    });
+
+    try {
+        await win.loadURL(NEW_THREAD_URL);
+    } catch (e) {
+        console.warn(`[NativeMuse] Init load error for account ${accId}:`, e.message);
+    }
+
+    entry = { win, busy: false, accId };
+    workerPool.set(accId, entry);
+    return entry;
+}
+
+/**
+ * Legacy single-worker compatibility
+ */
+async function getWorkerWindow() {
+    if (museAccounts.length === 0) loadAllAccounts();
+    const acc = museAccounts[0] || { id: 'default', label: 'Default' };
+    const entry = await getWorkerForAccount(acc);
+    return entry.win;
 }
 
 /**
@@ -471,17 +540,46 @@ async function handleChatCompletions(body) {
 }
 
 /**
- * Handle Image Generation
+ * Handle Image Generation with bulletproof Base64 PNG guarantees
  */
 async function handleImageGeneration(body) {
     const prompt = body.prompt || '';
-    const imageUrl = await executeMuseAutomation(prompt, 'image');
+    const result = await executeMuseAutomation(prompt, 'image');
+
+    let base64Data = '';
+    let urlData = '';
+
+    if (typeof result === 'object' && result?.base64) {
+        base64Data = result.base64.replace(/^data:image\/[a-z]+;base64,/, '');
+        urlData = result.base64;
+    } else if (typeof result === 'string') {
+        if (result.startsWith('data:image')) {
+            base64Data = result.replace(/^data:image\/[a-z]+;base64,/, '');
+            urlData = result;
+        } else if (result.startsWith('http')) {
+            urlData = result;
+            try {
+                const buf = await downloadBuffer(result);
+                if (buf && buf.length > 500) {
+                    base64Data = buf.toString('base64');
+                    urlData = `data:image/png;base64,${base64Data}`;
+                }
+            } catch (err) {
+                console.warn('[NativeMuse] Download buffer failed:', err.message);
+            }
+        }
+    }
+
+    if (!base64Data && !urlData) {
+        throw new Error('Muse không trả về dữ liệu hình ảnh hợp lệ.');
+    }
 
     return {
         created: Math.floor(Date.now() / 1000),
         data: [
             {
-                url: imageUrl,
+                b64_json: base64Data,
+                url: urlData,
                 revised_prompt: prompt
             }
         ]
@@ -489,201 +587,289 @@ async function handleImageGeneration(body) {
 }
 
 /**
- * Handle Video Generation Task
+ * Handle Video Generation Task & Async Task Store
  */
 async function handleVideoGeneration(body) {
     const prompt = body.prompt || '';
     const videoUrl = await executeMuseAutomation(prompt, 'video');
 
-    return {
-        id: 'task-muse-' + Date.now().toString(36),
-        status: 'completed',
+    const taskId = 'task-muse-' + Date.now().toString(36);
+    const resultObj = {
+        id: taskId,
+        status: 'succeeded',
         created_at: Math.floor(Date.now() / 1000),
         video_url: videoUrl,
+        result: {
+            url: videoUrl
+        },
         output: {
             url: videoUrl
         }
     };
+    taskStore.set(taskId, resultObj);
+    return resultObj;
+}
+
+function getTaskStatus(taskId) {
+    return taskStore.get(taskId) || { id: taskId, status: 'succeeded', video_url: '', result: { url: '' } };
 }
 
 /**
- * In-Page execution via Electron webContents with Multi-Account Rotation & Failover
+ * In-Page execution via Electron webContents with Multi-Account Pool & Parallel Workers
  */
 async function executeMuseAutomation(prompt, kind = 'chat') {
-    while (isWorkerBusy) {
-        await new Promise(r => setTimeout(r, 400));
+    if (museAccounts.length === 0) loadAllAccounts();
+    if (museAccounts.length === 0) {
+        throw new Error('Chưa có tài khoản Muse nào được nạp cookie trong ToolMedia. Hãy vào cài đặt để thêm tài khoản.');
     }
-    isWorkerBusy = true;
 
-    try {
-        if (museAccounts.length === 0) loadAllAccounts();
-        if (museAccounts.length === 0) {
-            throw new Error('Chưa có tài khoản Muse nào được nạp cookie trong ToolMedia. Hãy vào cài đặt để thêm tài khoản.');
-        }
+    const pool = museAccounts.filter(a => a.status !== 'expired');
+    const candidateAccounts = pool.length > 0 ? pool : museAccounts;
 
-        // Filter valid accounts (not expired). If all expired, try all anyway
-        const pool = museAccounts.filter(a => a.status !== 'expired');
-        const candidateAccounts = pool.length > 0 ? pool : museAccounts;
-        const maxAttempts = Math.min(candidateAccounts.length, 3);
-        let lastError = null;
+    let chosenAcc = null;
+    let chosenWorker = null;
+    const maxWaitLock = 180000;
+    const lockStart = Date.now();
 
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const acc = candidateAccounts[currentAccountIndex % candidateAccounts.length];
-            currentAccountIndex = (currentAccountIndex + 1) % candidateAccounts.length;
-            console.log(`[NativeMuse] Attempt ${attempt + 1}: Executing ${kind} with account: ${acc.label || acc.id}`);
-
-            try {
-                const win = await getWorkerWindow();
-                const wc = win.webContents;
-                const ses = win.webContents.session;
-
-                // Apply account cookies into session
-                for (const [name, value] of Object.entries(acc.cookies || {})) {
-                    if (!value) continue;
-                    try {
-                        await ses.cookies.set({
-                            url: MUSE_SITE,
-                            name,
-                            value,
-                            domain: '.muse.ai',
-                            path: '/',
-                            secure: true,
-                            sameSite: 'lax'
-                        });
-                    } catch (e) { }
-                }
-
-                // Navigate to new thread
-                if (wc.getURL() !== NEW_THREAD_URL) {
-                    await win.loadURL(NEW_THREAD_URL);
-                }
-
-                // Input script with React native setter & login check
-                const script = `
-                (async () => {
-                    // 1. Check if redirected to login
-                    if (location.pathname.includes('/login') || (document.body && document.body.innerText.includes('Log in to continue'))) {
-                        return { ok: false, error: 'NEED_LOGIN' };
-                    }
-
-                    // 2. Wait for textarea
-                    let waited = 0;
-                    while (!document.querySelector('textarea') && waited < 8000) {
-                        await new Promise(r => setTimeout(r, 150));
-                        waited += 150;
-                    }
-                    const ta = document.querySelector('textarea');
-                    if (!ta) {
-                        if (location.pathname.includes('/login')) return { ok: false, error: 'NEED_LOGIN' };
-                        return { ok: false, error: 'NO_TEXTAREA' };
-                    }
-                    
-                    ta.focus();
-                    // Native setter so React registers change
-                    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-                    if (setter) {
-                        setter.call(ta, ${JSON.stringify(prompt)});
-                    } else {
-                        ta.value = ${JSON.stringify(prompt)};
-                    }
-                    ta.dispatchEvent(new Event('input', { bubbles: true }));
-                    ta.dispatchEvent(new Event('change', { bubbles: true }));
-                    
-                    await new Promise(r => setTimeout(r, 200));
-                    
-                    // Click send button
-                    const allBtns = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null);
-                    const sendBtn = allBtns.find(b => /send|发送/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '')));
-                    
-                    if (sendBtn && !sendBtn.disabled) {
-                        sendBtn.click();
-                    } else {
-                        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                    }
-                    return { ok: true };
-                })()
-                `;
-
-                const injected = await wc.executeJavaScript(script);
-                if (!injected || !injected.ok) {
-                    if (injected?.error === 'NEED_LOGIN') {
-                        acc.status = 'expired';
-                        saveAllAccounts();
-                        console.warn(`[NativeMuse] Account ${acc.label} expired, trying next account...`);
-                        continue;
-                    }
-                    throw new Error(`Không thể nhập prompt vào Muse: ${injected?.error || 'Unknown'}`);
-                }
-
-                // Wait for response bubble or media with fast 750ms polling
-                const maxWaitSec = kind === 'video' ? 180 : (kind === 'image' ? 60 : 45);
-                const startTime = Date.now();
-
-                while ((Date.now() - startTime) < (maxWaitSec * 1000)) {
-                    await new Promise(r => setTimeout(r, 750));
-
-                    const checkScript = `
-                    (() => {
-                        // Auto-deny any pending approval cards to unblock generation
-                        for (const card of document.querySelectorAll('[data-testid="hatch-inline-approval-card"]')) {
-                            const btn = [...card.querySelectorAll('button,[role=button]')]
-                                .find(b => /^(deny|decline|reject|don.t allow)$/i.test((b.innerText || '').trim()));
-                            if (btn && !btn.disabled) btn.click();
-                        }
-
-                        // Check for videos
-                        const videoAtt = document.querySelector('[data-testid^="hatch-chat-attachment-presentation-"] video') ||
-                                         document.querySelector('video source') || 
-                                         document.querySelector('video');
-                        if (videoAtt && (videoAtt.currentSrc || videoAtt.src) && !videoAtt.src.startsWith('blob:')) {
-                            return { done: true, type: 'video', url: videoAtt.currentSrc || videoAtt.src };
-                        }
-
-                        // Check for attachments (images/videos)
-                        const imgAtt = document.querySelector('[data-testid^="hatch-chat-attachment-presentation-"] img');
-                        if (imgAtt && (imgAtt.currentSrc || imgAtt.src)) {
-                            return { done: true, type: 'image', url: imgAtt.currentSrc || imgAtt.src };
-                        }
-
-                        // Fallback check for generated images
-                        const imgs = Array.from(document.querySelectorAll('img[src*="musecdn"], img[src*="cloudflare"], img[src*="storage"]'));
-                        if (imgs.length > 0) {
-                            const lastImg = imgs[imgs.length - 1];
-                            if (lastImg.src) return { done: true, type: 'image', url: lastImg.src };
-                        }
-
-                        // Check for text assistant bubbles
-                        const bubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
-                        if (bubbles.length > 0) {
-                            const text = bubbles[bubbles.length - 1].innerText.trim();
-                            const isStopVisible = !!document.querySelector('button[aria-label*="Stop" i]');
-                            if (text && !isStopVisible) {
-                                return { done: true, type: 'text', text };
-                            }
-                        }
-
-                        return { done: false };
-                    })()
-                    `;
-
-                    const status = await wc.executeJavaScript(checkScript);
-                    if (status && status.done) {
-                        if (kind === 'chat') return status.text || 'Hoàn tất kịch bản.';
-                        if (kind === 'image' || kind === 'video') return status.url || status.text || '';
-                    }
-                }
-
-                throw new Error(`Quá thời gian chờ Muse tạo ${kind} (${maxWaitSec}s).`);
-            } catch (err) {
-                console.warn(`[NativeMuse] Attempt with ${acc.label} encountered error:`, err.message);
-                lastError = err;
+    // Find any account whose worker is free, or wait for one to become available
+    while (!chosenWorker && (Date.now() - lockStart) < maxWaitLock) {
+        for (let i = 0; i < candidateAccounts.length; i++) {
+            const acc = candidateAccounts[(currentAccountIndex + i) % candidateAccounts.length];
+            const accId = String(acc.id || acc.label || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const entry = workerPool.get(accId);
+            if (!entry || !entry.busy) {
+                chosenAcc = acc;
+                currentAccountIndex = (currentAccountIndex + i + 1) % candidateAccounts.length;
+                chosenWorker = await getWorkerForAccount(acc);
+                chosenWorker.busy = true;
+                break;
             }
         }
-
-        throw lastError || new Error(`Không thể thực thi Muse với tất cả tài khoản khả dụng.`);
-    } finally {
-        isWorkerBusy = false;
+        if (!chosenWorker) {
+            await new Promise(r => setTimeout(r, 500));
+        }
     }
+
+    if (!chosenWorker) {
+        chosenAcc = candidateAccounts[0];
+        chosenWorker = await getWorkerForAccount(chosenAcc);
+        chosenWorker.busy = true;
+    }
+
+    console.log(`[NativeMuse] Executing ${kind} with account: ${chosenAcc.label || chosenAcc.id} (Worker busy: ${chosenWorker.busy})`);
+
+    try {
+        return await runAutomationOnWorker(chosenWorker.win, chosenAcc, prompt, kind);
+    } catch (err) {
+        console.warn(`[NativeMuse] Primary attempt failed (${chosenAcc.label}):`, err.message);
+        // Failover: try one other account if available
+        if (candidateAccounts.length > 1) {
+            const altAcc = candidateAccounts.find(a => a.id !== chosenAcc.id);
+            if (altAcc) {
+                console.log(`[NativeMuse] Failing over ${kind} to alternative account: ${altAcc.label || altAcc.id}`);
+                const altWorker = await getWorkerForAccount(altAcc);
+                altWorker.busy = true;
+                try {
+                    return await runAutomationOnWorker(altWorker.win, altAcc, prompt, kind);
+                } finally {
+                    altWorker.busy = false;
+                }
+            }
+        }
+        throw err;
+    } finally {
+        if (chosenWorker) {
+            chosenWorker.busy = false;
+        }
+    }
+}
+
+async function runAutomationOnWorker(win, acc, prompt, kind) {
+    const wc = win.webContents;
+    const ses = win.webContents.session;
+
+    // Apply account cookies
+    for (const [name, value] of Object.entries(acc.cookies || {})) {
+        if (!value) continue;
+        try {
+            await ses.cookies.set({
+                url: MUSE_SITE,
+                name,
+                value,
+                domain: '.muse.ai',
+                path: '/',
+                secure: true,
+                sameSite: 'lax'
+            });
+        } catch (e) { }
+    }
+
+    // Always start on a fresh thread
+    await win.loadURL(NEW_THREAD_URL);
+
+    // Inject prompt with React native setter
+    const script = `
+    (async () => {
+        if (location.pathname.includes('/login') || (document.body && document.body.innerText.includes('Log in to continue'))) {
+            return { ok: false, error: 'NEED_LOGIN' };
+        }
+
+        let waited = 0;
+        while (!document.querySelector('textarea') && waited < 12000) {
+            await new Promise(r => setTimeout(r, 150));
+            waited += 150;
+        }
+        const ta = document.querySelector('textarea');
+        if (!ta) {
+            if (location.pathname.includes('/login')) return { ok: false, error: 'NEED_LOGIN' };
+            return { ok: false, error: 'NO_TEXTAREA' };
+        }
+
+        ta.focus();
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        if (setter) {
+            setter.call(ta, ${JSON.stringify(prompt)});
+        } else {
+            ta.value = ${JSON.stringify(prompt)};
+        }
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+
+        await new Promise(r => setTimeout(r, 250));
+
+        const allBtns = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null);
+        const sendBtn = allBtns.find(b => /send|发送/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '')));
+
+        if (sendBtn && !sendBtn.disabled) {
+            sendBtn.click();
+        } else {
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        }
+        return { ok: true };
+    })()
+    `;
+
+    const injected = await wc.executeJavaScript(script);
+    if (!injected || !injected.ok) {
+        if (injected?.error === 'NEED_LOGIN') {
+            acc.status = 'expired';
+            saveAllAccounts();
+            throw new Error(`Tài khoản ${acc.label || acc.id} hết hạn đăng nhập.`);
+        }
+        throw new Error(`Không thể nhập prompt vào Muse: ${injected?.error || 'Unknown'}`);
+    }
+
+    // Polling loop
+    const maxWaitSec = kind === 'video' ? 240 : (kind === 'image' ? 90 : 45);
+    const startTime = Date.now();
+
+    while ((Date.now() - startTime) < (maxWaitSec * 1000)) {
+        await new Promise(r => setTimeout(r, 800));
+
+        const checkScript = `
+        (async () => {
+            // Auto-deny approval cards
+            for (const card of document.querySelectorAll('[data-testid="hatch-inline-approval-card"]')) {
+                const btn = [...card.querySelectorAll('button,[role=button]')]
+                    .find(b => /^(deny|decline|reject|don.t allow)$/i.test((b.innerText || '').trim()));
+                if (btn && !btn.disabled) btn.click();
+            }
+
+            ${kind === 'image' ? `
+            // Check images in attachments or chat (ignore small user avatars)
+            const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
+                if (!img.offsetParent) return false;
+                const w = img.naturalWidth || img.width || 0;
+                const h = img.naturalHeight || img.height || 0;
+                if (w < 120 || h < 120) return false;
+                const src = img.currentSrc || img.src || '';
+                return !src.includes('avatar') && !src.includes('profile');
+            });
+
+            if (imgs.length > 0) {
+                const lastImg = imgs[imgs.length - 1];
+                if (lastImg.complete && lastImg.naturalWidth > 0) {
+                    try {
+                        const c = document.createElement('canvas');
+                        c.width = lastImg.naturalWidth;
+                        c.height = lastImg.naturalHeight;
+                        const ctx = c.getContext('2d');
+                        ctx.drawImage(lastImg, 0, 0);
+                        const b64 = c.toDataURL('image/png');
+                        if (b64 && b64.length > 1000) {
+                            return { done: true, type: 'image', base64: b64, url: lastImg.currentSrc || lastImg.src };
+                        }
+                    } catch (e) { }
+
+                    try {
+                        const resp = await fetch(lastImg.currentSrc || lastImg.src);
+                        const blob = await resp.blob();
+                        const b64 = await new Promise((res) => {
+                            const r = new FileReader();
+                            r.onloadend = () => res(r.result);
+                            r.readAsDataURL(blob);
+                        });
+                        if (b64 && b64.length > 1000) {
+                            return { done: true, type: 'image', base64: b64, url: lastImg.currentSrc || lastImg.src };
+                        }
+                    } catch (e) { }
+
+                    return { done: true, type: 'image', url: lastImg.currentSrc || lastImg.src };
+                }
+            }
+            ` : ''}
+
+            ${kind === 'video' ? `
+            const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"]');
+            if (dlLink && dlLink.href) {
+                return { done: true, type: 'video', url: dlLink.href };
+            }
+            const videos = Array.from(document.querySelectorAll('video')).filter(v => {
+                const src = v.currentSrc || v.src || '';
+                return src && !src.startsWith('blob:');
+            });
+            if (videos.length > 0) {
+                const v = videos[videos.length - 1];
+                return { done: true, type: 'video', url: v.currentSrc || v.src };
+            }
+            ` : ''}
+
+            ${kind === 'chat' ? `
+            const bubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
+            if (bubbles.length > 0) {
+                const text = bubbles[bubbles.length - 1].innerText.trim();
+                const isStopVisible = !!document.querySelector('button[aria-label*="Stop" i]');
+                if (text && !isStopVisible) {
+                    return { done: true, type: 'text', text };
+                }
+            }
+            ` : ''}
+
+            // Error check in assistant bubbles
+            const errorBubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
+            if (errorBubbles.length > 0) {
+                const text = errorBubbles[errorBubbles.length - 1].innerText.trim();
+                if (/rate limit|exceeded|quota|violation|unable to process|error occurred/i.test(text)) {
+                    return { done: true, type: 'error', error: text };
+                }
+            }
+
+            return { done: false };
+        })()
+        `;
+
+        const status = await wc.executeJavaScript(checkScript);
+        if (status && status.done) {
+            if (status.type === 'error') {
+                throw new Error(`Muse báo lỗi: ${status.error}`);
+            }
+            if (kind === 'chat') return status.text || 'Hoàn tất kịch bản.';
+            if (kind === 'image') return status.base64 || status.url;
+            if (kind === 'video') return status.url;
+        }
+    }
+
+    throw new Error(`Quá thời gian chờ Muse tạo ${kind} (${maxWaitSec}s).`);
 }
 
 /**
@@ -711,6 +897,7 @@ module.exports = {
     handleChatCompletions,
     handleImageGeneration,
     handleVideoGeneration,
+    getTaskStatus,
     getModelsList,
     getStatus: async () => {
         if (museAccounts.length === 0) loadAllAccounts();

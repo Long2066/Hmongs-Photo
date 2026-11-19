@@ -1940,6 +1940,34 @@ CRITICAL RULES:
         }
     }
 
+    // Automatic fallback to local Muse in-process gateway (18610) if port 8317 candidates returned no image
+    try {
+        console.log('[CLIProxyAPI] Attempting fallback to local Muse Gateway (18610)...');
+        const musePayload: Record<string, any> = {
+            model: 'muse-image',
+            prompt: combinedPrompt,
+            size: ratio,
+            n: 1,
+            response_format: 'b64_json'
+        };
+        const respMuse = await fetchWithTimeout('http://127.0.0.1:18610/v1/images/generations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: abortSignal,
+            body: JSON.stringify(musePayload)
+        }, 120000);
+        if (respMuse.ok) {
+            const parsedMuse = await parseNineRouterResponse(respMuse);
+            const museImage = await extractAnyImageFromResponse(parsedMuse);
+            if (museImage) {
+                console.log('[CLIProxyAPI] Successfully generated image via Muse fallback');
+                return museImage;
+            }
+        }
+    } catch (museFbErr) {
+        console.warn('[CLIProxyAPI] Muse fallback failed:', museFbErr);
+    }
+
     if (lastError) {
         throw lastError;
     }
