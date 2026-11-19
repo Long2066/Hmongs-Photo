@@ -15,8 +15,8 @@ export { canFallbackToTextOnlyImageGeneration };
 // --- Constants ---
 const DEFAULT_NINEROUTER_URL = 'http://127.0.0.1:8317/v1';
 const DEFAULT_NINEROUTER_API_KEY = '123456';
-const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
-const DEFAULT_TEXT_MODEL = 'claude-opus-5-5-high';
+const DEFAULT_IMAGE_MODEL = 'muse-image';
+const DEFAULT_TEXT_MODEL = 'gemini-3.8-flash-high';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -74,40 +74,13 @@ export interface SupportedTextModel {
 
 export const SUPPORTED_TEXT_MODELS: SupportedTextModel[] = [
     {
-        id: 'claude-opus-5-5-high',
-        name: 'Claude Opus 5.5 (High)',
-        shortName: 'Opus 5.5',
-        tag: 'Ưu tiên 1 - Cao cấp nhất',
-        tagColor: 'purple',
-        description: 'Mô hình văn bản cao cấp nhất, sáng tạo prompt thời trang K-Pop Idol & văn hóa H\'Mông chuẩn điện ảnh',
-        priority: 1
-    },
-    {
-        id: 'gpt-6.1-terra',
-        name: 'ChatGPT 6.1 Terra',
-        shortName: 'GPT 6.1 Terra',
-        tag: 'Ưu tiên 2 - Siêu tốc & Chiều sâu',
-        tagColor: 'blue',
-        description: 'Mô hình OpenAI 6.1 cân bằng hoàn hảo giữa chiều sâu prompt điện ảnh và tốc độ tức thì',
-        priority: 2
-    },
-    {
-        id: 'gemini-4-argon-high',
-        name: 'Gemini 4 Argon (High)',
-        shortName: 'Gemini 4 Argon',
-        tag: 'Ưu tiên 3 - Google',
-        tagColor: 'emerald',
-        description: 'Mô hình suy luận tốc độ cao của Google, phân tích chi tiết hoa văn và bối cảnh chân thực',
-        priority: 3
-    },
-    {
-        id: 'gemini-3.8-flash',
-        name: 'Gemini 3.8 Flash',
-        shortName: 'Gemini 3.8 Flash',
-        tag: 'Ưu tiên 4 - Phao cứu sinh',
+        id: 'gemini-3.8-flash-high',
+        name: 'Gemini 3.8 Flash High',
+        shortName: 'Gemini 3 Flash High',
+        tag: 'Mặc định - Siêu tốc & Thông minh',
         tagColor: 'amber',
-        description: 'Mô hình siêu tốc độ, hạn mức dồi dào, đảm bảo 100% không bao giờ gặp lỗi gián đoạn',
-        priority: 4
+        description: 'Mô hình Google Gemini 3.8 Flash High siêu tốc độ qua CLIProxy, tạo prompt và tư vấn tức thì',
+        priority: 1
     }
 ];
 
@@ -124,68 +97,14 @@ export interface SupportedImageModel {
 
 export const SUPPORTED_IMAGE_MODELS: SupportedImageModel[] = [
     {
-        id: 'gemini-3.1-flash-image',
-        name: 'Gemini 3.1 Flash (Chuẩn ảnh mẫu)',
-        shortName: 'Gemini 3.1 Flash',
-        tag: 'Khuyên dùng - Chuẩn ảnh mẫu',
-        tagColor: 'emerald',
-        description: 'Tốc độ 5-10s, chuẩn ảnh tham chiếu, tạo visual Idol Hàn Quốc khoác 100% trang phục thổ cẩm H’Mông',
-        speed: 'fast',
-        isDefault: true
-    },
-    {
-        id: 'gpt-image-2.5',
-        name: 'GPT Image 2.5 (OpenAI)',
-        shortName: 'GPT Image 2.5',
-        tag: 'OpenAI - Cao cấp',
-        tagColor: 'blue',
-        description: 'Model GPT mới nhất, tạo visual Idol Hàn Quốc & sao chép trang phục H\'Mông sắc nét 8K',
-        speed: 'fast'
-    },
-    {
-        id: 'gpt-image-2.5-flare',
-        name: 'GPT Image 2.5 Flare',
-        shortName: 'GPT 2.5 Flare',
-        tag: 'Hiệu ứng Flare',
-        tagColor: 'indigo',
-        description: 'Tăng cường hiệu ứng ánh sáng nghệ thuật flare rực rỡ, chiều sâu ảnh cao',
-        speed: 'fast'
-    },
-    {
-        id: 'gpt-image-2.5-sunburst',
-        name: 'GPT Image 2.5 Sunburst',
-        shortName: 'GPT 2.5 Sunburst',
-        tag: 'Ánh nắng Sunburst',
-        tagColor: 'amber',
-        description: 'Tông màu điện ảnh, ánh sáng mặt trời tự nhiên ấm áp và sống động',
-        speed: 'fast'
-    },
-    {
-        id: 'gpt-image-2',
-        name: 'GPT Image 2',
-        shortName: 'GPT Image 2',
-        tag: 'Ổn định cao',
-        tagColor: 'blue',
-        description: 'Phiên bản ổn định cao, tái tạo trang phục và chi tiết mượt mà',
-        speed: 'medium'
-    },
-    {
-        id: 'gpt-image-1.5',
-        name: 'GPT Image 1.5',
-        shortName: 'GPT Image 1.5',
-        tag: 'Tốc độ - Tiết kiệm',
-        tagColor: 'purple',
-        description: 'Tốc độ tạo nhanh, tiết kiệm quota, phù hợp tạo thử nghiệm và xem trước',
-        speed: 'fast'
-    },
-    {
         id: 'muse-image',
         name: 'Muse AI Image (muse-image)',
         shortName: 'Muse Image',
-        tag: 'Muse AI Gateway',
+        tag: 'Mặc định - Đa tài khoản',
         tagColor: 'purple',
-        description: 'Tạo ảnh & kết hợp trang phục qua Gateway Muse AI (cấu hình trên Admin Panel)',
-        speed: 'fast'
+        description: 'Tạo ảnh & kết hợp trang phục qua Gateway Muse AI với 5 tài khoản luân phiên',
+        speed: 'fast',
+        isDefault: true
     }
 ];
 
@@ -1053,28 +972,31 @@ export interface ChatResponseResult {
 
 /**
  * Maps logical text model IDs to the exact active upstream models on CLIProxyAPI.
- * Chuỗi 4 mô hình luân phiên chuẩn theo đúng cấu hình hệ thống:
- * ① Ưu tiên 1: Claude Opus 5.5 (High) (claude-opus-5-5-high)
- * ② Ưu tiên 2: ChatGPT 6.1 Sol (gpt-6.1-sol)
- * ③ Ưu tiên 3: Gemini 4 Argon (gemini-4-argon-high / gemini-4-argon)
- * ④ Ưu tiên 4: Gemini 3.8 Flash (gemini-3.8-flash-high / gemini-3.8-flash / gemini-3-flash)
+ * Mặc định ưu tiên Gemini 3.8 Flash High từ CLIProxy (Port 8317).
  */
 export const mapTextModelToCandidates = (preferred?: string): string[] => {
     const raw = (preferred || '').trim();
     const clean = raw.replace(/^openrouter\//i, '').replace(/^ag\//i, '').trim();
 
-    // Nếu chọn Auto hoặc chọn Claude Opus 5.5: Luân phiên đúng theo 4 bậc Ưu tiên 1 -> 2 -> 3 -> 4
-    if (!clean || clean === 'auto' || clean.includes('opus')) {
+    // Mặc định hoặc Auto hoặc Gemini Flash: Ưu tiên Gemini 3.8 Flash High -> Flash -> 2.5 Flash
+    if (!clean || clean === 'auto' || clean.includes('flash') || clean.includes('gemini') || clean.includes('3.8')) {
         return [
-            'claude-opus-5-5-high',
-            'gpt-6.1-terra',
-            'gpt-6-astra',
-            'gpt-6.1-terra',
-            'gemini-4-argon-high',
-            // gemini-4-argon removed: CLIProxyAPI requires gemini-4-argon-high
             'gemini-3.8-flash-high',
             'gemini-3.8-flash',
-            'gemini-3-flash'
+            'gemini-3-flash',
+            'gemini-2.5-flash',
+            'claude-opus-5-5-high',
+            'gpt-6.1-terra'
+        ];
+    }
+
+    // Nếu chọn Claude Opus 5.5
+    if (clean.includes('opus')) {
+        return [
+            'claude-opus-5-5-high',
+            'gemini-3.8-flash-high',
+            'gemini-3.8-flash',
+            'gpt-6.1-terra'
         ];
     }
 

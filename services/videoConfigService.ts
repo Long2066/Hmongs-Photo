@@ -22,94 +22,26 @@ export interface VideoModelMetadata {
 }
 
 /**
- * Danh sách các Mô hình Video AI trên Vivix Chính chủ, Idea.ai & OpenRouter
+ * Danh sách các Mô hình Video AI trên Muse AI Gateway
  * Hỗ trợ đầy đủ cả 3 tỷ lệ 9:16, 16:9, 1:1 và cho phép tạo từ ảnh chân dung người thật
  */
 export const OPENROUTER_VIDEO_MODELS: VideoModelMetadata[] = [
-    {
-        id: 'vivix.ai/vivix-w1',
-        provider: 'vivix_ai',
-        providerLabel: 'Vivix Chính chủ',
-        name: 'Vivix W1 real',
-        shortName: 'Vivix W1 real',
-        badge: 'Chính chủ',
-        badgeColor: 'indigo',
-        description: 'Chạy thẳng qua máy chủ chính chủ Vivix (api.vivix.ai), hỗ trợ I2V & T2V, đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [5, 10, 15],
-        defaultResolution: '720p',
-        supportsAudio: false,
-        costPerSecondVnd: 100,
-        baseInputFeeVnd: 0,
-        priceLabel: '~500đ (5s) • ~1.000đ (10s)'
-    },
-    {
-        id: 'idea.ai/vivix_w1',
-        provider: 'idea_ai',
-        providerLabel: 'idea.ai',
-        name: 'Vivix W1 T',
-        shortName: 'Vivix W1 T',
-        badge: '260 Coins',
-        badgeColor: 'violet',
-        description: 'Chạy qua idea.ai, hỗ trợ cả Ảnh sang Video (I2V) & Văn bản (T2V), đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [5, 10, 15],
-        defaultResolution: '720p',
-        supportsAudio: false,
-        costPerSecondVnd: 400,
-        baseInputFeeVnd: 0,
-        priceLabel: '~2.000đ (5s) • ~4.000đ (10s)'
-    },
-    {
-        id: 'x-ai/grok-imagine-video-1.5-lite',
-        provider: 'openrouter',
-        providerLabel: 'OpenRouter',
-        name: 'Grok video',
-        shortName: 'Grok video',
-        badge: '~510đ/s',
-        badgeColor: 'emerald',
-        description: 'Tốc độ nhanh qua OpenRouter, hỗ trợ đủ 9:16 / 16:9 / 1:1 và thời lượng 3s–15s.',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [3, 5, 10, 15],
-        defaultResolution: '480p',
-        supportsAudio: false,
-        costPerSecondVnd: 560, // $0.02/s + 10% markup
-        baseInputFeeVnd: 280,  // $0.01/image + 10% markup
-        priceLabel: '~2.000đ (3s) • ~3.100đ (5s)'
-    },
-    {
-        id: 'alibaba/wan-3.0',
-        provider: 'openrouter',
-        providerLabel: 'OpenRouter',
-        name: 'Wan 3.0',
-        shortName: 'Wan 3.0',
-        badge: 'Có Audio',
-        badgeColor: 'amber',
-        description: 'Tối ưu khuôn mặt Á Đông, tích hợp âm thanh gốc sống động, hỗ trợ 3s–15s.',
-        supportedAspectRatios: ['16:9', '9:16', '1:1'],
-        supportedDurations: [3, 5, 10, 15],
-        defaultResolution: '480p',
-        supportsAudio: true,
-        costPerSecondVnd: 1400, // $0.05/s + 10% markup
-        baseInputFeeVnd: 0,
-        priceLabel: '~4.200đ (3s) • ~7.000đ (5s)'
-    },
     {
         id: 'muse.ai/muse-video',
         provider: 'muse_ai',
         providerLabel: 'Muse AI Gateway',
         name: 'Muse Video AI',
         shortName: 'Muse Video AI',
-        badge: 'Muse AI',
+        badge: 'Muse AI (5 Acc)',
         badgeColor: 'violet',
-        description: 'Chạy qua Gateway muse2api (127.0.0.1:18610), hỗ trợ I2V & T2V, đủ tỷ lệ 9:16 / 16:9 / 1:1 (5s–15s).',
+        description: 'Chạy qua Gateway Muse AI cục bộ (127.0.0.1:18610), luân phiên 5 tài khoản, tạo video 5s–15s.',
         supportedAspectRatios: ['16:9', '9:16', '1:1'],
         supportedDurations: [5, 10, 15],
         defaultResolution: '720p',
         supportsAudio: false,
-        costPerSecondVnd: 200,
+        costPerSecondVnd: 0,
         baseInputFeeVnd: 0,
-        priceLabel: '~1.000đ (5s) • ~2.000đ (10s)'
+        priceLabel: 'Miễn phí trong Tool'
     }
 ];
 
@@ -188,8 +120,8 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     museAiEnabled: true,
     museAiBaseUrl: 'http://127.0.0.1:18610/v1',
     museAiApiKey: 'm2a-QLC1SthwZ5ET3IcvOToDVlvql-LwrXGG',
-    primaryModel: 'vivix.ai/vivix-w1',
-    fallbackModel: 'idea.ai/vivix_w1',
+    primaryModel: 'muse.ai/muse-video',
+    fallbackModel: 'muse.ai/muse-video',
     pricePerVideoVnd: 2000,
     costPerVideoVnd: 1785,
     profitMarkupPercent: 10,

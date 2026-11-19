@@ -402,9 +402,10 @@ export const SupportHub: React.FC<SupportHubProps> = ({
     // Selected text model for chatbot responses
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         try {
-            return localStorage.getItem(SUPPORT_BOT_MODEL_STORAGE_KEY) || 'auto';
+            const saved = localStorage.getItem(SUPPORT_BOT_MODEL_STORAGE_KEY);
+            return (saved && saved !== 'auto') ? saved : 'gemini-3.8-flash-high';
         } catch {
-            return 'auto';
+            return 'gemini-3.8-flash-high';
         }
     });
     const [showModelMenu, setShowModelMenu] = useState(false);
@@ -786,19 +787,12 @@ export const SupportHub: React.FC<SupportHubProps> = ({
                             </div>
                         </div>
 
-                        {/* Header Actions: Model Selector & Controls */}
+                        {/* Header Actions: Model Badge & Controls */}
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {/* Model Selector Pill */}
-                            <button
-                                onClick={() => setShowModelMenu(!showModelMenu)}
-                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 border border-white/20 text-xs font-medium text-white transition-all max-w-[125px] truncate"
-                                title="Chọn model AI sinh text trả lời"
-                            >
-                                <span className="truncate">{currentModelInfo.shortName}</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={`w-3 h-3 transition-transform ${showModelMenu ? 'rotate-180' : ''}`}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                </svg>
-                            </button>
+                            {/* Bot Model Badge */}
+                            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/15 border border-white/20 text-[11px] font-semibold text-white select-none">
+                                <span>✦ Gemini 3 Flash High</span>
+                            </div>
 
                             {/* Clear Chat Button */}
                             <button
@@ -823,95 +817,6 @@ export const SupportHub: React.FC<SupportHubProps> = ({
                             </button>
                         </div>
                     </div>
-
-                    {/* Model Dropdown Menu */}
-                    {showModelMenu && (
-                        <div className="absolute top-[52px] left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 p-3 shadow-xl animate-fade-in">
-                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
-                                <div>
-                                    <h4 className="text-xs font-bold text-slate-800">Chọn Model Sinh Text Trả Lời</h4>
-                                    <p className="text-[10px] text-slate-500">Mô hình AI sẽ phân tích và giải đáp thắc mắc</p>
-                                </div>
-                                <button
-                                    onClick={() => setShowModelMenu(false)}
-                                    className="text-slate-400 hover:text-slate-600 text-xs px-1.5 py-0.5 rounded"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-
-                            <div className="space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar pr-1">
-                                {/* Option: Auto Routing */}
-                                <button
-                                    onClick={() => handleSelectModel('auto')}
-                                    className={`w-full text-left p-2 rounded-xl border transition-all flex items-start gap-2.5 ${selectedModel === 'auto'
-                                        ? 'bg-indigo-50/80 border-indigo-400 ring-1 ring-indigo-400/30'
-                                        : 'bg-white border-slate-200/80 hover:bg-slate-50 hover:border-indigo-200'
-                                        }`}
-                                >
-                                    <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
-                                        ✦
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-bold text-slate-800 truncate">Tự động (Auto Khuyên dùng)</span>
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-emerald-100 text-emerald-700">Tối ưu</span>
-                                        </div>
-                                        <p className="text-[11px] text-slate-500 line-clamp-1">
-                                            Tự động ưu tiên Claude Opus 5.5 → GPT 6.1 → Gemini 4, đảm bảo 100% luôn phản hồi
-                                        </p>
-                                    </div>
-                                    {selectedModel === 'auto' && (
-                                        <span className="text-indigo-600 font-bold text-xs mt-1">✓</span>
-                                    )}
-                                </button>
-
-                                {/* Supported Text Models from nineRouterService */}
-                                {SUPPORTED_TEXT_MODELS.map((model: SupportedTextModel) => {
-                                    const isSelected = selectedModel === model.id;
-                                    const getBadgeStyle = (color: string) => {
-                                        switch (color) {
-                                            case 'purple': return 'bg-purple-100 text-purple-700 border-purple-200';
-                                            case 'blue': return 'bg-blue-100 text-blue-700 border-blue-200';
-                                            case 'emerald': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-                                            case 'amber': return 'bg-amber-100 text-amber-800 border-amber-200';
-                                            default: return 'bg-slate-100 text-slate-700 border-slate-200';
-                                        }
-                                    };
-
-                                    return (
-                                        <button
-                                            key={model.id}
-                                            onClick={() => handleSelectModel(model.id)}
-                                            className={`w-full text-left p-2 rounded-xl border transition-all flex items-start gap-2.5 ${isSelected
-                                                ? 'bg-indigo-50/80 border-indigo-400 ring-1 ring-indigo-400/30'
-                                                : 'bg-white border-slate-200/80 hover:bg-slate-50 hover:border-indigo-200'
-                                                }`}
-                                        >
-                                            <div className={`w-6 h-6 rounded-lg text-white flex items-center justify-center text-xs flex-shrink-0 mt-0.5 ${model.priority === 1 ? 'bg-purple-600' :
-                                                model.priority === 2 ? 'bg-blue-600' :
-                                                    model.priority === 3 ? 'bg-emerald-600' : 'bg-amber-600'
-                                                }`}>
-                                                {model.priority === 1 ? '⚡' : model.priority === 2 ? '🤖' : model.priority === 3 ? '🔷' : '⭐'}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center justify-between gap-1">
-                                                    <span className="text-xs font-bold text-slate-800 truncate">{model.name}</span>
-                                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-medium border truncate ${getBadgeStyle(model.tagColor)}`}>
-                                                        {model.tag.split('-')[0].trim()}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[11px] text-slate-500 line-clamp-1">{model.description}</p>
-                                            </div>
-                                            {isSelected && (
-                                                <span className="text-indigo-600 font-bold text-xs mt-1">✓</span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
 
                     {/* Chat Messages Area */}
                     <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar bg-slate-50/60">

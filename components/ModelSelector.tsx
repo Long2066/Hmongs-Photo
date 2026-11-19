@@ -228,227 +228,59 @@ export const ModelSelector: React.FC<ModelSelectorProps> = memo(({
         setCustomModelInput('');
     }, [customModelInput, checkIsLocked, effectivePlan, plansConfig, onModelChange]);
 
-    const activeModelIsPaid = checkIsPaid(selectedModel);
-    const freeDailyLimit = plansConfig.free.dailyFreeLimit;
     const effectivePlanCfg = plansConfig[effectivePlan] || plansConfig.free;
     const maxPlanRes = effectivePlanCfg.maxResolution;
 
+    if (!showResolution) {
+        return null;
+    }
+
     return (
         <div className={`space-y-3.5 ${className}`}>
-            {/* Header: Title & Dynamic Free/Paid Status Badge */}
+            {/* Resolution Selection */}
             <div>
                 <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Model Tạo Ảnh
+                        Độ phân giải xuất ra
                     </label>
-                    <span className="text-[11px] font-semibold">
-                        {effectivePlan === 'free' && !activeModelIsPaid ? (
-                            <span className="text-emerald-700 font-mono tabular-nums">Miễn phí • Còn {freeRemaining}/{freeDailyLimit} ảnh hôm nay</span>
-                        ) : (
-                            <span className="text-indigo-700 font-mono tabular-nums">
-                                {effectivePlan === 'free'
-                                    ? 'Cần nâng cấp gói'
-                                    : `${effectivePlanCfg.name} • ${effectivePlanCfg.unlimitedImages ? 'Không giới hạn' : 'Dùng lượt trong gói'}`}
-                            </span>
-                        )}
-                    </span>
-                </div>
-
-                {/* Collapsible Dropdown Selector */}
-                <div className={`relative ${isOpen ? 'z-40' : 'z-10'}`} ref={dropdownRef}>
-                    <button
-                        type="button"
-                        onClick={() => setIsOpen(prev => !prev)}
-                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left bg-white border transition-all duration-150 shadow-xs group select-none cursor-pointer min-h-[44px] ${
-                            isOpen
-                                ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-sm'
-                                : 'border-slate-300/90 ring-1 ring-slate-900/5 hover:border-slate-400 hover:bg-slate-50/80'
-                        }`}
-                        aria-expanded={isOpen}
-                    >
-                        <div className="flex items-center gap-2 truncate min-w-0">
-                            <span className="text-xs sm:text-[13px] font-semibold text-slate-800 truncate">
-                                {currentModelObj ? currentModelObj.name : selectedModel.replace('ag/', '').replace('openrouter/', '')}
-                            </span>
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 uppercase tracking-wider ${
-                                !activeModelIsPaid
-                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                            }`}>
-                                {effectivePlan !== 'free' ? 'Trong gói' : !activeModelIsPaid ? 'Miễn phí' : 'Cần gói'}
-                            </span>
-                        </div>
-
-                        <svg
-                            className={`w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
-
-                    {/* Floating Dropdown Overlay */}
-                    {isOpen && (
-                        <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl ring-1 ring-slate-900/5 p-1 z-50 animate-fade-in">
-                            <div className="max-h-[250px] overflow-y-auto custom-scrollbar space-y-0.5">
-                                {SUPPORTED_IMAGE_MODELS.map((model) => {
-                                    const isSelected = selectedModel === model.id;
-                                    const isPaid = checkIsPaid(model.id);
-                                    const isLocked = checkIsLocked(model.id);
-
-                                    return (
-                                        <button
-                                            key={model.id}
-                                            type="button"
-                                            disabled={isLocked}
-                                            onClick={() => handleSelectModel(model.id)}
-                                            className={`w-full px-3 py-2 rounded-lg text-left transition-all flex items-center justify-between gap-2 min-h-[40px] ${
-                                                isLocked
-                                                    ? 'opacity-45 cursor-not-allowed bg-slate-50/70 select-none'
-                                                    : isSelected
-                                                        ? 'bg-indigo-50 text-indigo-700 font-bold cursor-pointer'
-                                                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100/70 font-medium cursor-pointer'
-                                            }`}
-                                            title={isLocked ? 'Model này không thuộc gói hiện tại' : model.description}
-                                        >
-                                            <div className="flex items-center gap-2 truncate min-w-0">
-                                                <span className="text-xs truncate">
-                                                    {model.name}
-                                                </span>
-                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 uppercase tracking-wider ${
-                                                    isLocked
-                                                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                                        : !isPaid
-                                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                                                }`}>
-                                                    {isLocked
-                                                        ? (effectivePlan === 'plus' ? 'Cần Gói Pro' : 'Cần gói')
-                                                        : effectivePlan !== 'free'
-                                                            ? 'Trong gói'
-                                                            : !isPaid
-                                                                ? 'Miễn phí'
-                                                                : 'Cần gói'}
-                                                </span>
-                                            </div>
-
-                                            {isLocked ? (
-                                                <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                                </svg>
-                                            ) : isSelected ? (
-                                                <svg className="w-4 h-4 text-indigo-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                                </svg>
-                                            ) : null}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Optional Custom Model Input Box */}
-                            <div className="border-t border-slate-100 mt-1 pt-1 px-1">
-                                {!showCustomInput ? (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setShowCustomInput(true);
-                                        }}
-                                        className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50/70 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                                    >
-                                        <span className="text-sm leading-none font-bold">+</span>
-                                        <span>Nhập ID model khác...</span>
-                                    </button>
-                                ) : (
-                                    <div className="p-1 flex gap-1.5 animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                                        <input
-                                            type="text"
-                                            value={customModelInput}
-                                            onChange={(e) => setCustomModelInput(e.target.value)}
-                                            onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCustomModel(); }}
-                                            placeholder="vd: gpt-image-2.5, gpt-image-1.5..."
-                                            className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 outline-none focus:border-indigo-600 focus:bg-white"
-                                            autoFocus
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={handleApplyCustomModel}
-                                            className="px-2.5 py-1 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer"
-                                        >
-                                            Lưu
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                    {maxPlanRes !== '4K' && !isAdmin() && (
+                        <span className="text-[10px] font-semibold text-slate-500">
+                            Tối đa {maxPlanRes} ({effectivePlanCfg.name})
+                        </span>
                     )}
                 </div>
+                <div className="flex gap-2">
+                    {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map((res) => {
+                        const isSelected = selectedRes === res;
+                        const isLockedRes = !isAdmin() && !isResolutionAllowedByConfig(res, effectivePlan, plansConfig);
+                        const plusUnlocks = plansConfig.plus.enabled && isResolutionAllowedByConfig(res, 'plus', plansConfig);
+                        const unlockBadge = plusUnlocks ? 'Plus' : 'Pro';
+
+                        return (
+                            <button
+                                key={res}
+                                type="button"
+                                onClick={() => handleResolutionChange(res)}
+                                title={isLockedRes ? `Nâng cấp ${plusUnlocks ? plansConfig.plus.name : plansConfig.pro.name} để mở khóa độ phân giải ${res}` : `Độ phân giải ${res}`}
+                                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 min-h-[38px] ${
+                                    isLockedRes
+                                        ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
+                                        : isSelected
+                                            ? 'bg-indigo-600 text-white border border-indigo-700 shadow-xs cursor-pointer'
+                                            : 'bg-white border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-400 shadow-xs cursor-pointer'
+                                }`}
+                            >
+                                <span>{res}</span>
+                                {isLockedRes && (
+                                    <span className="text-[9px] font-semibold px-1 py-0.2 bg-slate-200 text-slate-600 rounded uppercase tracking-wider">
+                                        {unlockBadge}
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
-
-            {/* Inline error banner instead of blocking alert */}
-            {selectionError && (
-                <div role="alert" className="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-[11px] font-medium text-amber-900 flex items-start justify-between gap-2">
-                    <span>{selectionError}</span>
-                    <button
-                        type="button"
-                        onClick={() => setSelectionError(null)}
-                        aria-label="Đóng thông báo"
-                        className="text-amber-700 hover:text-amber-900 font-bold leading-none px-1 cursor-pointer"
-                    >
-                        ×
-                    </button>
-                </div>
-            )}
-
-            {/* Resolution Selection */}
-            {showResolution && (
-                <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
-                            Độ phân giải xuất ra
-                        </label>
-                        {maxPlanRes !== '4K' && !isAdmin() && (
-                            <span className="text-[10px] font-semibold text-slate-500">
-                                Tối đa {maxPlanRes} ({effectivePlanCfg.name})
-                            </span>
-                        )}
-                    </div>
-                    <div className="flex gap-2">
-                        {(['HD', 'FHD', '2K', '4K'] as ResolutionType[]).map((res) => {
-                            const isSelected = selectedRes === res;
-                            const isLockedRes = !isAdmin() && !isResolutionAllowedByConfig(res, effectivePlan, plansConfig);
-                            const plusUnlocks = plansConfig.plus.enabled && isResolutionAllowedByConfig(res, 'plus', plansConfig);
-                            const unlockBadge = plusUnlocks ? 'Plus' : 'Pro';
-
-                            return (
-                                <button
-                                    key={res}
-                                    type="button"
-                                    onClick={() => handleResolutionChange(res)}
-                                    title={isLockedRes ? `Nâng cấp ${plusUnlocks ? plansConfig.plus.name : plansConfig.pro.name} để mở khóa độ phân giải ${res}` : `Độ phân giải ${res}`}
-                                    className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 min-h-[38px] ${
-                                        isLockedRes
-                                            ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
-                                            : isSelected
-                                                ? 'bg-indigo-600 text-white border border-indigo-700 shadow-xs cursor-pointer'
-                                                : 'bg-white border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-400 shadow-xs cursor-pointer'
-                                    }`}
-                                >
-                                    <span>{res}</span>
-                                    {isLockedRes && (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 bg-slate-200 text-slate-600 rounded uppercase tracking-wider">
-                                            {unlockBadge}
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
         </div>
     );
 });

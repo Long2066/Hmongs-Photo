@@ -1451,7 +1451,7 @@ export const generateBatchPromptsText = async (
             try {
                 const result = await antigravityService.generateTextViaAntigravity(
                     userTaskPrompt,
-                    'claude-opus-5-5-high',
+                    'gemini-3.8-flash-high',
                     systemInstruction,
                 );
                 if (result) return result;

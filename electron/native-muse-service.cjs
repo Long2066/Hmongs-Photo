@@ -544,7 +544,8 @@ async function handleChatCompletions(body) {
  */
 async function handleImageGeneration(body) {
     const prompt = body.prompt || '';
-    const result = await executeMuseAutomation(prompt, 'image');
+    const image = body.image || (Array.isArray(body.images) ? body.images[0] : undefined);
+    const result = await executeMuseAutomation(prompt, 'image', { image });
 
     let base64Data = '';
     let urlData = '';
@@ -591,7 +592,8 @@ async function handleImageGeneration(body) {
  */
 async function handleVideoGeneration(body) {
     const prompt = body.prompt || '';
-    const videoUrl = await executeMuseAutomation(prompt, 'video');
+    const image = body.image || body.input_image;
+    const videoUrl = await executeMuseAutomation(prompt, 'video', { image });
 
     const taskId = 'task-muse-' + Date.now().toString(36);
     const resultObj = {
@@ -617,7 +619,7 @@ function getTaskStatus(taskId) {
 /**
  * In-Page execution via Electron webContents with Multi-Account Pool & Parallel Workers
  */
-async function executeMuseAutomation(prompt, kind = 'chat') {
+async function executeMuseAutomation(prompt, kind = 'chat', options = {}) {
     if (museAccounts.length === 0) loadAllAccounts();
     if (museAccounts.length === 0) {
         throw new Error('Chưa có tài khoản Muse nào được nạp cookie trong ToolMedia. Hãy vào cài đặt để thêm tài khoản.');
@@ -659,7 +661,7 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
     console.log(`[NativeMuse] Executing ${kind} with account: ${chosenAcc.label || chosenAcc.id} (Worker busy: ${chosenWorker.busy})`);
 
     try {
-        return await runAutomationOnWorker(chosenWorker.win, chosenAcc, prompt, kind);
+        return await runAutomationOnWorker(chosenWorker.win, chosenAcc, prompt, kind, options);
     } catch (err) {
         console.warn(`[NativeMuse] Primary attempt failed (${chosenAcc.label}):`, err.message);
         // Failover: try one other account if available
@@ -670,7 +672,7 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
                 const altWorker = await getWorkerForAccount(altAcc);
                 altWorker.busy = true;
                 try {
-                    return await runAutomationOnWorker(altWorker.win, altAcc, prompt, kind);
+                    return await runAutomationOnWorker(altWorker.win, altAcc, prompt, kind, options);
                 } finally {
                     altWorker.busy = false;
                 }
@@ -684,7 +686,7 @@ async function executeMuseAutomation(prompt, kind = 'chat') {
     }
 }
 
-async function runAutomationOnWorker(win, acc, prompt, kind) {
+async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
     const wc = win.webContents;
     const ses = win.webContents.session;
 
@@ -707,15 +709,15 @@ async function runAutomationOnWorker(win, acc, prompt, kind) {
     // Always start on a fresh thread
     await win.loadURL(NEW_THREAD_URL);
 
-    // Inject prompt with React native setter
-    const script = `
+    // Wait until textarea is present and snapshot initial images (welcome mascot, header logos, avatars)
+    const initScript = `
     (async () => {
         if (location.pathname.includes('/login') || (document.body && document.body.innerText.includes('Log in to continue'))) {
             return { ok: false, error: 'NEED_LOGIN' };
         }
 
         let waited = 0;
-        while (!document.querySelector('textarea') && waited < 12000) {
+        while (!document.querySelector('textarea') && waited < 15000) {
             await new Promise(r => setTimeout(r, 150));
             waited += 150;
         }
@@ -724,6 +726,65 @@ async function runAutomationOnWorker(win, acc, prompt, kind) {
             if (location.pathname.includes('/login')) return { ok: false, error: 'NEED_LOGIN' };
             return { ok: false, error: 'NO_TEXTAREA' };
         }
+
+        const existingSrcs = Array.from(document.querySelectorAll('img'))
+            .map(i => i.currentSrc || i.src || '')
+            .filter(Boolean);
+
+        return { ok: true, existingSrcs };
+    })()
+    `;
+
+    const initRes = await wc.executeJavaScript(initScript);
+    if (!initRes || !initRes.ok) {
+        if (initRes?.error === 'NEED_LOGIN') {
+            acc.status = 'expired';
+            saveAllAccounts();
+            throw new Error(`Tài khoản ${acc.label || acc.id} hết hạn đăng nhập.`);
+        }
+        throw new Error(`Không thể khởi tạo giao diện Muse: ${initRes?.error || 'Timeout'}`);
+    }
+
+    const existingImgSrcs = initRes.existingSrcs || [];
+
+    // Optional reference image attachment
+    if (options && options.image) {
+        try {
+            await wc.executeJavaScript(`
+            (async () => {
+                try {
+                    const fileInput = document.querySelector('input[type="file"]');
+                    if (fileInput) {
+                        const dataUri = ${JSON.stringify(options.image)};
+                        const parts = dataUri.split(',');
+                        const mimeMatch = (parts[0] || '').match(/:(.*?);/);
+                        const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+                        const b64 = parts[1] || parts[0];
+                        const bin = atob(b64);
+                        const len = bin.length;
+                        const u8 = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            u8[i] = bin.charCodeAt(i);
+                        }
+                        const blob = new Blob([u8], { type: mime });
+                        const file = new File([blob], 'ref_image.jpg', { type: mime });
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        fileInput.files = dt.files;
+                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        await new Promise(r => setTimeout(r, 600));
+                    }
+                } catch (e) { }
+            })()
+            `);
+        } catch (e) { }
+    }
+
+    // Inject prompt with React native setter and send
+    const sendScript = `
+    (async () => {
+        const ta = document.querySelector('textarea');
+        if (!ta) return { ok: false, error: 'NO_TEXTAREA' };
 
         ta.focus();
         const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
@@ -749,14 +810,9 @@ async function runAutomationOnWorker(win, acc, prompt, kind) {
     })()
     `;
 
-    const injected = await wc.executeJavaScript(script);
-    if (!injected || !injected.ok) {
-        if (injected?.error === 'NEED_LOGIN') {
-            acc.status = 'expired';
-            saveAllAccounts();
-            throw new Error(`Tài khoản ${acc.label || acc.id} hết hạn đăng nhập.`);
-        }
-        throw new Error(`Không thể nhập prompt vào Muse: ${injected?.error || 'Unknown'}`);
+    const sendRes = await wc.executeJavaScript(sendScript);
+    if (!sendRes || !sendRes.ok) {
+        throw new Error(`Không thể gửi prompt vào Muse: ${sendRes?.error || 'Unknown'}`);
     }
 
     // Polling loop
@@ -775,20 +831,35 @@ async function runAutomationOnWorker(win, acc, prompt, kind) {
                 if (btn && !btn.disabled) btn.click();
             }
 
+            const elapsedSec = (Date.now() - ${startTime}) / 1000;
+
             ${kind === 'image' ? `
-            // Check images in attachments or chat (ignore small user avatars)
+            const existingSet = new Set(${JSON.stringify(existingImgSrcs)});
+
+            // Check if Muse is actively generating
+            const isGenerating = !!document.querySelector('button[aria-label*="Stop" i], [data-testid*="stop" i], svg[class*="animate-spin"], [class*="generating"], [class*="thinking"]');
+
+            // Strictly find NEW generated images
             const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
                 if (!img.offsetParent) return false;
+                const src = img.currentSrc || img.src || '';
+                if (!src || existingSet.has(src)) return false;
+
+                // Ignore mascot, welcome cards, brand logos, user avatars
+                if (/avatar|profile|logo|brand|mascot|welcome|hero|badge|icon|emoji|favicon/i.test(src)) return false;
+                if (img.closest('header, nav, [data-testid*="welcome"], [class*="welcome"], [class*="header"], [class*="sidebar"]')) return false;
+
                 const w = img.naturalWidth || img.width || 0;
                 const h = img.naturalHeight || img.height || 0;
-                if (w < 120 || h < 120) return false;
-                const src = img.currentSrc || img.src || '';
-                return !src.includes('avatar') && !src.includes('profile');
+                if (w < 180 || h < 180) return false;
+
+                const inContainer = !!img.closest('[data-testid*="attachment"], [class*="attachment"], [data-testid*="agent-bubble"], [class*="hatch-agent-bubble"], [data-testid*="message"], [class*="message"], [data-testid*="response"], main, article');
+                return inContainer;
             });
 
-            if (imgs.length > 0) {
+            if (imgs.length > 0 && !isGenerating && elapsedSec >= 2.0) {
                 const lastImg = imgs[imgs.length - 1];
-                if (lastImg.complete && lastImg.naturalWidth > 0) {
+                if (lastImg.complete && lastImg.naturalWidth >= 180) {
                     try {
                         const c = document.createElement('canvas');
                         c.width = lastImg.naturalWidth;
@@ -820,17 +891,20 @@ async function runAutomationOnWorker(win, acc, prompt, kind) {
             ` : ''}
 
             ${kind === 'video' ? `
-            const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"]');
-            if (dlLink && dlLink.href) {
-                return { done: true, type: 'video', url: dlLink.href };
-            }
-            const videos = Array.from(document.querySelectorAll('video')).filter(v => {
-                const src = v.currentSrc || v.src || '';
-                return src && !src.startsWith('blob:');
-            });
-            if (videos.length > 0) {
-                const v = videos[videos.length - 1];
-                return { done: true, type: 'video', url: v.currentSrc || v.src };
+            if (elapsedSec >= 4.0) {
+                const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"]');
+                if (dlLink && dlLink.href) {
+                    return { done: true, type: 'video', url: dlLink.href };
+                }
+                const videos = Array.from(document.querySelectorAll('video')).filter(v => {
+                    const src = v.currentSrc || v.src || '';
+                    return src && !src.startsWith('blob:') && (v.readyState >= 2 || v.duration > 0 || (v.videoWidth && v.videoWidth > 0));
+                });
+                if (videos.length > 0) {
+                    const v = videos[videos.length - 1];
+                    const src = v.currentSrc || v.src;
+                    if (src) return { done: true, type: 'video', url: src };
+                }
             }
             ` : ''}
 

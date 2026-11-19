@@ -259,64 +259,7 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
 
     return (
         <div className="flex flex-col gap-4 select-none animate-fade-in">
-            {/* 1. COMPACT MODEL SELECTION (Vivix W1 / Grok video / Wan 3.0) */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-900/5 transition-all">
-                <div className="flex items-center justify-between mb-2.5">
-                    <div className="flex items-center gap-2">
-                        <span className="text-indigo-600"><LayersIcon /></span>
-                        <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                            Mô Hình Video AI
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        {activeModelMeta.supportsAudio && (
-                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md ring-1 ring-emerald-200">
-                                🔊 Có Audio
-                            </span>
-                        )}
-                        <span className="text-[11px] font-bold text-indigo-600">
-                            {activeModelMeta.name}
-                        </span>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                    {OPENROUTER_VIDEO_MODELS.map((model) => {
-                        const isProviderEnabled = isVideoModelProviderEnabled(model.id, videoConfig);
-                        const isSelected = selectedModel === model.id && isProviderEnabled;
-                        return (
-                            <button
-                                key={model.id}
-                                type="button"
-                                disabled={!isProviderEnabled}
-                                onClick={() => isProviderEnabled && setSelectedModel(model.id)}
-                                title={
-                                    isProviderEnabled
-                                        ? `${model.name}${model.supportsAudio ? ' (Hỗ trợ giọng nói & âm thanh)' : ''}`
-                                        : `Mô hình ${model.name} hiện đang tạm tắt trên Admin`
-                                }
-                                className={`min-h-[44px] px-2 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-[0.98] ${
-                                    !isProviderEnabled
-                                        ? 'bg-slate-100 ring-1 ring-slate-200 text-slate-400 opacity-60 cursor-not-allowed select-none'
-                                        : isSelected
-                                        ? 'bg-indigo-600 text-white ring-1 ring-indigo-600 shadow-xs'
-                                        : 'bg-slate-50 ring-1 ring-slate-200/80 text-slate-700 hover:bg-slate-100'
-                                }`}
-                            >
-                                {!isProviderEnabled && <LockClosedIcon />}
-                                <span className="truncate">{model.name}</span>
-                                {model.supportsAudio && isProviderEnabled && (
-                                    <span className={`text-[10px] ${isSelected ? 'text-indigo-100' : 'text-emerald-600'}`} aria-hidden="true">
-                                        🔊
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-
-            {/* 2. TIÊU ĐỀ VIDEO & OUTPUT TITLE (Khớp 100% khi xuất file) */}
+            {/* 1. TIÊU ĐỀ VIDEO & OUTPUT TITLE (Khớp 100% khi xuất file) */}
             <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-900/5 space-y-2">
                 <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
