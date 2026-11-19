@@ -14,11 +14,13 @@ const nativeMuse = require('./native-muse-service.cjs');
 let server8317 = null;
 let server18610 = null;
 
-function setCorsHeaders(res) {
+function setCorsHeaders(res, req) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    const reqHeaders = req?.headers?.['access-control-request-headers'] || '*';
+    res.setHeader('Access-Control-Allow-Headers', reqHeaders);
     res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400');
 }
 
 function parseJsonBody(req) {
@@ -42,7 +44,7 @@ function startAntigravityGateway(port = 8317) {
     if (server8317) return;
 
     server8317 = http.createServer(async (req, res) => {
-        setCorsHeaders(res);
+        setCorsHeaders(res, req);
 
         if (req.method === 'OPTIONS') {
             res.writeHead(204);
@@ -60,14 +62,14 @@ function startAntigravityGateway(port = 8317) {
         }
 
         // Models list
-        if (req.method === 'GET' && url === '/v1/models') {
+        if (req.method === 'GET' && (url === '/models' || url === '/v1/models')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(nativeAntigravity.getModelsList()));
             return;
         }
 
         // Chat completions
-        if (req.method === 'POST' && url === '/v1/chat/completions') {
+        if (req.method === 'POST' && (url === '/chat/completions' || url === '/v1/chat/completions')) {
             try {
                 const body = await parseJsonBody(req);
                 const response = await nativeAntigravity.handleChatCompletions(body);
@@ -101,7 +103,7 @@ function startMuseGateway(port = 18610) {
     if (server18610) return;
 
     server18610 = http.createServer(async (req, res) => {
-        setCorsHeaders(res);
+        setCorsHeaders(res, req);
 
         if (req.method === 'OPTIONS') {
             res.writeHead(204);
@@ -120,14 +122,14 @@ function startMuseGateway(port = 18610) {
         }
 
         // Models list
-        if (req.method === 'GET' && url === '/v1/models') {
+        if (req.method === 'GET' && (url === '/models' || url === '/v1/models')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(nativeMuse.getModelsList()));
             return;
         }
 
         // Chat completions (muse-chat)
-        if (req.method === 'POST' && url === '/v1/chat/completions') {
+        if (req.method === 'POST' && (url === '/chat/completions' || url === '/v1/chat/completions')) {
             try {
                 const body = await parseJsonBody(req);
                 const response = await nativeMuse.handleChatCompletions(body);
@@ -142,7 +144,7 @@ function startMuseGateway(port = 18610) {
         }
 
         // Image generation (muse-image)
-        if (req.method === 'POST' && url === '/v1/images/generations') {
+        if (req.method === 'POST' && (url === '/images/generations' || url === '/v1/images/generations')) {
             try {
                 const body = await parseJsonBody(req);
                 const response = await nativeMuse.handleImageGeneration(body);
@@ -157,7 +159,7 @@ function startMuseGateway(port = 18610) {
         }
 
         // Video tasks (muse-video)
-        if (req.method === 'POST' && (url === '/v1/tasks/videos' || url === '/v1/videos')) {
+        if (req.method === 'POST' && (url === '/tasks/videos' || url === '/v1/tasks/videos' || url === '/videos' || url === '/v1/videos')) {
             try {
                 const body = await parseJsonBody(req);
                 const response = await nativeMuse.handleVideoGeneration(body);

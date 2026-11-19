@@ -421,9 +421,11 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutM
     }
 
     try {
-        const mergedHeaders: Record<string, string> = {
-            'ngrok-skip-browser-warning': 'true'
-        };
+        const isNgrok = finalUrl.includes('ngrok');
+        const mergedHeaders: Record<string, string> = {};
+        if (isNgrok) {
+            mergedHeaders['ngrok-skip-browser-warning'] = 'true';
+        }
         if (options.headers) {
             if (options.headers instanceof Headers) {
                 options.headers.forEach((v, k) => {
@@ -437,7 +439,9 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutM
                 Object.assign(mergedHeaders, options.headers);
             }
         }
-        mergedHeaders['ngrok-skip-browser-warning'] = 'true';
+        if (isNgrok) {
+            mergedHeaders['ngrok-skip-browser-warning'] = 'true';
+        }
 
         const response = await fetch(finalUrl, {
             ...options,
@@ -614,15 +618,18 @@ const extractImageFromChatResponse = (parsed: ParsedNineRouterResponse): string 
 export const checkConnection = async (customUrl?: string, customApiKey?: string): Promise<NineRouterStatus> => {
     let baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
     const apiKey = customApiKey !== undefined ? customApiKey.trim() : getNineRouterApiKey();
-    const headers: Record<string, string> = {
-        'ngrok-skip-browser-warning': 'true'
-    };
+    const headers: Record<string, string> = {};
+    if (baseUrl.includes('ngrok')) {
+        headers['ngrok-skip-browser-warning'] = 'true';
+    }
     if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
     const testUrl = async (targetUrl: string) => {
-        const resp = await fetchWithTimeout(`${targetUrl}/models`, {
+        const cleanTarget = targetUrl.replace(/\/+$/, '');
+        const endpoint = cleanTarget.endsWith('/v1') ? `${cleanTarget}/models` : `${cleanTarget}/v1/models`;
+        const resp = await fetchWithTimeout(endpoint, {
             method: 'GET',
             headers
         }, 8000);
@@ -1584,16 +1591,11 @@ CRITICAL RULES:
         ? `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`
         : request.prompt;
 
-    // If Muse AI Image model is selected, route directly to Muse AI Gateway configured on Admin Panel
+    // If Muse AI Image model is selected, route directly to local in-process Muse Gateway (18610)
     const isMuseSelected = activeModel.toLowerCase().includes('muse');
     if (isMuseSelected) {
-        const videoCfg = await getVideoConfig();
-        if (videoCfg.museAiEnabled === false) {
-            throw new Error('Nguồn Muse AI Gateway hiện đang tạm tắt trên Admin Panel.');
-        }
-
-        const museUrl = (videoCfg.museAiBaseUrl || 'http://127.0.0.1:18610/v1').replace(/\/+$/, '');
-        const museKey = (videoCfg.museAiApiKey || '').trim();
+        const museUrl = 'http://127.0.0.1:18610/v1';
+        const museKey = '123456';
         const museHeaders: Record<string, string> = {
             'Content-Type': 'application/json'
         };
