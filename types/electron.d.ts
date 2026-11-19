@@ -26,9 +26,9 @@ interface ElectronAPI {
     onUpdateError: (callback: (error: string) => void) => void;
 
     // Native Muse & Gateway
-    museLogin?: () => Promise<{ success: boolean; cookies?: any; closed?: boolean }>;
+    museLogin?: () => Promise<{ success: boolean; cookies?: any; closed?: boolean; accountsCount?: number }>;
     museOpenChromeIncognito?: () => Promise<{ success: boolean; error?: string }>;
-    museGetStatus?: () => Promise<{ configured: boolean; hasDeviceAuth?: boolean }>;
+    museGetStatus?: () => Promise<{ configured: boolean; accountsCount?: number; accounts?: any[] }>;
     museSaveCookies?: (cookies: any) => Promise<{ success: boolean; error?: string }>;
     getNativeGatewayStatus?: () => Promise<{ port8317: boolean; port18610: boolean; googleAccounts: any[]; museStatus: any }>;
 

@@ -1,10 +1,11 @@
 /**
  * Native Muse Engine for ToolMedia
- * Replaces muse2api completely using Electron's native Chromium and Session.
+ * Replaces muse2api completely using Electron's native Chromium, Session, and Account Pooling.
  * 
- * - Persistent session storage with session.fromPartition('persist:muse_session')
- * - Automatic Keepalive Heartbeat every 10 minutes to prevent cookie expiration
- * - In-app visual 1-click login window (automatically captures cookies and closes)
+ * - Multi-account storage with auto-rotation across accounts
+ * - Auto-imports existing accounts from D:\muse2api-main\data\accounts.json
+ * - Automatic Keepalive Heartbeat & Cloud VM Pre-Wake every 10 minutes
+ * - In-app visual 1-click login window (captures cookies and adds to account pool)
  * - OpenAI compatible /v1/chat/completions, /v1/images/generations, /v1/tasks/videos
  */
 
@@ -23,9 +24,97 @@ let keepaliveTimer = null;
 let activeWorkerWindow = null;
 let isWorkerBusy = false;
 
-// Cookie storage backup in userData
-function getCookieBackupPath() {
+// Account pool
+let museAccounts = [];
+let currentAccountIndex = 0;
+
+function getAccountsFilePath() {
+    return path.join(app.getPath('userData'), 'muse_accounts.json');
+}
+
+function getLegacyCookieBackupPath() {
     return path.join(app.getPath('userData'), 'muse_cookies.json');
+}
+
+/**
+ * Load all Muse accounts from userData/muse_accounts.json,
+ * auto-importing from D:\muse2api-main\data\accounts.json if available.
+ */
+function loadAllAccounts() {
+    museAccounts = [];
+    const accountsPath = getAccountsFilePath();
+
+    // 1. Read from userData/muse_accounts.json
+    if (fs.existsSync(accountsPath)) {
+        try {
+            const raw = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'));
+            if (Array.isArray(raw)) {
+                museAccounts = raw.filter(a => a && a.cookies && a.cookies.hatch_sess);
+            }
+        } catch (e) {
+            console.warn('[NativeMuse] Error parsing local muse_accounts.json:', e.message);
+        }
+    }
+
+    // 2. Auto-import from D:\muse2api-main\data\accounts.json if available
+    const muse2apiPath = 'D:\\muse2api-main\\data\\accounts.json';
+    if (fs.existsSync(muse2apiPath)) {
+        try {
+            const m2aAccounts = JSON.parse(fs.readFileSync(muse2apiPath, 'utf-8'));
+            if (Array.isArray(m2aAccounts)) {
+                for (const mAcc of m2aAccounts) {
+                    if (!mAcc || !mAcc.cookies || !mAcc.cookies.hatch_sess) continue;
+                    const sess = mAcc.cookies.hatch_sess;
+                    const exists = museAccounts.some(a => a.cookies && a.cookies.hatch_sess === sess);
+                    if (!exists) {
+                        const label = mAcc.label || mAcc.id || `Acc Muse ${museAccounts.length + 1}`;
+                        museAccounts.push({
+                            id: mAcc.id || 'acc_' + Math.random().toString(36).slice(2, 10),
+                            label,
+                            cookies: mAcc.cookies,
+                            status: mAcc.status || 'active',
+                            created_at: mAcc.created_at || Date.now()
+                        });
+                        console.log('[NativeMuse] Auto-imported account from muse2api:', label);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[NativeMuse] Error importing from muse2api accounts.json:', e.message);
+        }
+    }
+
+    // 3. Fallback: check legacy muse_cookies.json
+    const legacyPath = getLegacyCookieBackupPath();
+    if (fs.existsSync(legacyPath)) {
+        try {
+            const saved = JSON.parse(fs.readFileSync(legacyPath, 'utf-8'));
+            if (saved && saved.hatch_sess) {
+                const exists = museAccounts.some(a => a.cookies && a.cookies.hatch_sess === saved.hatch_sess);
+                if (!exists) {
+                    museAccounts.push({
+                        id: 'acc_legacy_' + Date.now().toString(36),
+                        label: 'Tài khoản chính',
+                        cookies: saved,
+                        status: 'active',
+                        created_at: Date.now()
+                    });
+                }
+            }
+        } catch (e) { }
+    }
+
+    saveAllAccounts();
+    console.log(`[NativeMuse] Loaded ${museAccounts.length} active Muse account(s).`);
+    return museAccounts;
+}
+
+function saveAllAccounts() {
+    try {
+        fs.writeFileSync(getAccountsFilePath(), JSON.stringify(museAccounts, null, 2), 'utf-8');
+    } catch (e) {
+        console.warn('[NativeMuse] Error saving muse_accounts.json:', e.message);
+    }
 }
 
 function getMuseSession() {
@@ -33,35 +122,45 @@ function getMuseSession() {
 }
 
 /**
- * Get current session cookies for muse.ai
+ * Get cookies of the primary or current active account
  */
 async function getMuseCookies() {
-    const ses = getMuseSession();
-    const cookies = await ses.cookies.get({ domain: 'muse.ai' });
-    const jar = {};
-    for (const c of cookies) {
-        jar[c.name] = c.value;
+    if (museAccounts.length === 0) loadAllAccounts();
+    if (museAccounts.length > 0) {
+        return museAccounts[0].cookies;
     }
-
-    // Fallback: check backup file if session cookies empty
-    if (!jar['hatch_sess']) {
-        const backupPath = getCookieBackupPath();
-        if (fs.existsSync(backupPath)) {
-            try {
-                const saved = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
-                if (saved['hatch_sess']) {
-                    return saved;
-                }
-            } catch (e) { }
-        }
-    }
-    return jar;
+    return {};
 }
 
 /**
- * Save cookies to persistent session and disk backup
+ * Save new cookies into the account pool (adds new account or updates existing)
  */
-async function saveMuseCookies(cookieMap) {
+async function saveMuseCookies(cookieMap, label = '') {
+    if (!cookieMap || !cookieMap.hatch_sess) return;
+    if (museAccounts.length === 0) loadAllAccounts();
+
+    const existing = museAccounts.find(a => a.cookies && a.cookies.hatch_sess === cookieMap.hatch_sess);
+    if (existing) {
+        existing.cookies = { ...existing.cookies, ...cookieMap };
+        if (label) existing.label = label;
+        existing.status = 'active';
+        existing.updated_at = Date.now();
+    } else {
+        const id = 'acc_' + Math.random().toString(36).slice(2, 10);
+        const name = label || `Muse ${museAccounts.length + 1}`;
+        museAccounts.push({
+            id,
+            label: name,
+            cookies: cookieMap,
+            status: 'active',
+            created_at: Date.now()
+        });
+        console.log('[NativeMuse] Added new Muse account to pool:', name);
+    }
+
+    saveAllAccounts();
+
+    // Also inject into active session
     const ses = getMuseSession();
     for (const [name, value] of Object.entries(cookieMap)) {
         if (!value) continue;
@@ -76,35 +175,19 @@ async function saveMuseCookies(cookieMap) {
                 sameSite: 'lax',
                 expirationDate: Math.floor(Date.now() / 1000) + (365 * 24 * 3600)
             });
-        } catch (e) {
-            console.warn(`[NativeMuse] Error setting cookie ${name}:`, e.message);
-        }
-    }
-
-    // Save to backup file
-    try {
-        fs.writeFileSync(getCookieBackupPath(), JSON.stringify(cookieMap, null, 2), 'utf-8');
-    } catch (e) {
-        console.warn('[NativeMuse] Error saving backup cookies:', e.message);
+        } catch (e) { }
     }
 }
 
 /**
- * Heartbeat: Renew session with https://muse.ai/api/session
- * Rotates cookies and extends session expiry indefinitely
+ * Renew session and wake VM for a single account
  */
-async function renewSession() {
-    const cookies = await getMuseCookies();
-    if (!cookies['hatch_sess']) {
-        return { ok: false, message: 'Chưa có session cookie' };
-    }
-
-    console.log('[NativeMuse] Heartbeat: renewing session with muse.ai...');
-    const cookieHeader = Object.entries(cookies)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('; ');
-
+function renewAccountSession(acc) {
     return new Promise((resolve) => {
+        const cookieHeader = Object.entries(acc.cookies || {})
+            .map(([k, v]) => `${k}=${v}`)
+            .join('; ');
+
         const req = https.request(SESSION_API, {
             method: 'GET',
             headers: {
@@ -116,18 +199,15 @@ async function renewSession() {
         }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
-            res.on('end', async () => {
+            res.on('end', () => {
                 const setCookies = res.headers['set-cookie'];
                 if (setCookies && Array.isArray(setCookies)) {
-                    const updated = { ...cookies };
                     for (const sc of setCookies) {
                         const parts = sc.split(';')[0].split('=');
                         if (parts.length >= 2) {
-                            updated[parts[0].trim()] = parts.slice(1).join('=').trim();
+                            acc.cookies[parts[0].trim()] = parts.slice(1).join('=').trim();
                         }
                     }
-                    await saveMuseCookies(updated);
-                    console.log('[NativeMuse] Session renewed successfully! Cookies rotated.');
                 }
 
                 // Check VM state and pre-wake if needed
@@ -142,13 +222,32 @@ async function renewSession() {
             });
         });
 
-        req.on('error', (err) => {
-            console.warn('[NativeMuse] Heartbeat error:', err.message);
-            resolve({ ok: false, error: err.message });
-        });
-        req.setTimeout(15000, () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
+        req.on('error', (err) => resolve({ ok: false, error: err.message }));
+        req.setTimeout(12000, () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
         req.end();
     });
+}
+
+/**
+ * Heartbeat: Renew sessions for all accounts in the pool
+ */
+async function renewSession() {
+    if (museAccounts.length === 0) loadAllAccounts();
+    if (museAccounts.length === 0) {
+        return { ok: false, message: 'Chưa có tài khoản Muse nào' };
+    }
+
+    console.log(`[NativeMuse] Heartbeat: renewing sessions for ${museAccounts.length} account(s)...`);
+    for (const acc of museAccounts) {
+        if (!acc.cookies || !acc.cookies.hatch_sess) continue;
+        try {
+            await renewAccountSession(acc);
+        } catch (e) {
+            console.warn(`[NativeMuse] Error renewing ${acc.label}:`, e.message);
+        }
+    }
+    saveAllAccounts();
+    return { ok: true, count: museAccounts.length };
 }
 
 /**
@@ -188,27 +287,27 @@ function startKeepalive(intervalMs = 10 * 60 * 1000) {
         renewSession().catch(e => console.warn('[NativeMuse] Heartbeat catch:', e));
     }, intervalMs);
 
-    // Run first renewal immediately after 5 seconds and pre-warm worker window
+    // Initial load and renewal
+    loadAllAccounts();
     setTimeout(() => {
         renewSession().then(res => {
             if (res && res.ok) {
-                getWorkerWindow().catch(() => {});
+                getWorkerWindow().catch(() => { });
             }
         }).catch(() => { });
     }, 5000);
-    console.log('[NativeMuse] Session Keep-Alive Heartbeat activated.');
+    console.log('[NativeMuse] Multi-Account Keep-Alive Heartbeat activated.');
 }
 
 /**
  * In-app Visual Login Window for Muse.ai
  * Opens a 100% brand new, isolated Incognito session every single time.
- * Zero cached cookies, zero previous history.
+ * Appends new account into the pool instead of overwriting existing accounts!
  */
 async function openLoginWindow(parentWindow) {
-    // 100% FRESH INCOGNITO PARTITION EVERY TIME
     const incognitoId = 'muse_incognito_' + Date.now();
     const incognitoSession = session.fromPartition(incognitoId, { cache: false });
-    
+
     try {
         await incognitoSession.clearStorageData();
         await incognitoSession.clearCache();
@@ -233,7 +332,6 @@ async function openLoginWindow(parentWindow) {
 
         win.loadURL('https://muse.ai/login');
 
-        // Check for session cookies on navigation or interval
         const checkInterval = setInterval(async () => {
             try {
                 if (win.isDestroyed()) {
@@ -243,18 +341,19 @@ async function openLoginWindow(parentWindow) {
                 const cookies = await incognitoSession.cookies.get({ domain: 'muse.ai' });
                 const hasSess = cookies.some(c => c.name === 'hatch_sess');
                 if (hasSess) {
-                    console.log('[NativeMuse] Incognito login successful! Intercepted session cookie.');
                     clearInterval(checkInterval);
 
                     const jar = {};
                     cookies.forEach(c => { jar[c.name] = c.value; });
-                    await saveMuseCookies(jar);
 
-                    // Auto renew immediately
+                    const newLabel = `Muse Acc ${museAccounts.length + 1}`;
+                    await saveMuseCookies(jar, newLabel);
+                    console.log('[NativeMuse] Successfully intercepted & added account to pool:', newLabel);
+
                     await renewSession();
 
                     if (!win.isDestroyed()) win.close();
-                    resolve({ success: true, cookies: jar });
+                    resolve({ success: true, cookies: jar, accountsCount: museAccounts.length });
                 }
             } catch (e) {
                 console.warn('[NativeMuse] Login check error:', e);
@@ -378,19 +477,46 @@ async function handleVideoGeneration(body) {
 }
 
 /**
- * In-Page execution via Electron webContents
+ * In-Page execution via Electron webContents with Multi-Account Rotation
  */
 async function executeMuseAutomation(prompt, kind = 'chat') {
     while (isWorkerBusy) {
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 400));
     }
     isWorkerBusy = true;
 
     try {
+        if (museAccounts.length === 0) loadAllAccounts();
+        if (museAccounts.length === 0) {
+            throw new Error('Chưa có tài khoản Muse nào được nạp cookie trong ToolMedia. Hãy vào cài đặt để thêm tài khoản.');
+        }
+
+        // Rotate through accounts
+        const acc = museAccounts[currentAccountIndex % museAccounts.length];
+        currentAccountIndex = (currentAccountIndex + 1) % museAccounts.length;
+        console.log(`[NativeMuse] Executing ${kind} using account: ${acc.label} (${currentAccountIndex}/${museAccounts.length})`);
+
         const win = await getWorkerWindow();
         const wc = win.webContents;
+        const ses = win.webContents.session;
 
-        // Navigate to new thread if not already there
+        // Apply account cookies into session
+        for (const [name, value] of Object.entries(acc.cookies || {})) {
+            if (!value) continue;
+            try {
+                await ses.cookies.set({
+                    url: MUSE_SITE,
+                    name,
+                    value,
+                    domain: '.muse.ai',
+                    path: '/',
+                    secure: true,
+                    sameSite: 'lax'
+                });
+            } catch (e) { }
+        }
+
+        // Navigate to new thread
         if (wc.getURL() !== NEW_THREAD_URL) {
             await win.loadURL(NEW_THREAD_URL);
         }
@@ -496,6 +622,7 @@ function getModelsList() {
 }
 
 module.exports = {
+    loadAllAccounts,
     getMuseCookies,
     saveMuseCookies,
     renewSession,
@@ -507,10 +634,16 @@ module.exports = {
     handleVideoGeneration,
     getModelsList,
     getStatus: async () => {
-        const cookies = await getMuseCookies();
+        if (museAccounts.length === 0) loadAllAccounts();
         return {
-            configured: !!cookies['hatch_sess'],
-            hasDeviceAuth: !!cookies['hatch_native_auth_device']
+            configured: museAccounts.length > 0,
+            accountsCount: museAccounts.length,
+            accounts: museAccounts.map(a => ({
+                id: a.id,
+                label: a.label || a.id,
+                valid: !!(a.cookies && a.cookies['hatch_sess']),
+                status: a.status || 'active'
+            }))
         };
     }
 };

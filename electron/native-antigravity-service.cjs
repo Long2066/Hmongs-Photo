@@ -475,5 +475,8 @@ module.exports = {
     ensureAccessToken,
     generateAuthUrl,
     handleOAuthCallback,
-    getAccountsStatus: () => accounts.map(a => ({ email: a.email, valid: !!a.refresh_token, endpoint: a.endpoint }))
+    getAccountsStatus: () => {
+        if (accounts.length === 0) loadAllAccounts();
+        return accounts.map(a => ({ email: a.email, valid: !!a.refresh_token, endpoint: a.endpoint }));
+    }
 };

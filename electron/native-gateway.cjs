@@ -115,7 +115,7 @@ function startMuseGateway(port = 18610) {
         if (url === '/health' || url === '/v1/health') {
             const status = await nativeMuse.getStatus();
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ status: 'ok', engine: 'native-muse', configured: status.configured }));
+            res.end(JSON.stringify({ status: 'ok', engine: 'native-muse', configured: status.configured, accounts: status.accountsCount || (status.configured ? 1 : 0) }));
             return;
         }
 

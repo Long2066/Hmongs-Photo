@@ -32,6 +32,8 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
     const [isMuseLoggingIn, setIsMuseLoggingIn] = useState(false);
     const [manualCookieInput, setManualCookieInput] = useState('');
     const [showCookieInput, setShowCookieInput] = useState(false);
+    const [showGoogleList, setShowGoogleList] = useState(false);
+    const [showMuseList, setShowMuseList] = useState(false);
 
     const refreshNativeStatus = async () => {
         try {
@@ -46,8 +48,12 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
             setNativeStatus({
                 port8317: res8317?.status === 'ok',
                 port18610: res18610?.status === 'ok',
-                googleAccounts: new Array(res8317?.accounts || 0).fill({}),
-                museStatus: { configured: res18610?.configured }
+                googleAccounts: new Array(res8317?.accounts || 0).fill({ email: 'Tài khoản Google' }),
+                museStatus: {
+                    configured: res18610?.configured || ((res18610?.accounts || 0) > 0),
+                    accountsCount: res18610?.accounts || 0,
+                    accounts: []
+                }
             });
         } catch { }
     };
@@ -450,23 +456,51 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                             </span>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                             {/* Google Accounts */}
                             <div className="bg-white/95 p-3 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
                                 <div>
-                                    <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center justify-between mb-1.5">
                                         <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                                             <span>🔵 Google / Gemini (CLI)</span>
                                         </span>
-                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                            Port 8317
-                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200/80">
+                                                {nativeStatus?.googleAccounts?.length || 0} Acc
+                                            </span>
+                                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                Port 8317
+                                            </span>
+                                        </div>
                                     </div>
-                                    <p className="text-[11px] text-slate-500">
-                                        {nativeStatus?.googleAccounts?.length
-                                            ? `Đã nhận ${nativeStatus.googleAccounts.length} tài khoản (Auto-rotation)`
-                                            : 'Đã sẵn sàng nhận tài khoản'}
-                                    </p>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[11px] text-slate-500 font-medium">
+                                            {nativeStatus?.googleAccounts?.length
+                                                ? `Đã nhận ${nativeStatus.googleAccounts.length} tài khoản (Auto-rotation)`
+                                                : 'Chưa có tài khoản nào'}
+                                        </p>
+                                        {Boolean(nativeStatus?.googleAccounts?.length) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowGoogleList(!showGoogleList)}
+                                                className="text-[10px] text-emerald-700 hover:text-emerald-900 font-semibold underline cursor-pointer"
+                                            >
+                                                {showGoogleList ? 'Thu gọn' : 'Chi tiết'}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Danh sách acc Google chi tiết */}
+                                    {showGoogleList && nativeStatus?.googleAccounts && (
+                                        <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200/70 max-h-32 overflow-y-auto space-y-1 text-[11px] animate-fade-in">
+                                            {nativeStatus.googleAccounts.map((acc: any, idx: number) => (
+                                                <div key={idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs">
+                                                    <span className="truncate max-w-[170px] font-mono text-[10px] font-medium" title={acc.email}>{acc.email || `Tài khoản ${idx + 1}`}</span>
+                                                    <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Sẵn sàng</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100">
                                     <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
@@ -486,17 +520,47 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                             {/* Muse Account */}
                             <div className="bg-white/95 p-3 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
                                 <div>
-                                    <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center justify-between mb-1.5">
                                         <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                                             <span>🟣 Muse AI Media</span>
                                         </span>
-                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                            Port 18610
-                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-200/80">
+                                                {nativeStatus?.museStatus?.accountsCount || (nativeStatus?.museStatus?.configured ? 1 : 0)} Acc
+                                            </span>
+                                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                Port 18610
+                                            </span>
+                                        </div>
                                     </div>
-                                    <p className="text-[11px] text-slate-500">
-                                        {nativeStatus?.museStatus?.configured ? '🟢 Đã nạp Cookie (Auto Keep-Alive Bật)' : 'Chưa có phiên làm việc'}
-                                    </p>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[11px] text-slate-500 font-medium">
+                                            {nativeStatus?.museStatus?.accountsCount
+                                                ? `Đã nhận ${nativeStatus.museStatus.accountsCount} tài khoản (Auto-rotation)`
+                                                : (nativeStatus?.museStatus?.configured ? 'Đã nạp 1 tài khoản (Auto Keep-Alive)' : 'Chưa có tài khoản nào')}
+                                        </p>
+                                        {Boolean(nativeStatus?.museStatus?.accounts?.length) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowMuseList(!showMuseList)}
+                                                className="text-[10px] text-indigo-700 hover:text-indigo-900 font-semibold underline cursor-pointer"
+                                            >
+                                                {showMuseList ? 'Thu gọn' : 'Chi tiết'}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Danh sách acc Muse chi tiết */}
+                                    {showMuseList && nativeStatus?.museStatus?.accounts && (
+                                        <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200/70 max-h-32 overflow-y-auto space-y-1 text-[11px] animate-fade-in">
+                                            {nativeStatus.museStatus.accounts.map((acc: any, idx: number) => (
+                                                <div key={idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs">
+                                                    <span className="truncate max-w-[170px] font-mono text-[10px] font-medium" title={acc.label || acc.id}>{acc.label || acc.id}</span>
+                                                    <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Active</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1.5">
                                     <div className="flex items-center justify-between gap-1.5">
@@ -507,7 +571,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                             className="flex-1 py-1 px-2 text-[10.5px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer text-center"
                                             title="Mở trình duyệt ẩn danh mới hoàn toàn, tự động lưu cookie khi đăng nhập xong"
                                         >
-                                            {isMuseLoggingIn ? 'Đang mở...' : '🕵️ Ẩn danh mới (Tự lưu)'}
+                                            {isMuseLoggingIn ? 'Đang mở...' : '+ Thêm Acc Muse (Ẩn danh)'}
                                         </button>
                                         <button
                                             type="button"
@@ -526,7 +590,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                         >
                                             {showCookieInput ? 'Ẩn ô dán cookie' : 'Dán Cookie thủ công'}
                                         </button>
-                                        <span className="text-indigo-600 font-bold">Auto Heartbeat</span>
+                                        <span className="text-indigo-600 font-bold">Auto Heartbeat & Rotation</span>
                                     </div>
                                 </div>
                             </div>
