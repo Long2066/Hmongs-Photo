@@ -540,12 +540,40 @@ async function handleChatCompletions(body) {
 }
 
 /**
+ * Format prompt according to muse2api driver convention:
+ * Prepends "Generate an image (aspect ratio ...):" or "Generate a video (...):"
+ * to force Muse's AI Agent to trigger its generation tool rather than replying with text.
+ */
+function formatMediaPrompt(rawPrompt, kind, size, duration) {
+    const p = (rawPrompt || '').trim();
+    if (kind === 'image') {
+        if (/^generate\s+(an?\s+)?image/i.test(p)) return p;
+        const hints = [];
+        if (size) hints.push(`aspect ratio ${size}`);
+        const suffix = hints.length ? ` (${hints.join(', ')})` : '';
+        return `Generate an image${suffix}: ${p}`;
+    }
+    if (kind === 'video') {
+        if (/^generate\s+(an?\s+)?video/i.test(p)) return p;
+        const hints = [];
+        if (size) hints.push(`aspect ratio ${size}`);
+        if (duration) hints.push(`${duration} seconds long`);
+        const suffix = hints.length ? ` (${hints.join(', ')})` : '';
+        return `Generate a video${suffix}: ${p}`;
+    }
+    return p;
+}
+
+/**
  * Handle Image Generation with bulletproof Base64 PNG guarantees
  */
 async function handleImageGeneration(body) {
-    const prompt = body.prompt || '';
+    const rawPrompt = body.prompt || '';
+    const size = body.size;
+    const prompt = formatMediaPrompt(rawPrompt, 'image', size);
     const image = body.image || (Array.isArray(body.images) ? body.images[0] : undefined);
-    const result = await executeMuseAutomation(prompt, 'image', { image });
+    const images = Array.isArray(body.images) ? body.images : (body.image ? [body.image] : []);
+    const result = await executeMuseAutomation(prompt, 'image', { image, images, size, rawPrompt });
 
     let base64Data = '';
     let urlData = '';
@@ -591,9 +619,13 @@ async function handleImageGeneration(body) {
  * Handle Video Generation Task & Async Task Store
  */
 async function handleVideoGeneration(body) {
-    const prompt = body.prompt || '';
+    const rawPrompt = body.prompt || '';
+    const size = body.size;
+    const duration = body.duration;
+    const prompt = formatMediaPrompt(rawPrompt, 'video', size, duration);
     const image = body.image || body.input_image;
-    const videoUrl = await executeMuseAutomation(prompt, 'video', { image });
+    const images = image ? [image] : [];
+    const videoUrl = await executeMuseAutomation(prompt, 'video', { image, images, size, duration, rawPrompt });
 
     const taskId = 'task-muse-' + Date.now().toString(36);
     const resultObj = {
@@ -686,6 +718,80 @@ async function executeMuseAutomation(prompt, kind = 'chat', options = {}) {
     }
 }
 
+/**
+ * Robust text entry and submission into Muse composer matching muse2api
+ */
+async function sendIntoMuse(wc, text) {
+    const sendScript = `
+    (async () => {
+        let ta = document.querySelector('textarea, [contenteditable="true"]');
+        if (!ta) {
+            let waited = 0;
+            while (!ta && waited < 10000) {
+                await new Promise(r => setTimeout(r, 150));
+                waited += 150;
+                ta = document.querySelector('textarea, [contenteditable="true"]');
+            }
+        }
+        if (!ta) return { ok: false, error: 'NO_TEXTAREA' };
+
+        ta.focus();
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        if (setter && ta.tagName.toLowerCase() === 'textarea') {
+            setter.call(ta, ${JSON.stringify(text)});
+        } else if (ta.isContentEditable) {
+            ta.innerText = ${JSON.stringify(text)};
+        } else {
+            ta.value = ${JSON.stringify(text)};
+        }
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+
+        let sendBtn = null;
+        for (let waitBtn = 0; waitBtn < 25; waitBtn++) {
+            await new Promise(r => setTimeout(r, 100));
+            const actionSlot = document.querySelector('[data-hatch-composer-action-slot="true"]');
+            if (actionSlot) {
+                const btn = actionSlot.querySelector('button:not([disabled])');
+                if (btn) {
+                    sendBtn = btn;
+                    break;
+                }
+            }
+            const formBtn = ta.closest('form, [class*="composer"]')?.querySelector('button[type="submit"]:not([disabled])');
+            if (formBtn) {
+                sendBtn = formBtn;
+                break;
+            }
+            const btns = [...document.querySelectorAll('button:not([disabled])')].filter(b => b.offsetParent !== null);
+            const found = btns.find(b => /send|submit|gửi|arrow/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '') + ' ' + b.className));
+            if (found) {
+                sendBtn = found;
+                break;
+            }
+        }
+
+        if (sendBtn) {
+            sendBtn.click();
+            return { ok: true, clicked: true };
+        }
+        return { ok: true, clicked: false };
+    })()
+    `;
+
+    const sendRes = await wc.executeJavaScript(sendScript);
+    if (!sendRes || !sendRes.ok) {
+        throw new Error(`Không thể gửi prompt vào Muse: ${sendRes?.error || 'Unknown'}`);
+    }
+
+    try {
+        await wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+        await new Promise(r => setTimeout(r, 60));
+        await wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+    } catch (e) { }
+    return sendRes;
+}
+
 async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
     const wc = win.webContents;
     const ses = win.webContents.session;
@@ -747,15 +853,23 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
 
     const existingImgSrcs = initRes.existingSrcs || [];
 
-    // Optional reference image attachment
-    if (options && options.image) {
+    // Reference image(s) attachment (single or multi-ref)
+    const refImageList = Array.isArray(options.images) && options.images.length > 0
+        ? options.images
+        : (options.image ? [options.image] : []);
+
+    if (refImageList.length > 0) {
         try {
             await wc.executeJavaScript(`
             (async () => {
                 try {
                     const fileInput = document.querySelector('input[type="file"]');
-                    if (fileInput) {
-                        const dataUri = ${JSON.stringify(options.image)};
+                    if (!fileInput) return;
+                    const dt = new DataTransfer();
+                    const imgs = ${JSON.stringify(refImageList)};
+                    for (let idx = 0; idx < imgs.length; idx++) {
+                        const dataUri = imgs[idx];
+                        if (!dataUri) continue;
                         const parts = dataUri.split(',');
                         const mimeMatch = (parts[0] || '').match(/:(.*?);/);
                         const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
@@ -767,208 +881,198 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                             u8[i] = bin.charCodeAt(i);
                         }
                         const blob = new Blob([u8], { type: mime });
-                        const file = new File([blob], 'ref_image.jpg', { type: mime });
-                        const dt = new DataTransfer();
-                        dt.items.add(file);
-                        fileInput.files = dt.files;
-                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        await new Promise(r => setTimeout(r, 600));
+                        dt.items.add(new File([blob], 'ref_' + idx + '.jpg', { type: mime }));
                     }
+                    fileInput.files = dt.files;
+                    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    await new Promise(r => setTimeout(r, 600));
                 } catch (e) { }
             })()
             `);
         } catch (e) { }
     }
 
-    // Inject prompt with React native setter and send
-    const sendScript = `
-    (async () => {
-        let ta = document.querySelector('textarea, [contenteditable="true"]');
-        if (!ta) {
-            let waited = 0;
-            while (!ta && waited < 10000) {
-                await new Promise(r => setTimeout(r, 150));
-                waited += 150;
-                ta = document.querySelector('textarea, [contenteditable="true"]');
-            }
-        }
-        if (!ta) return { ok: false, error: 'NO_TEXTAREA' };
+    // Send initial prompt into Muse
+    await sendIntoMuse(wc, prompt);
 
-        ta.focus();
-        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-        if (setter && ta.tagName.toLowerCase() === 'textarea') {
-            setter.call(ta, ${JSON.stringify(prompt)});
-        } else if (ta.isContentEditable) {
-            ta.innerText = ${JSON.stringify(prompt)};
-        } else {
-            ta.value = ${JSON.stringify(prompt)};
-        }
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-        ta.dispatchEvent(new Event('change', { bubbles: true }));
-
-        // Give React state a moment to re-render and mount the action slot send button
-        let sendBtn = null;
-        for (let waitBtn = 0; waitBtn < 25; waitBtn++) {
-            await new Promise(r => setTimeout(r, 100));
-            // 1. Selector for Muse composer action slot
-            const actionSlot = document.querySelector('[data-hatch-composer-action-slot="true"]');
-            if (actionSlot) {
-                const btn = actionSlot.querySelector('button:not([disabled])');
-                if (btn) {
-                    sendBtn = btn;
-                    break;
-                }
-            }
-            // 2. Submit button in form or composer container
-            const formBtn = ta.closest('form, [class*="composer"]')?.querySelector('button[type="submit"]:not([disabled])');
-            if (formBtn) {
-                sendBtn = formBtn;
-                break;
-            }
-            // 3. Fallback: any button containing svg arrow or matching send/submit
-            const btns = [...document.querySelectorAll('button:not([disabled])')].filter(b => b.offsetParent !== null);
-            const found = btns.find(b => /send|submit|gửi|arrow/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '') + ' ' + b.className));
-            if (found) {
-                sendBtn = found;
-                break;
-            }
-        }
-
-        if (sendBtn) {
-            sendBtn.click();
-            return { ok: true, clicked: true };
-        }
-        return { ok: true, clicked: false };
-    })()
-    `;
-
-    const sendRes = await wc.executeJavaScript(sendScript);
-    if (!sendRes || !sendRes.ok) {
-        throw new Error(`Không thể gửi prompt vào Muse: ${sendRes?.error || 'Unknown'}`);
-    }
-
-    // Also dispatch native OS Enter key events via WebContents to guarantee submission
-    try {
-        await wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-        await new Promise(r => setTimeout(r, 60));
-        await wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
-    } catch (e) { }
-
-    // Polling loop
+    // Polling loop with muse2api-style attachment detection & recovery
     const maxWaitSec = kind === 'video' ? 240 : (kind === 'image' ? 90 : 45);
     const startTime = Date.now();
+    let askedToAttach = false;
+    let textDoneAt = null;
 
     while ((Date.now() - startTime) < (maxWaitSec * 1000)) {
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 600));
 
         const checkScript = `
         (async () => {
+            let deniedApproval = false;
             // Auto-deny approval cards
             for (const card of document.querySelectorAll('[data-testid="hatch-inline-approval-card"]')) {
                 const btn = [...card.querySelectorAll('button,[role=button]')]
                     .find(b => /^(deny|decline|reject|don.t allow)$/i.test((b.innerText || '').trim()));
-                if (btn && !btn.disabled) btn.click();
+                if (btn && !btn.disabled) {
+                    btn.click();
+                    deniedApproval = true;
+                }
             }
 
             const elapsedSec = (Date.now() - ${startTime}) / 1000;
-
-            ${kind === 'image' ? `
             const existingSet = new Set(${JSON.stringify(existingImgSrcs)});
 
-            // Strictly find NEW generated images
-            const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
-                if (!img.offsetParent) return false;
-                const src = img.currentSrc || img.src || '';
-                if (!src || existingSet.has(src)) return false;
+            // 1. Check official Muse attachments: [data-testid^="hatch-chat-attachment-presentation-"]
+            const attachments = Array.from(document.querySelectorAll('[data-testid^="hatch-chat-attachment-presentation-"]'));
+            for (const att of attachments) {
+                ${kind === 'image' ? `
+                const img = att.querySelector('img');
+                if (img && img.complete && (img.naturalWidth >= 120 || img.width >= 120)) {
+                    const src = img.currentSrc || img.src || '';
+                    if (src && !existingSet.has(src)) {
+                        try {
+                            const c = document.createElement('canvas');
+                            c.width = img.naturalWidth || img.width;
+                            c.height = img.naturalHeight || img.height;
+                            const ctx = c.getContext('2d');
+                            ctx.drawImage(img, 0, 0);
+                            const b64 = c.toDataURL('image/png');
+                            if (b64 && b64.length > 1000) {
+                                return { done: true, type: 'image', base64: b64, url: src };
+                            }
+                        } catch (e) { }
 
-                // Ignore mascot, welcome cards, brand logos, user avatars
-                if (/avatar|profile|logo|brand|mascot|welcome|hero|badge|icon|emoji|favicon/i.test(src)) return false;
-                if (img.closest('header, nav, [data-testid*="welcome"], [class*="welcome"], [class*="header"], [class*="sidebar"]')) return false;
+                        try {
+                            const resp = await fetch(src);
+                            const blob = await resp.blob();
+                            const b64 = await new Promise((res) => {
+                                const r = new FileReader();
+                                r.onloadend = () => res(r.result);
+                                r.readAsDataURL(blob);
+                            });
+                            if (b64 && b64.length > 1000) {
+                                return { done: true, type: 'image', base64: b64, url: src };
+                            }
+                        } catch (e) { }
 
-                const w = img.naturalWidth || img.width || 0;
-                const h = img.naturalHeight || img.height || 0;
-                if (w < 150 || h < 150) return false;
-
-                return true;
-            });
-
-            if (imgs.length > 0 && elapsedSec >= 2.0) {
-                const lastImg = imgs[imgs.length - 1];
-                if (lastImg.complete && lastImg.naturalWidth >= 150) {
-                    try {
-                        const c = document.createElement('canvas');
-                        c.width = lastImg.naturalWidth;
-                        c.height = lastImg.naturalHeight;
-                        const ctx = c.getContext('2d');
-                        ctx.drawImage(lastImg, 0, 0);
-                        const b64 = c.toDataURL('image/png');
-                        if (b64 && b64.length > 1000) {
-                            return { done: true, type: 'image', base64: b64, url: lastImg.currentSrc || lastImg.src };
-                        }
-                    } catch (e) { }
-
-                    try {
-                        const resp = await fetch(lastImg.currentSrc || lastImg.src);
-                        const blob = await resp.blob();
-                        const b64 = await new Promise((res) => {
-                            const r = new FileReader();
-                            r.onloadend = () => res(r.result);
-                            r.readAsDataURL(blob);
-                        });
-                        if (b64 && b64.length > 1000) {
-                            return { done: true, type: 'image', base64: b64, url: lastImg.currentSrc || lastImg.src };
-                        }
-                    } catch (e) { }
-
-                    return { done: true, type: 'image', url: lastImg.currentSrc || lastImg.src };
+                        return { done: true, type: 'image', url: src };
+                    }
                 }
+                ` : ''}
+
+                ${kind === 'video' ? `
+                const vid = att.querySelector('video');
+                if (vid) {
+                    const src = vid.currentSrc || vid.src || '';
+                    if (src && (vid.readyState >= 2 || vid.duration > 0 || vid.videoWidth > 0)) {
+                        return { done: true, type: 'video', url: src };
+                    }
+                }
+                ` : ''}
             }
-            ` : ''}
 
-            ${kind === 'video' ? `
-            if (elapsedSec >= 3.0) {
-                const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"], a[href*="video"]');
-                if (dlLink && dlLink.href) {
-                    return { done: true, type: 'video', url: dlLink.href };
-                }
-                const videos = Array.from(document.querySelectorAll('video')).filter(v => {
-                    const src = v.currentSrc || v.src || '';
-                    return src && (v.readyState >= 2 || v.duration > 0 || (v.videoWidth && v.videoWidth > 0));
-                });
-                if (videos.length > 0) {
-                    const v = videos[videos.length - 1];
-                    const src = v.currentSrc || v.src;
-                    if (src) return { done: true, type: 'video', url: src };
-                }
-                const sources = Array.from(document.querySelectorAll('video source')).filter(s => s.src);
-                if (sources.length > 0) {
-                    const s = sources[sources.length - 1];
-                    if (s.src) return { done: true, type: 'video', url: s.src };
-                }
-            }
-            ` : ''}
-
-            ${kind === 'chat' ? `
+            // 2. Check assistant bubbles for media elements and links (LAST_BUBBLE_MEDIA)
             const bubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
             if (bubbles.length > 0) {
-                const text = bubbles[bubbles.length - 1].innerText.trim();
-                const isStopVisible = !!document.querySelector('button[aria-label*="Stop" i]');
-                if (text && !isStopVisible) {
-                    return { done: true, type: 'text', text };
-                }
-            }
-            ` : ''}
+                const lastBubble = bubbles[bubbles.length - 1];
+                const text = lastBubble.innerText.trim();
 
-            // Error check in assistant bubbles
-            const errorBubbles = Array.from(document.querySelectorAll('div[class*="hatch-agent-bubble-bg"], div[data-testid*="agent-bubble"]'));
-            if (errorBubbles.length > 0) {
-                const text = errorBubbles[errorBubbles.length - 1].innerText.trim();
+                // Check error messages
                 if (/rate limit|exceeded|quota|violation|unable to process|error occurred/i.test(text)) {
                     return { done: true, type: 'error', error: text };
                 }
+
+                ${kind === 'image' ? `
+                const bubbleImgs = Array.from(lastBubble.querySelectorAll('img')).filter(img => {
+                    const s = img.currentSrc || img.src || '';
+                    return s && !existingSet.has(s) && !/avatar|profile|logo|brand|icon/i.test(s);
+                });
+                if (bubbleImgs.length > 0) {
+                    const img = bubbleImgs[bubbleImgs.length - 1];
+                    if (img.complete && (img.naturalWidth >= 120 || img.width >= 120)) {
+                        try {
+                            const c = document.createElement('canvas');
+                            c.width = img.naturalWidth || img.width;
+                            c.height = img.naturalHeight || img.height;
+                            const ctx = c.getContext('2d');
+                            ctx.drawImage(img, 0, 0);
+                            const b64 = c.toDataURL('image/png');
+                            if (b64 && b64.length > 1000) {
+                                return { done: true, type: 'image', base64: b64, url: img.currentSrc || img.src };
+                            }
+                        } catch (e) { }
+                        return { done: true, type: 'image', url: img.currentSrc || img.src };
+                    }
+                }
+                ` : ''}
+
+                ${kind === 'video' ? `
+                // Videos in bubble
+                const bubbleVids = Array.from(lastBubble.querySelectorAll('video, video source')).map(v => v.currentSrc || v.src || '').filter(Boolean);
+                if (bubbleVids.length > 0) {
+                    return { done: true, type: 'video', url: bubbleVids[bubbleVids.length - 1] };
+                }
+
+                // Download/video links in bubble
+                const links = Array.from(lastBubble.querySelectorAll('a[href]')).map(a => a.href).filter(Boolean);
+                const mediaLink = links.find(u => /\\.mp4|videodelivery\\.net|cloudflarestream\\.com|cloudflarestorage\\.com|musecdn|\\/media\\/|\\/download/i.test(u));
+                if (mediaLink) {
+                    return { done: true, type: 'video', url: mediaLink };
+                }
+                ` : ''}
+
+                const isStopVisible = !!document.querySelector('button[aria-label*="Stop" i]');
+                if (!isStopVisible && text.length > 20) {
+                    ${kind === 'chat' ? `return { done: true, type: 'text', text };` : ''}
+                    return { done: false, hasFinishedText: true, text, deniedApproval };
+                }
             }
 
-            return { done: false };
+            // 3. Fallback: check any new img / video on page after 2.5s
+            if (elapsedSec >= 2.5) {
+                ${kind === 'image' ? `
+                const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
+                    if (!img.offsetParent) return false;
+                    const src = img.currentSrc || img.src || '';
+                    if (!src || existingSet.has(src)) return false;
+                    if (/avatar|profile|logo|brand|mascot|welcome|hero|badge|icon/i.test(src)) return false;
+                    if (img.closest('header, nav, [data-testid*="welcome"], [class*="welcome"]')) return false;
+                    const w = img.naturalWidth || img.width || 0;
+                    const h = img.naturalHeight || img.height || 0;
+                    return (w >= 120 && h >= 120);
+                });
+                if (imgs.length > 0) {
+                    const lastImg = imgs[imgs.length - 1];
+                    if (lastImg.complete && lastImg.naturalWidth >= 120) {
+                        try {
+                            const c = document.createElement('canvas');
+                            c.width = lastImg.naturalWidth;
+                            c.height = lastImg.naturalHeight;
+                            const ctx = c.getContext('2d');
+                            ctx.drawImage(lastImg, 0, 0);
+                            const b64 = c.toDataURL('image/png');
+                            if (b64 && b64.length > 1000) {
+                                return { done: true, type: 'image', base64: b64, url: lastImg.currentSrc || lastImg.src };
+                            }
+                        } catch (e) { }
+                        return { done: true, type: 'image', url: lastImg.currentSrc || lastImg.src };
+                    }
+                }
+                ` : ''}
+
+                ${kind === 'video' ? `
+                const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"]');
+                if (dlLink && dlLink.href) return { done: true, type: 'video', url: dlLink.href };
+
+                const vids = Array.from(document.querySelectorAll('video')).filter(v => {
+                    const src = v.currentSrc || v.src || '';
+                    return src && (v.readyState >= 2 || v.duration > 0 || (v.videoWidth && v.videoWidth > 0));
+                });
+                if (vids.length > 0) {
+                    return { done: true, type: 'video', url: vids[vids.length - 1].currentSrc || vids[vids.length - 1].src };
+                }
+                ` : ''}
+            }
+
+            return { done: false, deniedApproval };
         })()
         `;
 
@@ -980,6 +1084,23 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
             if (kind === 'chat') return status.text || 'Hoàn tất kịch bản.';
             if (kind === 'image') return status.base64 || status.url;
             if (kind === 'video') return status.url;
+        }
+
+        // Recovery mechanism from muse2api:
+        // If the agent replied with text (e.g. after approval denied or finished in workspace) without attaching the file,
+        // send a single follow-up message asking Muse to attach the file directly into chat.
+        if (status && (status.deniedApproval || status.hasFinishedText) && !askedToAttach) {
+            if (!textDoneAt) {
+                textDoneAt = Date.now();
+            } else if ((Date.now() - textDoneAt) > 4000) {
+                askedToAttach = true;
+                textDoneAt = null;
+                console.log(`[NativeMuse] Asking Muse to attach final ${kind} file to chat (muse2api recovery)...`);
+                const attachPrompt = `Please attach the final ${kind} file here in the chat instead of uploading it.`;
+                try {
+                    await sendIntoMuse(wc, attachPrompt);
+                } catch (e) { }
+            }
         }
     }
 
