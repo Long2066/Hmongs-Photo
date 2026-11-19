@@ -783,30 +783,62 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
     // Inject prompt with React native setter and send
     const sendScript = `
     (async () => {
-        const ta = document.querySelector('textarea');
+        let ta = document.querySelector('textarea, [contenteditable="true"]');
+        if (!ta) {
+            let waited = 0;
+            while (!ta && waited < 10000) {
+                await new Promise(r => setTimeout(r, 150));
+                waited += 150;
+                ta = document.querySelector('textarea, [contenteditable="true"]');
+            }
+        }
         if (!ta) return { ok: false, error: 'NO_TEXTAREA' };
 
         ta.focus();
         const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-        if (setter) {
+        if (setter && ta.tagName.toLowerCase() === 'textarea') {
             setter.call(ta, ${JSON.stringify(prompt)});
+        } else if (ta.isContentEditable) {
+            ta.innerText = ${JSON.stringify(prompt)};
         } else {
             ta.value = ${JSON.stringify(prompt)};
         }
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         ta.dispatchEvent(new Event('change', { bubbles: true }));
 
-        await new Promise(r => setTimeout(r, 250));
-
-        const allBtns = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null);
-        const sendBtn = allBtns.find(b => /send|发送/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '')));
-
-        if (sendBtn && !sendBtn.disabled) {
-            sendBtn.click();
-        } else {
-            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        // Give React state a moment to re-render and mount the action slot send button
+        let sendBtn = null;
+        for (let waitBtn = 0; waitBtn < 25; waitBtn++) {
+            await new Promise(r => setTimeout(r, 100));
+            // 1. Selector for Muse composer action slot
+            const actionSlot = document.querySelector('[data-hatch-composer-action-slot="true"]');
+            if (actionSlot) {
+                const btn = actionSlot.querySelector('button:not([disabled])');
+                if (btn) {
+                    sendBtn = btn;
+                    break;
+                }
+            }
+            // 2. Submit button in form or composer container
+            const formBtn = ta.closest('form, [class*="composer"]')?.querySelector('button[type="submit"]:not([disabled])');
+            if (formBtn) {
+                sendBtn = formBtn;
+                break;
+            }
+            // 3. Fallback: any button containing svg arrow or matching send/submit
+            const btns = [...document.querySelectorAll('button:not([disabled])')].filter(b => b.offsetParent !== null);
+            const found = btns.find(b => /send|submit|gửi|arrow/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '') + ' ' + b.className));
+            if (found) {
+                sendBtn = found;
+                break;
+            }
         }
-        return { ok: true };
+
+        if (sendBtn) {
+            sendBtn.click();
+            return { ok: true, clicked: true };
+        }
+        return { ok: true, clicked: false };
     })()
     `;
 
@@ -814,6 +846,13 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
     if (!sendRes || !sendRes.ok) {
         throw new Error(`Không thể gửi prompt vào Muse: ${sendRes?.error || 'Unknown'}`);
     }
+
+    // Also dispatch native OS Enter key events via WebContents to guarantee submission
+    try {
+        await wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+        await new Promise(r => setTimeout(r, 60));
+        await wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+    } catch (e) { }
 
     // Polling loop
     const maxWaitSec = kind === 'video' ? 240 : (kind === 'image' ? 90 : 45);
@@ -836,9 +875,6 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
             ${kind === 'image' ? `
             const existingSet = new Set(${JSON.stringify(existingImgSrcs)});
 
-            // Check if Muse is actively generating
-            const isGenerating = !!document.querySelector('button[aria-label*="Stop" i], [data-testid*="stop" i], svg[class*="animate-spin"], [class*="generating"], [class*="thinking"]');
-
             // Strictly find NEW generated images
             const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
                 if (!img.offsetParent) return false;
@@ -851,15 +887,14 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
 
                 const w = img.naturalWidth || img.width || 0;
                 const h = img.naturalHeight || img.height || 0;
-                if (w < 180 || h < 180) return false;
+                if (w < 150 || h < 150) return false;
 
-                const inContainer = !!img.closest('[data-testid*="attachment"], [class*="attachment"], [data-testid*="agent-bubble"], [class*="hatch-agent-bubble"], [data-testid*="message"], [class*="message"], [data-testid*="response"], main, article');
-                return inContainer;
+                return true;
             });
 
-            if (imgs.length > 0 && !isGenerating && elapsedSec >= 2.0) {
+            if (imgs.length > 0 && elapsedSec >= 2.0) {
                 const lastImg = imgs[imgs.length - 1];
-                if (lastImg.complete && lastImg.naturalWidth >= 180) {
+                if (lastImg.complete && lastImg.naturalWidth >= 150) {
                     try {
                         const c = document.createElement('canvas');
                         c.width = lastImg.naturalWidth;
@@ -891,19 +926,24 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
             ` : ''}
 
             ${kind === 'video' ? `
-            if (elapsedSec >= 4.0) {
-                const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"]');
+            if (elapsedSec >= 3.0) {
+                const dlLink = document.querySelector('a[href*=".mp4"], a[download*=".mp4"], a[href*="video"]');
                 if (dlLink && dlLink.href) {
                     return { done: true, type: 'video', url: dlLink.href };
                 }
                 const videos = Array.from(document.querySelectorAll('video')).filter(v => {
                     const src = v.currentSrc || v.src || '';
-                    return src && !src.startsWith('blob:') && (v.readyState >= 2 || v.duration > 0 || (v.videoWidth && v.videoWidth > 0));
+                    return src && (v.readyState >= 2 || v.duration > 0 || (v.videoWidth && v.videoWidth > 0));
                 });
                 if (videos.length > 0) {
                     const v = videos[videos.length - 1];
                     const src = v.currentSrc || v.src;
                     if (src) return { done: true, type: 'video', url: src };
+                }
+                const sources = Array.from(document.querySelectorAll('video source')).filter(s => s.src);
+                if (sources.length > 0) {
+                    const s = sources[sources.length - 1];
+                    if (s.src) return { done: true, type: 'video', url: s.src };
                 }
             }
             ` : ''}

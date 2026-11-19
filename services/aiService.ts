@@ -1613,6 +1613,7 @@ interface CreativeSingleExecutionContext {
     onStatusUpdate: (status: string) => void;
     onQaReport?: (index: number, report: ConsistencyQaReport) => void;
     onItemStatus?: (index: number, text: string) => void;
+    onImageGenerated?: (index: number, base64: string | null) => void;
     abortSignal?: AbortSignal;
 }
 
@@ -1813,6 +1814,7 @@ export const generateImagesFromPromptsList = async (
         onStatusUpdate,
         onQaReport: options?.onQaReport,
         onItemStatus: options?.onItemStatus,
+        onImageGenerated,
         abortSignal
     };
 
@@ -1926,6 +1928,7 @@ const executeCreativeImageSlotWithQa = async (
         activeImageModel,
         onStatusUpdate,
         onQaReport,
+        onImageGenerated,
         abortSignal
     } = ctx;
 
@@ -2209,6 +2212,9 @@ const executeCreativeImageSlotWithQa = async (
             return firstImage;
         }
 
+        // PROGRESSIVE REAL-TIME DISPLAY: Hiển thị ngay lập tức lên ô kết quả trên UI không chờ
+        onImageGenerated?.(index, firstImage);
+
         const shouldRunAutoQa =
             autoQaEnabled &&
             nineRouterConnected &&
@@ -2269,6 +2275,11 @@ const executeCreativeImageSlotWithQa = async (
 
         const best = selectBestQaCandidate(candidates);
         if (!best) return firstImage;
+
+        // Nếu Auto-QA sửa được ảnh hoàn hảo hơn, cập nhật lại slot UI
+        if (best.result && best.result !== firstImage) {
+            onImageGenerated?.(index, best.result);
+        }
 
         const finalReport: ConsistencyQaReport = {
             ...best.report,

@@ -273,18 +273,12 @@ export const setNineRouterImageModel = (model: string): void => {
 };
 
 export const getNineRouterImageModel = (): string => {
-    const stored = localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY);
-    if (!stored) {
-        return DEFAULT_IMAGE_MODEL;
-    }
-    const cleanStored = stored.replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim();
-    if (cleanStored === 'gemini-3-pro-image') {
-        return 'gemini-3.1-flash-image';
-    }
-    if (SUPPORTED_IMAGE_MODELS.some(m => m.id === cleanStored)) {
-        return cleanStored;
-    }
-    return cleanStored || DEFAULT_IMAGE_MODEL;
+    try {
+        if (localStorage.getItem(NINEROUTER_IMAGE_MODEL_KEY) !== DEFAULT_IMAGE_MODEL) {
+            localStorage.setItem(NINEROUTER_IMAGE_MODEL_KEY, DEFAULT_IMAGE_MODEL);
+        }
+    } catch (e) { }
+    return DEFAULT_IMAGE_MODEL;
 };
 
 export const setNineRouterTextModel = (model: string): void => {
@@ -1513,8 +1507,8 @@ CRITICAL RULES:
         ? `${fullDirective}\n\nSCENE DESCRIPTION & REQUIREMENTS:\n${request.prompt}`
         : request.prompt;
 
-    // If Muse AI Image model is selected, route directly to local in-process Muse Gateway (18610)
-    const isMuseSelected = activeModel.toLowerCase().includes('muse');
+    // Image creation is hardcoded to local in-process Muse Gateway (18610)
+    const isMuseSelected = true;
     if (isMuseSelected) {
         const museUrl = 'http://127.0.0.1:18610/v1';
         const museKey = '123456';
