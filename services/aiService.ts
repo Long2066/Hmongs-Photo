@@ -1959,8 +1959,11 @@ const executeCreativeImageSlotWithQa = async (
                         return null;
                     }
                     try {
+                        const effectivePromptToSend = activeImageModel.toLowerCase().includes('muse')
+                            ? (rawScenePrompt || fullPrompt)
+                            : fullPrompt;
                         base64Image = await nineRouterService.generateImageViaNineRouter({
-                            prompt: fullPrompt,
+                            prompt: effectivePromptToSend,
                             referenceImages: labeledNineRouterReferences,
                             aspectRatio: aspectRatio,
                             resolution: resolution,

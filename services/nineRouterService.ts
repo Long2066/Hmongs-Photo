@@ -1263,6 +1263,27 @@ const extractAnyImageFromResponse = async (parsed: ParsedNineRouterResponse, fal
     return null;
 };
 
+export const cleanPromptForMuse = (raw: string): string => {
+    if (!raw) return '';
+    let p = raw;
+    if (p.includes('SCENE DESCRIPTION:')) {
+        p = p.split('SCENE DESCRIPTION:')[1] || p;
+    } else if (p.includes('SCENE DESCRIPTION & REQUIREMENTS:')) {
+        p = p.split('SCENE DESCRIPTION & REQUIREMENTS:')[1] || p;
+    }
+    if (p.includes('*** FINAL COMPOSITION RULE ***')) {
+        p = p.split('*** FINAL COMPOSITION RULE ***')[0] || p;
+    }
+    if (p.includes('[ASPECT RATIO CHECK:')) {
+        p = p.split('[ASPECT RATIO CHECK:')[0] || p;
+    }
+    p = p.replace(/\*\*\*.*?\*\*\*/gs, '');
+    p = p.replace(/\[Locked Subject & Wardrobe DNA:[^\]]*\]/gi, '');
+    p = p.replace(/CRITICAL RULES:[^\.]*\./gi, '');
+    p = p.trim();
+    return p;
+};
+
 /**
  * Generate images through 9Router / CLIProxyAPI.
  * Reference-based requests use native multimodal chat so the image model sees
@@ -1523,9 +1544,12 @@ CRITICAL RULES:
             `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
         );
 
+        const cleanScene = cleanPromptForMuse(request.prompt);
+        const finalMusePrompt = cleanScene || request.prompt;
+
         const musePayload: Record<string, any> = {
             model: 'muse-image',
-            prompt: combinedPrompt,
+            prompt: finalMusePrompt,
             size: ratio,
             n: 1,
             response_format: 'b64_json',

@@ -560,28 +560,14 @@ async function handleChatCompletions(body) {
  * Prepends "Generate an image (aspect ratio ...):" or "Generate a video (...):"
  * to force Muse's AI Agent to trigger its generation tool rather than replying with text.
  */
-function formatMediaPrompt(rawPrompt, kind, size, duration, hasRefImages = false) {
+function formatMediaPrompt(rawPrompt, kind, size, duration) {
     const p = (rawPrompt || '').trim();
-    if (kind === 'image') {
-        const hints = [];
-        if (size) hints.push(`aspect ratio ${size}`);
-        const suffix = hints.length ? ` (${hints.join(', ')})` : '';
-        if (hasRefImages) {
-            return `Generate an image strictly based on the attached reference image clothing and appearance${suffix}: ${p}`;
-        }
-        return `Generate an image${suffix}: ${p}`;
-    }
-    if (kind === 'video') {
-        const hints = [];
-        if (size) hints.push(`aspect ratio ${size}`);
-        if (duration) hints.push(`${duration} seconds long`);
-        const suffix = hints.length ? ` (${hints.join(', ')})` : '';
-        if (hasRefImages) {
-            return `Generate a video animating the subject in the attached first frame / reference image${suffix}: ${p}`;
-        }
-        return `Generate a video${suffix}: ${p}`;
-    }
-    return p;
+    const hints = [];
+    if (size) hints.push(`aspect ratio ${size}`);
+    if (kind === 'video' && duration) hints.push(`${duration} seconds long`);
+    const verb = kind === 'image' ? 'Generate an image' : 'Generate a video';
+    const suffix = hints.length ? ` (${hints.join(', ')})` : '';
+    return `${verb}${suffix}: ${p}`;
 }
 
 /**
@@ -593,7 +579,7 @@ async function handleImageGeneration(body) {
     const rawImages = (Array.isArray(body.images) ? body.images : (body.image ? [body.image] : [])).flat(Infinity).filter(Boolean);
     const image = rawImages[0];
     const images = rawImages;
-    const prompt = formatMediaPrompt(rawPrompt, 'image', size, undefined, rawImages.length > 0);
+    const prompt = formatMediaPrompt(rawPrompt, 'image', size);
     const result = await executeMuseAutomation(prompt, 'image', { image, images, size, rawPrompt });
 
     let base64Data = '';
@@ -646,7 +632,7 @@ async function handleVideoGeneration(body) {
     const rawImages = (Array.isArray(body.images) ? body.images : (body.image || body.input_image ? [body.image || body.input_image] : [])).flat(Infinity).filter(Boolean);
     const image = rawImages[0];
     const images = rawImages;
-    const prompt = formatMediaPrompt(rawPrompt, 'video', size, duration, rawImages.length > 0);
+    const prompt = formatMediaPrompt(rawPrompt, 'video', size, duration);
 
     const taskId = 'task-muse-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
     const initialTask = {
@@ -950,12 +936,15 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                             u8[i] = bin.charCodeAt(i);
                         }
                         const blob = new Blob([u8], { type: mime });
-                        dt.items.add(new File([blob], 'ref_' + idx + '.jpg', { type: mime }));
+                        dt.items.add(new File([blob], 'input_' + idx + '.jpg', { type: mime }));
                     }
 
                     input.files = dt.files;
                     input.dispatchEvent(new Event('change', { bubbles: true }));
                     input.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    // Wait 1.0s matching muse2api driver.py
+                    await new Promise(r => setTimeout(r, 1000));
 
                     // Wait up to 3s for composer to show attachment pill / preview chip
                     let chipWaited = 0;

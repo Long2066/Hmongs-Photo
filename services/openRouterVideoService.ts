@@ -1058,11 +1058,17 @@ const executeMuseAiVideoCall = async (
     const rawBaseUrl = (config.museAiBaseUrl || 'http://127.0.0.1:18610/v1').trim();
     const baseUrl = rawBaseUrl.replace(/\/+$/, '');
     const apiKey = (config.museAiApiKey || '').trim();
-    const { prompt: enhancedPrompt, negativePrompt } = buildFaceLockPrompt(options.prompt, Boolean(options.inputImageBase64), {
-        strictIdentityLock: options.strictIdentityLock,
-        strictMotionLock: options.strictMotionLock,
-        characterDna: options.characterDna
-    });
+
+    // Clean prompt for Muse video generation matching muse2api driver (NO bloat wrappers)
+    const cleanPrompt = (options.prompt || '')
+        .replace(/Giữ tuyệt đối khuôn mặt và nhân vật gốc\.\s*/gi, '')
+        .replace(/- Cảnh\s*\d+\/\d+[:\s]*/gi, '')
+        .replace(/\[Locked Subject & Wardrobe DNA:[^\]]*\]/gi, '')
+        .replace(/CRITICAL IDENTITY & OUTFIT LOCK:[^\.]*\./gi, '')
+        .replace(/MOTION STABILITY LOCK:[^\.]*\./gi, '')
+        .replace(/IMMUTABLE CHARACTER DNA SPEC:[^\.]*\./gi, '')
+        .replace(/SILENT CHARACTER AUDIO RULE:[^\.]*\./gi, '')
+        .trim() || 'Natural cinematic camera motion, realistic character movement and cohesive lighting';
 
     options.onProgress?.('Đang gửi yêu cầu tạo video tới Muse AI Gateway...');
 
@@ -1087,10 +1093,9 @@ const executeMuseAiVideoCall = async (
 
     const bodyPayload: Record<string, any> = {
         model: 'muse-video',
-        prompt: enhancedPrompt,
+        prompt: cleanPrompt,
         size: aspectRatio,
-        duration,
-        negative_prompt: negativePrompt
+        duration
     };
     if (imagePayload) {
         bodyPayload.image = imagePayload;
