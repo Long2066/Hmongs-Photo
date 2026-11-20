@@ -1614,8 +1614,11 @@ CRITICAL RULES:
 
                 if (!respMuse.ok) {
                     const errText = await respMuse.text().catch(() => '');
-                    const errMessage = `Muse AI Gateway tạo ảnh lỗi (HTTP ${respMuse.status}): ${errText || respMuse.statusText}`;
-                    if (isTransientHttpOrNetworkError(respMuse.status, errMessage) && museAttempt < 2) {
+                    let errMessage = `Muse AI Gateway tạo ảnh lỗi (HTTP ${respMuse.status}): ${errText || respMuse.statusText}`;
+                    if (errText.includes('upstream_auth_failed') || errText.includes('cookies are no longer valid') || respMuse.status === 502) {
+                        errMessage = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
+                    }
+                    if (!errMessage.includes('hết hạn cookie') && isTransientHttpOrNetworkError(respMuse.status, errMessage) && museAttempt < 2) {
                         const waitMs = computeJitteredBackoffMs(museAttempt, 1500, 7000);
                         console.warn(`[MuseAI] Transient HTTP ${respMuse.status}, retrying (${museAttempt + 2}/3) after ${waitMs}ms...`);
                         await sleepWithAbort(waitMs, abortSignal);

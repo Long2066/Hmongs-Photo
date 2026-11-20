@@ -225,42 +225,176 @@ function stop() {
     isStopping = false;
 }
 
+function normalizeCookies(input) {
+    let cookieMap = {};
+    if (!input) return { cookieMap, cookieString: '' };
+
+    if (typeof input === 'string') {
+        const trimmed = input.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            try {
+                return normalizeCookies(JSON.parse(trimmed));
+            } catch (e) { }
+        }
+        // Header string: key=value; key2=value2
+        const parts = trimmed.split(/[;\n]+/);
+        for (const part of parts) {
+            const trimmedPart = part.trim();
+            if (!trimmedPart || !trimmedPart.includes('=')) continue;
+            const eqIdx = trimmedPart.indexOf('=');
+            const k = trimmedPart.slice(0, eqIdx).trim();
+            const v = trimmedPart.slice(eqIdx + 1).trim();
+            if (k) cookieMap[k] = v;
+        }
+    } else if (Array.isArray(input)) {
+        for (const item of input) {
+            if (item && item.name) {
+                cookieMap[String(item.name).trim()] = String(item.value || '').trim();
+            }
+        }
+    } else if (typeof input === 'object' && input !== null) {
+        if (Array.isArray(input.cookies)) {
+            return normalizeCookies(input.cookies);
+        }
+        for (const [k, v] of Object.entries(input)) {
+            if (k && v !== undefined && v !== null) {
+                cookieMap[String(k).trim()] = String(v).trim();
+            }
+        }
+    }
+
+    const cookieString = Object.entries(cookieMap)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ');
+
+    return { cookieMap, cookieString };
+}
+
 async function getStatus() {
     const check = await checkModelsEndpoint(1000);
     const dataDir = getDataDir();
     const accPath = path.join(dataDir, 'accounts.json');
 
-    let accountsCount = 0;
-    let hasAccounts = false;
+    let accounts = [];
     if (fs.existsSync(accPath)) {
         try {
             const raw = JSON.parse(fs.readFileSync(accPath, 'utf8'));
             if (Array.isArray(raw)) {
-                accountsCount = raw.length;
-                hasAccounts = raw.length > 0;
+                accounts = raw;
             }
         } catch { }
     }
 
+    // Try fetching live accounts from admin API if running
+    if (check.ok) {
+        try {
+            const adminData = await new Promise((resolve) => {
+                const req = http.get('http://127.0.0.1:18610/admin/accounts', {
+                    timeout: 1200,
+                    headers: { 'Authorization': 'Bearer 123456' }
+                }, (res) => {
+                    let buf = '';
+                    res.on('data', d => buf += d);
+                    res.on('end', () => {
+                        try {
+                            const parsed = JSON.parse(buf);
+                            resolve(parsed.data || []);
+                        } catch { resolve(null); }
+                    });
+                });
+                req.on('error', () => resolve(null));
+                req.on('timeout', () => { req.destroy(); resolve(null); });
+            });
+            if (Array.isArray(adminData) && adminData.length > 0) {
+                accounts = adminData;
+            }
+        } catch { }
+    }
+
+    const activeCount = accounts.filter(a => a.status === 'active' || (a.enabled !== false && a.status !== 'invalid' && a.status !== 'expired')).length;
+    const hasActive = activeCount > 0;
+
     return {
-        configured: check.ok && hasAccounts,
+        configured: check.ok && accounts.length > 0,
         running: check.ok,
         engine: 'muse-gateway-standalone',
         port: 18610,
-        accountsCount,
-        modelsCount: check.models ? check.models.length : 0
+        accountsCount: accounts.length,
+        activeAccountsCount: activeCount,
+        hasActiveAccounts: hasActive,
+        modelsCount: check.models ? check.models.length : 0,
+        accounts: accounts.map(a => ({
+            id: a.id,
+            label: a.label || a.id,
+            status: a.status || 'unknown',
+            valid: a.status === 'active',
+            last_error: a.last_error || null
+        }))
     };
 }
 
 async function saveMuseCookies(cookieInput) {
-    if (!cookieInput || typeof cookieInput !== 'string') {
-        throw new Error('Chuỗi cookie không hợp lệ.');
+    const { cookieMap, cookieString } = normalizeCookies(cookieInput);
+    if (!cookieString || Object.keys(cookieMap).length === 0) {
+        throw new Error('Chuỗi cookie không hợp lệ hoặc rỗng. Vui lòng kiểm tra lại.');
     }
 
-    // Try posting to admin API on running muse2api
+    const nowSec = Date.now() / 1000;
+    const accountLabel = `ImageTool-${new Date().toLocaleDateString('vi-VN')}`;
+
+    // 1. Persist directly to accounts.json in dataDir
+    const dataDir = getDataDir();
+    const accPath = path.join(dataDir, 'accounts.json');
+    let list = [];
+    if (fs.existsSync(accPath)) {
+        try { list = JSON.parse(fs.readFileSync(accPath, 'utf8')); } catch { }
+    }
+    if (!Array.isArray(list)) list = [];
+
+    // Check if account with same hatch_sess exists
+    const inputSess = cookieMap['hatch_sess'];
+    let matchedIdx = -1;
+    if (inputSess) {
+        matchedIdx = list.findIndex(a => a.cookies && a.cookies.hatch_sess === inputSess);
+    }
+
+    if (matchedIdx >= 0) {
+        list[matchedIdx].cookies = { ...(list[matchedIdx].cookies || {}), ...cookieMap };
+        list[matchedIdx].status = 'active';
+        list[matchedIdx].enabled = true;
+        list[matchedIdx].cooldown_until = 0.0;
+        list[matchedIdx].last_error = null;
+        list[matchedIdx].last_used_at = nowSec;
+        list[matchedIdx].label = list[matchedIdx].label || accountLabel;
+    } else {
+        // Prepend fresh active account at beginning of rotation pool
+        list.unshift({
+            id: `acc_${Date.now().toString(36)}`,
+            label: accountLabel,
+            enabled: true,
+            status: 'active',
+            cookies: cookieMap,
+            created_at: nowSec,
+            last_used_at: nowSec,
+            cooldown_until: 0.0,
+            last_error: null,
+            success_count: 0,
+            fail_count: 0,
+            meta: {}
+        });
+    }
+
+    try {
+        fs.writeFileSync(accPath, JSON.stringify(list, null, 2), 'utf8');
+        console.log(`[MuseManager] Saved ${list.length} accounts to ${accPath}`);
+    } catch (writeErr) {
+        console.error('[MuseManager] Failed to write accounts.json:', writeErr);
+    }
+
+    // 2. Also push to admin API if gateway is running
     const postData = JSON.stringify({
-        cookies: cookieInput.trim(),
-        label: `ImageTool-${new Date().toLocaleDateString('vi-VN')}`
+        cookies: cookieString,
+        label: accountLabel
     });
 
     try {
@@ -287,28 +421,12 @@ async function saveMuseCookies(cookieInput) {
             req.write(postData);
             req.end();
         });
-        console.log('[MuseManager] Successfully pushed account to muse2api via admin API.');
+        console.log('[MuseManager] Successfully pushed account to muse2api admin API.');
     } catch (apiErr) {
-        console.warn('[MuseManager] Could not push to admin API, fallback saving to accounts.json:', apiErr.message);
-        // Fallback: update accounts.json directly
-        const dataDir = getDataDir();
-        const accPath = path.join(dataDir, 'accounts.json');
-        let list = [];
-        if (fs.existsSync(accPath)) {
-            try { list = JSON.parse(fs.readFileSync(accPath, 'utf8')); } catch { }
-        }
-        if (!Array.isArray(list)) list = [];
-        list.push({
-            id: `acc_${Date.now()}`,
-            label: `ImageTool-${new Date().toLocaleDateString('vi-VN')}`,
-            cookies: cookieInput.trim(),
-            created_at: Date.now() / 1000,
-            status: 'active'
-        });
-        fs.writeFileSync(accPath, JSON.stringify(list, null, 2), 'utf8');
+        console.warn('[MuseManager] muse2api admin API notification notice (accounts.json is saved):', apiErr.message);
     }
 
-    return { success: true };
+    return { success: true, message: 'Đã lưu và kích hoạt tài khoản Muse thành công!' };
 }
 
 function openExternalChromeIncognito(url = 'https://muse.ai/login') {
@@ -365,13 +483,24 @@ function openLoginWindow(parentWindow) {
             }
 
             try {
-                const cookies = await session.defaultSession.cookies.get({ domain: 'muse.ai' });
-                const hasSession = cookies.some(c => c.name.toLowerCase().includes('session') || c.name.toLowerCase().includes('auth') || c.name === 'user');
-                if (hasSession && cookies.length >= 2) {
-                    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                const [cookiesDomain, cookiesUrl] = await Promise.all([
+                    session.defaultSession.cookies.get({ domain: 'muse.ai' }).catch(() => []),
+                    session.defaultSession.cookies.get({ url: 'https://muse.ai' }).catch(() => [])
+                ]);
+                const combined = [...cookiesDomain, ...cookiesUrl];
+                const cookieMap = {};
+                for (const c of combined) {
+                    if (c && c.name && c.value) {
+                        cookieMap[c.name] = c.value;
+                    }
+                }
+                const hasSession = Boolean(cookieMap['hatch_sess']) ||
+                    Object.keys(cookieMap).some(k => k.toLowerCase().includes('sess') || k.toLowerCase().includes('auth'));
+
+                if (hasSession && Object.keys(cookieMap).length >= 1) {
                     clearInterval(checkInterval);
                     resolved = true;
-                    await saveMuseCookies(cookieStr);
+                    await saveMuseCookies(cookieMap);
                     loginWin.close();
                     resolve({ success: true, message: 'Đăng nhập thành công và đã đồng bộ tài khoản!' });
                 }

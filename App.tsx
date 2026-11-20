@@ -820,32 +820,28 @@ const App: React.FC = () => {
                 await deductBalanceForVIP(validImages.length, 'image_generation');
                 saveHistory(cleanPrefix, prompts[0], validImages, outputMode);
             } else {
-                setModeStates(prev => ({
-                    ...prev,
-                    creative: { ...prev.creative, outputs: [], qaReports: [] }
-                }));
+                console.warn('[Creative] Chưa tạo thành công ảnh nào trong đợt này.');
             }
 
         } catch (e: any) {
-            const hasAny = localResults.some(img => img !== null);
-            if (!hasAny) {
-                setModeStates(prev => ({
-                    ...prev,
-                    creative: { ...prev.creative, outputs: [], qaReports: [] }
-                }));
-            }
+            console.error('[App] Creative generation error:', e);
             if (abortController.signal.aborted || e?.name === 'AbortError' || e?.message?.includes('aborted')) {
                 console.log('[App] Creative generation aborted cleanly by user');
                 setLoadingStatus('Đã dừng tạo ảnh theo yêu cầu.');
             } else {
-                setError(e instanceof Error ? e.message : 'Lỗi.');
+                const rawMsg = e instanceof Error ? e.message : String(e || 'Lỗi tạo ảnh.');
+                let friendlyMsg = rawMsg;
+                if (rawMsg.includes('upstream_auth_failed') || rawMsg.includes('cookies are no longer valid') || rawMsg.includes('502') || rawMsg.includes('MUSE_AUTH_FAILED')) {
+                    friendlyMsg = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
+                } else if (rawMsg.includes('NINEROUTER_QUOTA_EXHAUSTED')) {
+                    friendlyMsg = 'Tất cả tài khoản Muse.ai đều đã hết lượt hôm nay (Quota Exhausted). Vui lòng thêm cookie mới hoặc chuyển sang tài khoản Google.';
+                }
+                setError(friendlyMsg);
+                setLoadingStatus(`Lỗi: ${friendlyMsg}`);
             }
         } finally {
             abortControllerRef.current = null;
             setIsLoading(false);
-            if (!abortController.signal.aborted) {
-                setLoadingStatus('');
-            }
         }
     }, [modeStates, currentUser, autoDownload, userBalance, validateSubscriptionBeforeGenerate, plansConfig, currentSubscriptionPlan]);
 
@@ -1483,7 +1479,10 @@ const App: React.FC = () => {
 
             const successfulClips = builtSceneItems.map(item => item.url);
             if (successfulClips.length === 0) {
-                const detailedError = sceneErrors.length > 0 ? sceneErrors.join('\n') : 'Không thể tạo phân cảnh video nào. Vui lòng thử lại.';
+                let detailedError = sceneErrors.length > 0 ? sceneErrors.join('\n') : 'Không thể tạo phân cảnh video nào. Vui lòng thử lại.';
+                if (detailedError.includes('upstream_auth_failed') || detailedError.includes('cookies are no longer valid') || detailedError.includes('502') || detailedError.includes('MUSE_AUTH_FAILED')) {
+                    detailedError = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
+                }
                 throw new Error(detailedError);
             }
 
@@ -1545,14 +1544,20 @@ const App: React.FC = () => {
             saveHistory(cleanTitle, prompt, [finalVideoUrl], subMode === 'image_to_video' ? `Image-to-Video Series (${successfulClips.length} cảnh)` : 'Text-to-Video');
         } catch (e) {
             console.error('[Video Error]:', e);
-            const msg = e instanceof Error ? e.message : 'Lỗi tạo video AI.';
-            setError(msg === 'Failed to fetch' ? 'Lỗi kết nối mạng khi tải dữ liệu video (Failed to fetch). Vui lòng thử lại.' : msg);
+            const rawMsg = e instanceof Error ? e.message : String(e || 'Lỗi tạo video AI.');
+            let friendlyMsg = rawMsg;
+            if (rawMsg.includes('upstream_auth_failed') || rawMsg.includes('cookies are no longer valid') || rawMsg.includes('502') || rawMsg.includes('MUSE_AUTH_FAILED')) {
+                friendlyMsg = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
+            } else if (rawMsg === 'Failed to fetch') {
+                friendlyMsg = 'Không thể kết nối tới Muse Gateway (Failed to fetch). Vui lòng kiểm tra lại dịch vụ Muse trong "Tài khoản AI".';
+            }
+            setError(friendlyMsg);
+            setLoadingStatus(`Lỗi: ${friendlyMsg}`);
             setVideoEntries([]);
             setVideoSceneItems([]);
             setModeStates(prev => ({ ...prev, video: { ...prev.video, outputs: [] } }));
         } finally {
             setIsLoading(false);
-            setLoadingStatus('');
         }
     }, [modeStates, saveHistory, remainingVideoSeconds, currentSubscriptionPlan, currentUser, autoDownload, plansConfig, renderSingleVideoSceneWithQa]);
 

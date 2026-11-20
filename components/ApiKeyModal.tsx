@@ -117,12 +117,21 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
             });
         }
         if (Object.keys(jar).length > 0) {
-            if (window.electronAPI?.museSaveCookies) {
-                await window.electronAPI.museSaveCookies(jar);
+            try {
+                if (window.electronAPI?.museSaveCookies) {
+                    const res = await window.electronAPI.museSaveCookies(jar);
+                    if (res && res.error) {
+                        alert(`Lỗi lưu cookie Muse: ${res.error}`);
+                        return;
+                    }
+                }
+                setManualCookieInput('');
+                setShowCookieInput(false);
+                await refreshNativeStatus();
+                alert('Đã lưu và kích hoạt tài khoản Muse thành công!');
+            } catch (saveErr: any) {
+                alert(`Lỗi lưu cookie: ${saveErr?.message || saveErr}`);
             }
-            setManualCookieInput('');
-            setShowCookieInput(false);
-            await refreshNativeStatus();
         }
     };
 
@@ -550,10 +559,20 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                         </div>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <p className="text-[11px] text-slate-500 font-medium">
-                                            {nativeStatus?.museStatus?.accountsCount
-                                                ? `Đã nhận ${nativeStatus.museStatus.accountsCount} tài khoản (Auto-rotation)`
-                                                : (nativeStatus?.museStatus?.configured ? 'Đã nạp 1 tài khoản (Auto Keep-Alive)' : 'Chưa có tài khoản nào')}
+                                        <p className="text-[11px] font-medium">
+                                            {nativeStatus?.museStatus?.accountsCount ? (
+                                                nativeStatus?.museStatus?.activeAccountsCount > 0 ? (
+                                                    <span className="text-emerald-700 font-semibold">
+                                                        🟢 {nativeStatus.museStatus.activeAccountsCount}/{nativeStatus.museStatus.accountsCount} tài khoản sẵn sàng
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-amber-700 font-semibold">
+                                                        ⚠️ {nativeStatus.museStatus.accountsCount} tài khoản đã hết hạn cookie
+                                                    </span>
+                                                )
+                                            ) : (
+                                                <span className="text-slate-500">Chưa có tài khoản nào</span>
+                                            )}
                                         </p>
                                         {Boolean(nativeStatus?.museStatus?.accounts?.length) && (
                                             <button
@@ -572,10 +591,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                             {nativeStatus.museStatus.accounts.map((acc: any, idx: number) => (
                                                 <div key={idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs">
                                                     <span className="truncate max-w-[170px] font-mono text-[10px] font-medium" title={acc.label || acc.id}>{acc.label || acc.id}</span>
-                                                    {acc.status === 'expired' ? (
-                                                        <span className="text-[9px] font-bold text-red-500 shrink-0">🔴 Hết hạn</span>
+                                                    {acc.status === 'active' ? (
+                                                        <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Hoạt động</span>
                                                     ) : (
-                                                        <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Active</span>
+                                                        <span className="text-[9px] font-bold text-amber-600 shrink-0" title={acc.last_error || 'Hết hạn'}>🔴 Hết hạn</span>
                                                     )}
                                                 </div>
                                             ))}

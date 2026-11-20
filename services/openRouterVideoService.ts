@@ -1116,8 +1116,11 @@ const executeMuseAiVideoCall = async (
 
             if (!submitResp.ok) {
                 const errText = await submitResp.text().catch(() => '');
-                const errMsg = `Muse AI Gateway lỗi (HTTP ${submitResp.status}): ${errText || submitResp.statusText}`;
-                if (submitAttempt < 2 && isTransientHttpOrNetworkError(submitResp.status, errMsg)) {
+                let errMsg = `Muse AI Gateway lỗi (HTTP ${submitResp.status}): ${errText || submitResp.statusText}`;
+                if (errText.includes('upstream_auth_failed') || errText.includes('cookies are no longer valid') || submitResp.status === 502) {
+                    errMsg = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
+                }
+                if (submitAttempt < 2 && !errMsg.includes('hết hạn cookie') && isTransientHttpOrNetworkError(submitResp.status, errMsg)) {
                     const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
                     options.onProgress?.(`Gateway Muse đang bận, thử lại sau ${Math.round(waitMs / 1000)}s (${submitAttempt + 2}/3)...`);
                     await sleepWithAbort(waitMs, options.abortSignal);
@@ -1204,7 +1207,12 @@ const executeMuseAiVideoCall = async (
         }
 
         if (pollData.status === 'failed' || pollData.status === 'cancelled') {
-            throw new Error(`Muse AI tạo video thất bại: ${pollData.error?.message || pollData.status}`);
+            const pollErrMsg = pollData.error?.message || pollData.error || pollData.status;
+            let friendly = `Muse AI tạo video thất bại: ${pollErrMsg}`;
+            if (String(pollErrMsg).includes('upstream_auth_failed') || String(pollErrMsg).includes('cookies are no longer valid')) {
+                friendly = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới.';
+            }
+            throw new Error(friendly);
         }
     }
 

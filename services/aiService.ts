@@ -1190,9 +1190,9 @@ export const generateBatchPromptsText = async (
     const identityMode: nineRouterService.IdentityPreservationMode = options?.identityMode ?? 'strict_original';
     const isStrictOriginal = identityMode !== 'korean_idol';
 
-    // Layer 1 Multi-Scene Anchor: Extract an immutable Character & Wardrobe DNA Spec ONCE per batch
+    // Layer 1 Multi-Scene Anchor: Extract an immutable Character & Wardrobe DNA Spec ONLY when explicitly requested
     let resolvedCharacterDna = (options?.characterDna || '').trim();
-    if (!resolvedCharacterDna && options?.enableDnaLock !== false && refImages && nineRouterService.isNineRouterEnabled()) {
+    if (!resolvedCharacterDna && options?.enableDnaLock === true && refImages && nineRouterService.isNineRouterEnabled()) {
         const dnaRefs: nineRouterService.NineRouterLabeledReferenceImage[] = [
             ...(refImages.male || []).slice(0, 2).map((img, idx) => ({ ...img, label: `MALE REF ${idx + 1}` })),
             ...(refImages.female || []).slice(0, 2).map((img, idx) => ({ ...img, label: `FEMALE REF ${idx + 1}` })),
@@ -1676,10 +1676,12 @@ const buildCreativeImageBasePrompt = (
         : (refImages.female && refImages.female.length > 0)
         ? `*** FEMALE SOLO SCENE & STRICT IDENTITY/OUTFIT PROTOCOL ***
             - FEMALE BINDING: Render ${femaleSubjText} wearing 100% of the exact FEMALE REFERENCE OUTFIT from the attached photo (Image 1 - Nữ) (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
+            - CLOTHING CLONING: If the attached reference shows clothing, dress, or outfit, clone 100% of its colors, patterns, and style onto the female subject. FORBIDDEN to replace with casual western clothing.
             - ZERO DRIFT: Strictly FORBIDDEN to alter face or swap clothing colors/design away from the input reference.`
         : (refImages.male && refImages.male.length > 0)
         ? `*** MALE SOLO SCENE & STRICT IDENTITY/OUTFIT PROTOCOL ***
             - MALE BINDING: Render ${maleSubjText} wearing 100% of the exact MALE REFERENCE OUTFIT from the attached photo (Image 1 - Nam) (exact colors, suit/jacket cut, pants, embroidery).
+            - CLOTHING CLONING: If the attached reference shows clothing, costume, or outfit, clone 100% of its colors, patterns, and style onto the subject. FORBIDDEN to replace with unrelated casual western clothing (such as yellow sweaters or plain shirts).
             - ZERO DRIFT: Strictly FORBIDDEN to alter face or swap clothing colors/design away from the input reference.`
         : `*** VIRTUAL TRY-ON ENFORCEMENT ***
             - Clone 100% the patterns, colors, cuts, and every detail of the clothing directly from the input photo(s).`;
@@ -1955,6 +1957,7 @@ const executeCreativeImageSlotWithQa = async (
                 onStatusUpdate(`[Cấu hình] Đang tạo ảnh ${index + 1}/${totalCount}...`);
                 const maxGatewayAttempts = activeImageModel.toLowerCase().includes('muse') ? 4 : 3;
                 let sawQuotaExhaustion = false;
+                let lastGatewayError = '';
 
                 for (let attempt = 0; attempt < maxGatewayAttempts; attempt++) {
                     if (abortSignal?.aborted) {
@@ -1992,6 +1995,7 @@ const executeCreativeImageSlotWithQa = async (
                         }
                         console.error(`[9Router] Attempt ${attempt + 1}/${maxGatewayAttempts} failed:`, err);
                         const errorMsg = err?.message || String(err);
+                        lastGatewayError = errorMsg;
                         const lowerMsg = errorMsg.toLowerCase();
                         const isQuotaError = lowerMsg.includes('quota')
                             || lowerMsg.includes('exhausted')
@@ -2017,11 +2021,16 @@ const executeCreativeImageSlotWithQa = async (
                 }
 
                 if (!base64Image) {
+                    if (lastGatewayError.toLowerCase().includes('upstream_auth_failed') ||
+                        lastGatewayError.toLowerCase().includes('cookies are no longer valid') ||
+                        lastGatewayError.includes('502')) {
+                        throw new Error('Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.');
+                    }
                     if (sawQuotaExhaustion) {
                         throw new Error('NINEROUTER_QUOTA_EXHAUSTED');
                     }
                     console.error('[9Router] Failed after all retries - no fallback (isolated mode)');
-                    throw new Error('NINEROUTER_FAILED');
+                    throw new Error(lastGatewayError || 'NINEROUTER_FAILED');
                 }
             }
 
