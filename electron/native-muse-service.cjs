@@ -35,6 +35,7 @@ let isWorkerBusy = false;
 let museAccounts = [];
 let currentAccountIndex = 0;
 const workerPool = new Map(); // accId -> { win, busy }
+const workerInitPromises = new Map(); // accId -> Promise<{ win, busy, accId }>
 const taskStore = new Map(); // taskId -> resultObj
 
 function getMediaDirectory() {
@@ -472,48 +473,63 @@ async function getWorkerForAccount(acc) {
         return entry;
     }
 
-    const partitionName = `persist:muse_${accId}`;
-    const win = new BrowserWindow({
-        show: false,
-        width: 1280,
-        height: 800,
-        webPreferences: {
-            partition: partitionName,
-            nodeIntegration: false,
-            contextIsolation: true
-        }
-    });
+    if (workerInitPromises.has(accId)) {
+        return await workerInitPromises.get(accId);
+    }
 
-    const ses = win.webContents.session;
-    // Set cookies into this account's session
-    for (const [name, value] of Object.entries(acc.cookies || {})) {
-        if (!value) continue;
+    const initPromise = (async () => {
         try {
-            await ses.cookies.set({
-                url: MUSE_SITE,
-                name,
-                value,
-                domain: '.muse.ai',
-                path: '/',
-                secure: true,
-                sameSite: 'lax'
+            const partitionName = `persist:muse_${accId}`;
+            const win = new BrowserWindow({
+                show: false,
+                width: 1280,
+                height: 800,
+                webPreferences: {
+                    partition: partitionName,
+                    nodeIntegration: false,
+                    contextIsolation: true
+                }
             });
-        } catch (e) { }
-    }
 
-    win.on('closed', () => {
-        workerPool.delete(accId);
-    });
+            const ses = win.webContents.session;
+            // Set cookies into this account's session
+            for (const [name, value] of Object.entries(acc.cookies || {})) {
+                if (!value) continue;
+                try {
+                    await ses.cookies.set({
+                        url: MUSE_SITE,
+                        name,
+                        value,
+                        domain: '.muse.ai',
+                        path: '/',
+                        secure: true,
+                        sameSite: 'lax'
+                    });
+                } catch (e) { }
+            }
 
-    try {
-        await win.loadURL(NEW_THREAD_URL);
-    } catch (e) {
-        console.warn(`[NativeMuse] Init load error for account ${accId}:`, e.message);
-    }
+            win.on('closed', () => {
+                workerPool.delete(accId);
+            });
 
-    entry = { win, busy: false, accId };
-    workerPool.set(accId, entry);
-    return entry;
+            try {
+                await win.loadURL(NEW_THREAD_URL);
+            } catch (e) {
+                console.warn(`[NativeMuse] Init load error for account ${accId}:`, e.message);
+            }
+
+            const currentEntry = workerPool.get(accId);
+            const isBusy = currentEntry ? Boolean(currentEntry.busy) : false;
+            const resEntry = { win, busy: isBusy, accId };
+            workerPool.set(accId, resEntry);
+            return resEntry;
+        } finally {
+            workerInitPromises.delete(accId);
+        }
+    })();
+
+    workerInitPromises.set(accId, initPromise);
+    return await initPromise;
 }
 
 /**
@@ -716,20 +732,34 @@ async function executeMuseAutomation(prompt, kind = 'chat', options = {}) {
             const accId = String(acc.id || acc.label || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
             const entry = workerPool.get(accId);
             if (!entry || !entry.busy) {
+                // Synchronously mark account as busy right away to prevent other parallel requests from grabbing it
+                if (!entry) {
+                    workerPool.set(accId, { win: null, busy: true, accId });
+                } else {
+                    entry.busy = true;
+                }
                 chosenAcc = acc;
                 currentAccountIndex = (currentAccountIndex + i + 1) % candidateAccounts.length;
-                chosenWorker = await getWorkerForAccount(acc);
-                chosenWorker.busy = true;
+                try {
+                    chosenWorker = await getWorkerForAccount(acc);
+                    chosenWorker.busy = true;
+                } catch (wErr) {
+                    console.warn(`[NativeMuse] Failed to init worker for account ${accId}:`, wErr.message);
+                    workerPool.delete(accId);
+                    chosenWorker = null;
+                    continue;
+                }
                 break;
             }
         }
         if (!chosenWorker) {
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 400));
         }
     }
 
     if (!chosenWorker) {
         chosenAcc = candidateAccounts[0];
+        const fallbackAccId = String(chosenAcc.id || chosenAcc.label || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
         chosenWorker = await getWorkerForAccount(chosenAcc);
         chosenWorker.busy = true;
     }
@@ -758,6 +788,10 @@ async function executeMuseAutomation(prompt, kind = 'chat', options = {}) {
     } finally {
         if (chosenWorker) {
             chosenWorker.busy = false;
+        } else if (chosenAcc) {
+            const accId = String(chosenAcc.id || chosenAcc.label || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const entry = workerPool.get(accId);
+            if (entry) entry.busy = false;
         }
     }
 }

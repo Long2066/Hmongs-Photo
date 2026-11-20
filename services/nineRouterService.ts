@@ -1278,7 +1278,7 @@ export const cleanPromptForMuse = (raw: string): string => {
         p = p.split('[ASPECT RATIO CHECK:')[0] || p;
     }
     p = p.replace(/\*\*\*.*?\*\*\*/gs, '');
-    p = p.replace(/\[Locked Subject & Wardrobe DNA:[^\]]*\]/gi, '');
+    p = p.replace(/\[Locked Subject & Wardrobe DNA:\s*([^\]]+)\]/gi, 'Authentic reference outfit details: $1. ');
     p = p.replace(/CRITICAL RULES:[^\.]*\./gi, '');
     p = p.trim();
     return p;
@@ -1544,12 +1544,44 @@ CRITICAL RULES:
             `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
         );
 
+        // Ensure dense authentic outfit description is extracted if not already in the prompt
+        let outfitDnaText = '';
+        if (refsPayload.length > 0 && taskType === 'create') {
+            const hasDnaInPrompt = /\[Locked Subject & Wardrobe DNA:[^\]]+\]/i.test(request.prompt) ||
+                /Authentic reference outfit details/i.test(request.prompt) ||
+                /Authentic outfit details from reference/i.test(request.prompt);
+            if (!hasDnaInPrompt) {
+                try {
+                    const validRefs = referenceImages.filter(r => r && r.data && r.data.length > 50).slice(0, 2);
+                    if (validRefs.length > 0) {
+                        const isStrict = identityMode !== 'korean_idol';
+                        const dnaPrompt = isStrict
+                            ? `Analyze the attached ${validRefs.length} reference image(s) and output ONE concise specification (under 100 words): exact subject face & hair identity, exact clothing pieces, colors, fabrics, and embroidery patterns. Output ONLY factual descriptors.`
+                            : `Analyze the clothing, textiles, embroidery, and accessories in the attached reference image(s) and output ONE concise garment & accessory specification (under 90 words): exact garment pieces, exact primary/secondary colors, embroidery motifs, fabrics, and items. Output ONLY factual descriptors.`;
+                        const dnaSpec = await analyzeMultimodalVisionViaNineRouter({
+                            prompt: dnaPrompt,
+                            images: validRefs,
+                            temperature: 0.1,
+                            maxTokens: 250,
+                            timeoutMs: 15000,
+                            abortSignal
+                        });
+                        if (dnaSpec && dnaSpec.trim()) {
+                            outfitDnaText = `Authentic outfit details from reference: ${dnaSpec.replace(/\s+/g, ' ').trim()}. `;
+                        }
+                    }
+                } catch (dnaErr) {
+                    console.warn('[MuseAI] Quick outfit DNA extraction warning:', dnaErr);
+                }
+            }
+        }
+
         const cleanScene = cleanPromptForMuse(request.prompt);
         const outfitEnforcement = refsPayload.length > 0
             ? (taskType === 'create'
                 ? (identityMode === 'korean_idol'
-                    ? 'Clone 100% of the clothing, fabric, garment cut, colors, and authentic embroidery patterns directly from the attached reference photo(s). The character MUST wear this exact authentic reference outfit replicated with 100% original colors, cuts, and embroidery without substituting modern western clothes. '
-                    : 'Clone 100% of the exact original person identity, face, and clothing directly from the attached reference photo(s) without altering outfit or facial features. ')
+                    ? `Clone 100% of the clothing, fabric, garment cut, colors, and authentic embroidery patterns directly from the attached reference photo(s). ${outfitDnaText}The character MUST wear this exact authentic reference outfit replicated with 100% original colors, cuts, and embroidery without substituting modern western clothes. `
+                    : `Clone 100% of the exact original person identity, face, and clothing directly from the attached reference photo(s) without altering outfit or facial features. ${outfitDnaText}`)
                 : 'Reference the attached image(s) with 100% fidelity. ')
             : '';
         const finalMusePrompt = `${outfitEnforcement}${cleanScene || request.prompt}`;

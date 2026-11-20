@@ -475,7 +475,33 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                 `}>
                     {outputImages.map((image, index) => {
                         if (image === null) {
-                            return <LoadingSlot key={index} index={index} />;
+                            if (isLoading) {
+                                return <LoadingSlot key={index} index={index} />;
+                            }
+                            return (
+                                <div key={index} className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-sm flex flex-col gap-2 relative animate-fade-in">
+                                    <span className="absolute left-2.5 top-2.5 z-10 flex h-6 min-w-6 items-center justify-center rounded-lg bg-rose-50 font-mono text-[11px] font-bold text-rose-700 border border-rose-200">
+                                        #{index + 1}
+                                    </span>
+                                    <div className="w-full aspect-square bg-rose-50/40 rounded-lg flex flex-col items-center justify-center border border-rose-100 text-center p-3 gap-2">
+                                        <span className="text-2xl" aria-hidden="true">⚠️</span>
+                                        <p className="text-xs font-bold text-rose-700 leading-tight">Chưa tạo được ảnh #{index + 1}</p>
+                                        <p className="text-[11px] text-slate-500">Hệ thống có thể đã bận hoặc gặp sự cố mạng.</p>
+                                    </div>
+                                    {onRetryImage && (
+                                        <button
+                                            type="button"
+                                            onClick={() => onRetryImage(index)}
+                                            className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                            <span>Thử lại Slot #{index + 1}</span>
+                                        </button>
+                                    )}
+                                </div>
+                            );
                         } else if (isVideoUrl(image)) {
                             const promptText = prompts && prompts[index] ? prompts[index] : "Video AI Studio";
                             return <OutputVideo key={index} url={image} index={index} prompt={promptText} title={titlePrefix} />;
