@@ -201,25 +201,32 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
         setIsGeneratingPrompts(true);
         try {
             const activeTopic = topic.trim() || globalContext.trim();
-            const text = await generateBatchPromptsText(
-                apiKey,
-                activeTopic,
-                effectiveQuantity,
-                shotType,
-                style,
-                outputMode,
-                inputCounts,
-                refImages,
-                {
-                    globalContext: globalContext.trim(),
-                    sceneLines: isLineByLineMode ? parsedSceneLines.slice(0, MAX_CREATIVE_IMAGES) : undefined,
-                    identityMode
-                }
-            );
-            let prompts = parsePromptsFromText(text);
-            if (prompts.length === 0) {
-                setPromptError('AI chưa tạo được prompt. Vui lòng thử lại.');
-                return;
+            let prompts: string[] = [];
+            try {
+                const text = await generateBatchPromptsText(
+                    apiKey,
+                    activeTopic,
+                    effectiveQuantity,
+                    shotType,
+                    style,
+                    outputMode,
+                    inputCounts,
+                    refImages,
+                    {
+                        globalContext: globalContext.trim(),
+                        sceneLines: isLineByLineMode ? parsedSceneLines.slice(0, MAX_CREATIVE_IMAGES) : undefined,
+                        identityMode
+                    }
+                );
+                prompts = parsePromptsFromText(text);
+            } catch (err: any) {
+                console.warn('[PromptPanel] AI batch prompt generation encountered error, applying automatic fallback:', err);
+            }
+
+            if (!prompts || prompts.length === 0) {
+                prompts = isLineByLineMode && parsedSceneLines.length > 0
+                    ? parsedSceneLines.slice(0, effectiveQuantity)
+                    : Array(effectiveQuantity).fill(activeTopic);
             }
             if (prompts.length < effectiveQuantity && prompts.length > 0) {
                 const basePrompts = [...prompts];
@@ -235,6 +242,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({ onGenerate, onCancel, 
                 autoQaEnabled
             });
         } catch (e: any) {
+            console.error('[PromptPanel] Fatal error in handleGeneratePrompts:', e);
             setPromptError(`Lỗi tạo prompt: ${e?.message || 'Lỗi không xác định'}`);
         } finally {
             generatingRef.current = false;

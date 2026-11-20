@@ -1440,8 +1440,7 @@ export const generateBatchPromptsText = async (
         const result = await nineRouterService.generateTextViaNineRouter(
             userTaskPrompt,
             textModel,
-            systemInstruction,
-            labeledReferences
+            systemInstruction
         );
         if (!result) {
             throw new Error('Cấu hình không trả về nội dung text. Hãy kiểm tra Text Model.');

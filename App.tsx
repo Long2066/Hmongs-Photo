@@ -1233,55 +1233,63 @@ const App: React.FC = () => {
             return { url: firstClip.url, qaReport: null, modelUsed: firstClip.modelUsed };
         }
 
-        const candidates: QaCandidate<{ url: string; modelUsed?: string }>[] = [];
-        onProgress('🛡️ Auto-QA: trích xuất khung hình 12%/50%/88% & đối chiếu gốc...');
-        let latestReport = await verifyVideoClipConsistency({
-            referenceFrameBase64: inputImageBase64,
-            videoUrl: firstClip.url,
-            scenePrompt,
-            strictOriginal: true,
-            threshold: DEFAULT_STRICT_QA_THRESHOLD
-        });
-        candidates.push({ result: firstClip, report: latestReport, attempt: 0 });
+        let latestReport: ConsistencyQaReport | null = null;
+        try {
+            const candidates: QaCandidate<{ url: string; modelUsed?: string }>[] = [];
+            onProgress('🛡️ Auto-QA: trích xuất khung hình 12%/50%/88% & đối chiếu gốc...');
+            latestReport = await verifyVideoClipConsistency({
+                referenceFrameBase64: inputImageBase64,
+                videoUrl: firstClip.url,
+                scenePrompt,
+                strictOriginal: true,
+                threshold: DEFAULT_STRICT_QA_THRESHOLD
+            });
+            candidates.push({ result: firstClip, report: latestReport, attempt: 0 });
 
-        if (!latestReport.passed && latestReport.status !== 'unverified') {
-            for (let retry = 1; retry <= MAX_AUTO_QA_RETRIES; retry++) {
-                onProgress(`🔄 Auto-QA lệch (${latestReport.overallScore}%): tự render lại ${retry}/${MAX_AUTO_QA_RETRIES}...`);
-                const correctivePrompt = buildCorrectiveRetryPrompt(scenePrompt, latestReport, retry, true);
-                try {
-                    const retryClip = await runAttempt(correctivePrompt);
-                    onProgress(`🛡️ Auto-QA: kiểm định lại bản sửa ${retry}/${MAX_AUTO_QA_RETRIES}...`);
-                    latestReport = await verifyVideoClipConsistency({
-                        referenceFrameBase64: inputImageBase64,
-                        videoUrl: retryClip.url,
-                        scenePrompt,
-                        strictOriginal: true,
-                        threshold: DEFAULT_STRICT_QA_THRESHOLD
-                    });
-                    candidates.push({ result: retryClip, report: latestReport, attempt: retry });
-                    if (latestReport.passed) break;
-                } catch (retryErr) {
-                    console.warn(`[Video QA Retry ${retry}] Scene ${sceneIndex + 1} failed:`, retryErr);
-                    break;
+            if (!latestReport.passed && latestReport.status !== 'unverified') {
+                for (let retry = 1; retry <= MAX_AUTO_QA_RETRIES; retry++) {
+                    onProgress(`🔄 Auto-QA lệch (${latestReport.overallScore}%): tự render lại ${retry}/${MAX_AUTO_QA_RETRIES}...`);
+                    const correctivePrompt = buildCorrectiveRetryPrompt(scenePrompt, latestReport, retry, true);
+                    try {
+                        const retryClip = await runAttempt(correctivePrompt);
+                        onProgress(`🛡️ Auto-QA: kiểm định lại bản sửa ${retry}/${MAX_AUTO_QA_RETRIES}...`);
+                        const rep = await verifyVideoClipConsistency({
+                            referenceFrameBase64: inputImageBase64,
+                            videoUrl: retryClip.url,
+                            scenePrompt,
+                            strictOriginal: true,
+                            threshold: DEFAULT_STRICT_QA_THRESHOLD
+                        });
+                        candidates.push({ result: retryClip, report: rep, attempt: retry });
+                        if (rep.passed) {
+                            latestReport = rep;
+                            break;
+                        }
+                    } catch (retryErr) {
+                        console.warn(`[Video QA Retry ${retry}] Scene ${sceneIndex + 1} failed:`, retryErr);
+                        break;
+                    }
                 }
             }
+
+            const best = selectBestQaCandidate(candidates);
+            if (best && best.result?.url) {
+                const finalReport: ConsistencyQaReport =
+                    best.attempt > 0 && best.report.passed
+                        ? { ...best.report, status: 'repaired', attemptsUsed: best.attempt + 1 }
+                        : { ...best.report, attemptsUsed: best.attempt + 1 };
+
+                return {
+                    url: best.result.url,
+                    qaReport: finalReport,
+                    modelUsed: best.result.modelUsed
+                };
+            }
+        } catch (qaErr) {
+            console.warn(`[VideoQA] Auto-QA check failed gracefully for scene ${sceneIndex + 1}:`, qaErr);
         }
 
-        const best = selectBestQaCandidate(candidates);
-        if (!best) {
-            return { url: firstClip.url, qaReport: latestReport, modelUsed: firstClip.modelUsed };
-        }
-
-        const finalReport: ConsistencyQaReport =
-            best.attempt > 0 && best.report.passed
-                ? { ...best.report, status: 'repaired', attemptsUsed: best.attempt + 1 }
-                : { ...best.report, attemptsUsed: best.attempt + 1 };
-
-        return {
-            url: best.result.url,
-            qaReport: finalReport,
-            modelUsed: best.result.modelUsed
-        };
+        return { url: firstClip.url, qaReport: latestReport, modelUsed: firstClip.modelUsed };
     }, []);
 
     const handleVideoGenerate = useCallback(async (

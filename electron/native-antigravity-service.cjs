@@ -194,24 +194,53 @@ function convertOpenAiMessagesToGemini(messages) {
 
     for (const msg of messages) {
         const role = (msg.role || '').toLowerCase();
-        let textContent = '';
-
-        if (typeof msg.content === 'string') {
-            textContent = msg.content;
-        } else if (Array.isArray(msg.content)) {
-            textContent = msg.content
-                .filter(c => c.type === 'text')
-                .map(c => c.text)
-                .join('\n');
-        }
 
         if (role === 'system') {
-            systemInstruction += (systemInstruction ? '\n\n' : '') + textContent;
-        } else {
-            const geminiRole = (role === 'assistant') ? 'model' : 'user';
+            let sysText = '';
+            if (typeof msg.content === 'string') {
+                sysText = msg.content;
+            } else if (Array.isArray(msg.content)) {
+                sysText = msg.content
+                    .filter(c => c.type === 'text')
+                    .map(c => c.text)
+                    .join('\n');
+            }
+            systemInstruction += (systemInstruction ? '\n\n' : '') + sysText;
+            continue;
+        }
+
+        const geminiRole = (role === 'assistant') ? 'model' : 'user';
+        const parts = [];
+
+        if (typeof msg.content === 'string') {
+            if (msg.content) parts.push({ text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+            for (const c of msg.content) {
+                if (c.type === 'text' && c.text) {
+                    parts.push({ text: c.text });
+                } else if (c.type === 'image_url' && c.image_url && c.image_url.url) {
+                    const url = c.image_url.url;
+                    if (url.startsWith('data:')) {
+                        const commaIdx = url.indexOf(',');
+                        const meta = url.slice(0, commaIdx);
+                        const b64Data = url.slice(commaIdx + 1);
+                        const mimeMatch = meta.match(/data:([^;]+)/);
+                        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+                        parts.push({
+                            inlineData: {
+                                mimeType: mimeType,
+                                data: b64Data
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        if (parts.length > 0) {
             contents.push({
                 role: geminiRole,
-                parts: [{ text: textContent }]
+                parts: parts
             });
         }
     }

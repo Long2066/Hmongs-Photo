@@ -185,7 +185,7 @@ function startMuseGateway(port = 18610) {
         }
 
         // Media streaming & download (served from local cache)
-        if (req.method === 'GET' && (url.startsWith('/media/') || url.startsWith('/v1/media/'))) {
+        if ((req.method === 'GET' || req.method === 'HEAD') && (url.startsWith('/media/') || url.startsWith('/v1/media/'))) {
             const filename = path.basename(url);
             const mediaDir = nativeMuse.getMediaDirectory();
             const filePath = path.join(mediaDir, filename);
@@ -193,15 +193,52 @@ function startMuseGateway(port = 18610) {
                 const stat = fs.statSync(filePath);
                 const ext = path.extname(filename).toLowerCase();
                 const mimeType = ext === '.mp4' ? 'video/mp4' : (ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream'));
-                res.writeHead(200, {
+
+                const baseHeaders = {
                     'Content-Type': mimeType,
-                    'Content-Length': stat.size,
-                    'Accept-Ranges': 'bytes'
+                    'Accept-Ranges': 'bytes',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+                    'Cross-Origin-Resource-Policy': 'cross-origin',
+                    'Cross-Origin-Embedder-Policy': 'credentialless'
+                };
+
+                const range = req.headers.range;
+                if (range && ext === '.mp4') {
+                    const parts = range.replace(/bytes=/, '').split('-');
+                    const start = parseInt(parts[0], 10);
+                    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+                    const chunksize = (end - start) + 1;
+
+                    res.writeHead(206, {
+                        ...baseHeaders,
+                        'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+                        'Content-Length': chunksize
+                    });
+                    if (req.method === 'HEAD') {
+                        res.end();
+                    } else {
+                        fs.createReadStream(filePath, { start, end }).pipe(res);
+                    }
+                    return;
+                }
+
+                res.writeHead(200, {
+                    ...baseHeaders,
+                    'Content-Length': stat.size
                 });
-                fs.createReadStream(filePath).pipe(res);
+                if (req.method === 'HEAD') {
+                    res.end();
+                } else {
+                    fs.createReadStream(filePath).pipe(res);
+                }
                 return;
             } else {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.writeHead(404, {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cross-Origin-Resource-Policy': 'cross-origin'
+                });
                 res.end(JSON.stringify({ error: { message: `Media file ${filename} not found` } }));
                 return;
             }
