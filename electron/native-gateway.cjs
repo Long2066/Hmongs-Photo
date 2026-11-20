@@ -261,9 +261,7 @@ function startAll() {
     try {
         nativeAntigravity.loadAllAccounts();
         startAntigravityGateway(8317);
-        startMuseGateway(18610);
-        nativeMuse.startKeepalive();
-        console.log('[NativeGateway] Both in-process gateways started successfully.');
+        console.log('[NativeGateway] Google Antigravity Gateway (8317) started successfully.');
     } catch (e) {
         console.error('[NativeGateway] Error during startAll:', e);
     }

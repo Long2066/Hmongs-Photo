@@ -9,6 +9,7 @@ const oauthHandler = require('./oauth-handler.cjs');
 const flowProfileManager = require('./flow-profile-manager.cjs');
 const nativeGateway = require('./native-gateway.cjs');
 const nativeMuse = require('./native-muse-service.cjs');
+const museProcessManager = require('./muse-process-manager.cjs');
 const nativeAntigravity = require('./native-antigravity-service.cjs');
 
 // Modern Chrome User-Agent to bypass Google OAuth "disallowed_useragent" / insecure browser check
@@ -1124,7 +1125,7 @@ ipcMain.handle('google-oauth:api-call', async (_event, { url, method, headers, b
 // ============ NATIVE MUSE & IN-PROCESS GATEWAY IPC ============
 ipcMain.handle('muse:login', async () => {
     try {
-        const res = await nativeMuse.openLoginWindow(mainWindow);
+        const res = await museProcessManager.openLoginWindow(mainWindow);
         return res;
     } catch (e) {
         return { success: false, error: e.message };
@@ -1133,7 +1134,7 @@ ipcMain.handle('muse:login', async () => {
 
 ipcMain.handle('muse:status', async () => {
     try {
-        return await nativeMuse.getStatus();
+        return await museProcessManager.getStatus();
     } catch (e) {
         return { configured: false, error: e.message };
     }
@@ -1141,8 +1142,7 @@ ipcMain.handle('muse:status', async () => {
 
 ipcMain.handle('muse:save-cookies', async (_e, cookies) => {
     try {
-        await nativeMuse.saveMuseCookies(cookies);
-        await nativeMuse.renewSession();
+        await museProcessManager.saveMuseCookies(cookies);
         return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
@@ -1151,7 +1151,7 @@ ipcMain.handle('muse:save-cookies', async (_e, cookies) => {
 
 ipcMain.handle('muse:open-chrome-incognito', async () => {
     try {
-        return nativeMuse.openExternalChromeIncognito('https://muse.ai/login');
+        return museProcessManager.openExternalChromeIncognito('https://muse.ai/login');
     } catch (e) {
         return { success: false, error: e.message };
     }
@@ -1172,17 +1172,22 @@ ipcMain.handle('native-gateway:status', async () => {
         port8317: true,
         port18610: true,
         googleAccounts: nativeAntigravity.getAccountsStatus(),
-        museStatus: await nativeMuse.getStatus()
+        museStatus: await museProcessManager.getStatus()
     };
 });
 
 // ============ APP LIFECYCLE ============
 app.whenReady().then(() => {
-    // Start Native In-Process Gateways (8317 & 18610)
+    // Start Native In-Process Gateways (8317) and Standalone Muse Gateway (18610)
     try {
         nativeGateway.startAll();
     } catch (gwErr) {
         console.error('[NativeGateway] Failed to start:', gwErr);
+    }
+    try {
+        museProcessManager.start();
+    } catch (museErr) {
+        console.error('[MuseManager] Failed to start muse-gateway:', museErr);
     }
     // Intercept web requests to ensure Chrome headers and remove Electron markers
     if (session && session.defaultSession) {
@@ -1214,6 +1219,9 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+    try {
+        museProcessManager.stop();
+    } catch (e) { }
     try {
         nativeGateway.stopAll();
     } catch (e) { }

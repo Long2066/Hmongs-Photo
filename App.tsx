@@ -1406,6 +1406,7 @@ const App: React.FC = () => {
                 setLoadingStatus(`Render song song (${doneCount}/${sceneCount} cảnh xong)${activeSummaries ? `: ${activeSummaries}` : ''}`);
             };
 
+            const sceneErrors: string[] = [];
             const sceneTasks = Array.from({ length: sceneCount }, (_, i) => async () => {
                 const rawLinePrompt = scenePrompts[i] ?? '';
                 const cleanScenePrompt = rawLinePrompt
@@ -1420,35 +1421,42 @@ const App: React.FC = () => {
                 const sourceInput = subMode === 'image_to_video' ? (inputs[i] || inputs[0]) : undefined;
                 const inputImageBase64 = sourceInput?.base64;
 
-                const rendered = await renderSingleVideoSceneWithQa({
-                    sceneIndex: i,
-                    scenePrompt: cleanScenePrompt,
-                    inputImageBase64,
-                    aspectRatio,
-                    duration,
-                    model,
-                    frameFitMode,
-                    autoQaEnabled,
-                    strictMotionLock,
-                    characterDna,
-                    onProgress: (status) => updateSceneProgress(i, status)
-                });
+                try {
+                    const rendered = await renderSingleVideoSceneWithQa({
+                        sceneIndex: i,
+                        scenePrompt: cleanScenePrompt,
+                        inputImageBase64,
+                        aspectRatio,
+                        duration,
+                        model,
+                        frameFitMode,
+                        autoQaEnabled,
+                        strictMotionLock,
+                        characterDna,
+                        onProgress: (status) => updateSceneProgress(i, status)
+                    });
 
-                const firstFrame = sourceInput
-                    ? sourceInput.base64.startsWith('data:') || /^https?:\/\//i.test(sourceInput.base64)
-                        ? sourceInput.base64
-                        : `data:${sourceInput.mimeType || 'image/jpeg'};base64,${sourceInput.base64}`
-                    : undefined;
+                    const firstFrame = sourceInput
+                        ? sourceInput.base64.startsWith('data:') || /^https?:\/\//i.test(sourceInput.base64)
+                            ? sourceInput.base64
+                            : `data:${sourceInput.mimeType || 'image/jpeg'};base64,${sourceInput.base64}`
+                        : undefined;
 
-                sceneResults[i] = {
-                    url: rendered.url,
-                    firstFrame,
-                    prompt: cleanScenePrompt,
-                    modelUsed: rendered.modelUsed || model,
-                    qaReport: rendered.qaReport
-                };
-                updateSceneProgress(i, 'Hoàn thành');
-                return rendered.url;
+                    sceneResults[i] = {
+                        url: rendered.url,
+                        firstFrame,
+                        prompt: cleanScenePrompt,
+                        modelUsed: rendered.modelUsed || model,
+                        qaReport: rendered.qaReport
+                    };
+                    updateSceneProgress(i, 'Hoàn thành');
+                    return rendered.url;
+                } catch (sceneErr: any) {
+                    console.error(`[VideoScene] Cảnh ${i + 1} thất bại:`, sceneErr);
+                    sceneErrors.push(`Cảnh ${i + 1}: ${sceneErr?.message || sceneErr}`);
+                    updateSceneProgress(i, 'Lỗi');
+                    throw sceneErr;
+                }
             });
 
             const videoConcurrency = resolveEffectiveConcurrency('video', sceneCount, { modelId: model });
@@ -1475,7 +1483,8 @@ const App: React.FC = () => {
 
             const successfulClips = builtSceneItems.map(item => item.url);
             if (successfulClips.length === 0) {
-                throw new Error('Không thể tạo phân cảnh video nào. Vui lòng thử lại.');
+                const detailedError = sceneErrors.length > 0 ? sceneErrors.join('\n') : 'Không thể tạo phân cảnh video nào. Vui lòng thử lại.';
+                throw new Error(detailedError);
             }
 
             // Tự động ghép nối tuần tự Cảnh 1 -> Cảnh N thành 1 video duy nhất

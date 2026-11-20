@@ -1,6 +1,10 @@
 # Logs
 logs
 *.log
+log_launch.txt
+*.spec
+build/
+*.db*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
