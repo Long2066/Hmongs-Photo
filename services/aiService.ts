@@ -316,25 +316,27 @@ export const NO_EXTRA_ACCESSORIES = `
 export const KOREAN_CHARACTER_DEFAULTS = `
 *** MANDATORY KOREAN VISUAL IDOL AESTHETICS (HIGH FASHION ETHNIC FUSION) ***
 - MALE CHARACTER (KOREAN K-POP IDOL VISUAL):
-  * Extremely handsome Korean male, 18-22 years old, tall athletic build (182cm+).
-  * Flawless luminous porcelain glass skin (chok-chok, translucent, zero blemishes, radiant milky complexion).
-  * K-pop idol center visual aesthetic: sharp defined jawline, captivating charismatic eyes with natural double eyelids, high straight nose bridge, stylized K-drama actor curtain hairstyle.
-  * Tuyệt sắc mỹ nam Hàn Quốc, thần thái cuốn hút, sang trọng, thời thượng và cuốn hút.
+  * 17-year-old exceptionally handsome Korean male youth (nam Hàn Quốc 17 tuổi, đẹp trai, thanh tú).
+  * Hair: Stylized two-block middle-part curtain bangs hairstyle (tóc để 2 mái điển trai lãng tử bồng bềnh).
+  * Face & Skin: Flawless luminous crystal-clear porcelain glass skin (mặt và da sáng tinh khôi trong suốt không tì vết), sharp defined jawline, captivating charismatic eyes with natural double eyelids, high straight nose bridge, clean handsome face.
+  * Build: Tall, slender athletic build with high-fashion proportions (cao ráo dáng thon đẹp phong cách thời trang).
+  * Tuyệt sắc mỹ nam Hàn Quốc 17 tuổi, thần thái cuốn hút, sang trọng, thanh xuân rạng ngời.
 
 - FEMALE CHARACTER (KOREAN ULZZANG IDOL VISUAL):
-  * Exceptionally gorgeous Korean female, 18-21 years old, tall, slim, and graceful proportions.
-  * Flawless Korean glass skin (dewy porcelain texture, translucent, bright, perfectly smooth and radiant).
-  * Natural Korean idol makeup: soft gradient coral-peach lips, delicate aegyo-sal, soft straight eyebrows, pure enchanting facial features.
-  * Tuyệt sắc mỹ nữ Hàn Quốc, thần thái dịu dàng, quý phái, thanh tao và hiện đại.
+  * 17-year-old exceptionally gorgeous Korean female youth (nữ Hàn Quốc 17 tuổi, xinh xắn cuốn hút).
+  * Face & Skin: Flawless radiant bright smooth porcelain glass skin (da trắng sáng mịn màng không tì vết), pure enchanting facial features, soft gradient natural coral lips, delicate aegyo-sal, gentle charming expression.
+  * Build: Tall, slender and graceful fashionable build (cao ráo dáng thon đẹp phong cách thời trang).
+  * Tuyệt sắc mỹ nữ Hàn Quốc 17 tuổi, thần thái thanh tú, dịu dàng, quý phái và hiện đại.
 
 *** STRICT INPUT CLOTHING & ACCESSORY CLONING PROTOCOL (100% NON-NEGOTIABLE) ***
 - The reference image(s) represent the CLOTHING, TEXTILES, AND ACCESSORIES ONLY (ignore any person, model, face, skin tone, mannequin, or background in the reference photo).
-- FAITHFUL OUTFIT REPLICATION: You MUST clone 100% of the authentic garment, fabrics, colors, textures, cuts, hand-embroidery patterns, tassels, and accessories DIRECTLY from the input reference photo(s) onto the handsome/beautiful Korean idol.
+- FAITHFUL OUTFIT REPLICATION ("MẶC BỘ ĐỒ NÀY"): You MUST clone 100% of the authentic garment, fabrics, colors, textures, cuts, hand-embroidery patterns, and accessories DIRECTLY from the input reference photo(s) onto the handsome/beautiful Korean idol.
 - COLOR FIDELITY: Strictly preserve the original outfit colors (whether red, blue, green, white, yellow, black, indigo, or multicolor). NEVER change the color palette or replace the outfit style with an unrelated traditional costume.
+- ABSOLUTE BAN ON HALLUCINATED CLOTHING WORDS: NEVER describe or invent western garments (such as "navy blue blazer", "white Peter Pan blouse", "tweed coat", "pleated uniform skirt", "ballgown", "black suit jacket") unless explicitly requested in the user's topic text. Clothes MUST be taken 100% from the attached input reference pixels!
 - ACCESSORY FIDELITY: Only include jewelry, headwear, or collars if they are visibly present in the input reference photos. Do NOT hallucinate unrequested silver torque collars or extra jewelry.
 
 *** MANDATORY PHYSICAL GROUNDING & 1:1 HUMAN SCALE (NON-NEGOTIABLE) ***
-- The character(s) MUST be physically grounded on solid terrain (mountain path, stone steps, market floor) with feet firmly planted and realistic contact shadows.
+- The character(s) MUST be physically grounded on solid terrain (mountain path, dirt road, stone steps, market floor) with feet firmly planted and realistic contact shadows.
 - STRICTLY FORBIDDEN: Characters floating in the sky, hovering in mid-air, or appearing as 100-meter giant titans towering over miniature landscapes.
 - The character scale relative to buildings, market stalls, and landscape must be exact 1:1 realistic human proportions.
 `;
@@ -1283,11 +1285,11 @@ export const generateBatchPromptsText = async (
     console.log('[VIP Debug] generateBatchPromptsText - VIP Mode:', useVip, 'IdentityMode:', identityMode);
 
     const maleLabel = isStrictOriginal
-        ? 'original male person from the MALE input photo (keeping 100% identical face, age, hair, and build)'
-        : 'Male Korean idol';
+        ? 'the original male person from the MALE input photo (keeping 100% identical face, age, hair, and build)'
+        : 'a 17-year-old exceptionally handsome Korean male (stylized two-block middle-part curtain bangs hairstyle, flawless luminous crystal-clear porcelain glass skin, sharp defined jawline, tall and slender fashionable build)';
     const femaleLabel = isStrictOriginal
-        ? 'original female person from the FEMALE input photo (keeping 100% identical face, age, hair, and build)'
-        : 'Female Korean idol';
+        ? 'the original female person from the FEMALE input photo (keeping 100% identical face, age, hair, and build)'
+        : 'a 17-year-old exceptionally gorgeous Korean female (smooth radiant bright porcelain glass skin, enchanting pretty facial features, tall slender and graceful fashionable build)';
 
     let modeInstruction = "";
     if (outputMode === 'couple') {
@@ -1308,8 +1310,9 @@ export const generateBatchPromptsText = async (
 
         *** POSITION-INDEPENDENT OUTFIT & IDENTITY BINDING IN EVERY PROMPT ***
         Regardless of whether the character is on the left, right, foreground, background, standing, or sitting:
-        - The Male character: explicitly state "the ${maleLabel} (positioned on [left/right/foreground/seated]) wearing 100% of the authentic MALE REFERENCE OUTFIT shown in the input photo, replicating exact colors, jacket/suit cut, trousers, and embroidery".
-        - The Female character: explicitly state "the ${femaleLabel} (positioned on [left/right/foreground/seated]) wearing 100% of the authentic FEMALE REFERENCE OUTFIT shown in the input photo, replicating exact dress colors, bodice, floral patterns, flared skirt, and matching headdress".
+        - The Male character: explicitly state "${maleLabel} (positioned on [left/right/foreground/seated]) wearing 100% of the authentic MALE outfit from the FIRST attached photo (Image 1 - Nam), strictly cloning exact colors, jacket/suit cut, trousers, and embroidery motifs without altering or inventing new clothing".
+        - The Female character: explicitly state "${femaleLabel} (positioned on [left/right/foreground/seated]) wearing 100% of the authentic FEMALE outfit from the SECOND attached photo (Image 2 - Nữ), strictly cloning exact dress colors, bodice, floral patterns, flared skirt, and matching headdress without altering or inventing new clothing".
+        - ABSOLUTE PROHIBITION ON HALLUCINATED CLOTHING WORDS: NEVER describe or invent western garments (no navy blazers, no white Peter Pan blouses, no tweed jackets, no generic suits). Clothes MUST be taken 100% from Image 1 and Image 2!
         - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). NEVER borrow patterns or colors from the male outfit for the female. BOTH outfits and faces MUST be explicitly anchored to their respective inputs in every single prompt!`;
     } else {
         // SINGLE MODE - Determine gender based on which input slots have images
@@ -1318,18 +1321,18 @@ export const generateBatchPromptsText = async (
 
         if (hasMaleInput && !hasFemaleInput) {
             modeInstruction = `OUTPUT MODE: SINGLE (MALE ONLY).
-            ALL ${safeTotalCount} prompts MUST feature ONLY the ${maleLabel}.
+            ALL ${safeTotalCount} prompts MUST feature ONLY ${maleLabel}.
             DO NOT generate ANY female characters in ANY prompt.
-            Every single prompt must describe the exact MALE person wearing the 100% original MALE reference outfit.
+            Every single prompt must explicitly state: "${maleLabel} wearing 100% of the authentic outfit shown in the attached reference photo (Image 1 - Nam), strictly cloning exact fabric, colors, cut, trousers, and embroidery without altering or inventing new clothes".
             This is NON-NEGOTIABLE - all ${safeTotalCount} images will feature this exact MALE character only.`;
         } else if (hasFemaleInput && !hasMaleInput) {
             modeInstruction = `OUTPUT MODE: SINGLE (FEMALE ONLY).
-            ALL ${safeTotalCount} prompts MUST feature ONLY the ${femaleLabel}.
+            ALL ${safeTotalCount} prompts MUST feature ONLY ${femaleLabel}.
             DO NOT generate ANY male characters in ANY prompt.
-            Every single prompt must describe the exact FEMALE person wearing the 100% original FEMALE reference outfit.
+            Every single prompt must explicitly state: "${femaleLabel} wearing 100% of the authentic outfit shown in the attached reference photo (Image 1 - Nữ), strictly cloning exact dress colors, bodice, flared skirt, and matching headdress without altering or inventing new clothes".
             This is NON-NEGOTIABLE - all ${safeTotalCount} images will feature this exact FEMALE character only.`;
         } else if (hasMaleInput && hasFemaleInput) {
-            modeInstruction = "OUTPUT MODE: SINGLE (SEPARATE). You MUST generate prompts for SOLO portraits (1 person per image). Since BOTH Male and Female inputs are present, ALTERNATE prompts between genders (Male, Female, Male...).";
+            modeInstruction = "OUTPUT MODE: SINGLE (SEPARATE). You MUST generate prompts for SOLO portraits (1 person per image). Since BOTH Male and Female inputs are present, ALTERNATE prompts between genders (Male wearing Image 1, Female wearing Image 2...).";
         } else {
             modeInstruction = "OUTPUT MODE: SINGLE (SEPARATE). You MUST generate prompts for SOLO portraits (1 person per image). ALTERNATE prompts between genders (Male, Female, Male...).";
         }
@@ -1406,10 +1409,10 @@ export const generateBatchPromptsText = async (
        ${shotDirective}
     7. ${modeInstruction}
     
-    *** PROMPT STRUCTURE ***
+    *** PROMPT STRUCTURE (MANDATORY FORMAT) ***
     ${outputMode === 'couple' ?
-      `Each prompt should follow: "[Dynamic camera angle & natural candid pose based on topic] + [${maleLabel} position (left/right/foreground/seated)] wearing 100% of the authentic Male Reference Outfit + [${femaleLabel} position (left/right/foreground/seated)] wearing 100% of the authentic Female Reference Outfit with exact colors and headdress + [candid interaction & relaxed posture with empty hands or input accessories only] + [scene/background in realistic 1:1 scale] + [cinematic lighting/mood]"` :
-      `Each prompt should follow: "[${isStrictOriginal ? 'Exact original subject identity & hair anchored to input photo' : 'Person description matching Korean idol aesthetic'}] + [wearing exact reference outfit] + [action/pose firmly grounded on solid terrain] + [scene/background in realistic 1:1 scale] + [lighting/mood]"`
+      `Each prompt MUST strictly follow: "[MANDATORY CAMERA FRAMING matching selected '${shotType}']: ${maleLabel} (positioned on [left/right]) wearing 100% of the authentic outfit from the FIRST attached photo (Image 1 - Nam), strictly cloning exact fabric, colors, and cuts + ${femaleLabel} (positioned on [left/right]) wearing 100% of the authentic outfit from the SECOND attached photo (Image 2 - Nữ), strictly cloning exact dress colors, bodice, and skirt + [Natural candid interaction based on topic: '${topic}'] firmly grounded on solid terrain with realistic cast shadows + [MANDATORY ARTISTIC STYLE & LIGHTING matching '${style}': ${styleDetail}] + Photorealistic 4K master quality, natural crisp lighting, lifelike 1:1 human scale, tack-sharp textures, zero blur, NO CGI plastic look, NO invented western clothes."` :
+      `Each prompt MUST strictly follow: "[MANDATORY CAMERA FRAMING matching selected '${shotType}']: [${isStrictOriginal ? 'The exact original subject identity & hair anchored to input photo' : (hasFemaleInput && !hasMaleInput ? femaleLabel : maleLabel)}] wearing 100% of the authentic outfit shown in the attached reference photo (Image 1), strictly cloning exact colors, fabric, and cuts without inventing new clothes + [Natural action/pose based on topic: '${topic}'] firmly grounded on solid terrain with realistic cast shadows + [MANDATORY ARTISTIC STYLE & LIGHTING matching '${style}': ${styleDetail}] + Photorealistic 4K master quality, natural crisp lighting, lifelike 1:1 human scale, tack-sharp textures, zero blur, NO CGI plastic look, NO invented western clothes."`
     }
 
     Output format: STRICT numbered list from 1 to ${safeTotalCount}. Format exactly as:
@@ -1658,27 +1661,27 @@ const buildCreativeImageBasePrompt = (
 
     const maleSubjText = isStrictOriginal
         ? 'the EXACT original male person from MALE FACE/SUBJECT REFERENCE (identical face, age, ethnicity, hair, build)'
-        : 'handsome Korean male K-Pop idol';
+        : 'a 17-year-old exceptionally handsome Korean male youth (stylized two-block middle-part curtain bangs hairstyle, flawless luminous crystal-clear porcelain glass skin, sharp defined jawline, tall and slender fashionable build)';
     const femaleSubjText = isStrictOriginal
         ? 'the EXACT original female person from FEMALE FACE/SUBJECT REFERENCE (identical face, age, ethnicity, hair, build)'
-        : 'exquisitely beautiful Korean female idol';
+        : 'a 17-year-old exceptionally gorgeous Korean female youth (smooth radiant bright porcelain glass skin, enchanting pretty facial features, tall slender and graceful fashionable build)';
 
     const outfitTryOnDirective = isCouple
         ? `*** COUPLE SCENE & STRICT DUAL-SUBJECT / DUAL-OUTFIT PROTOCOL (MANDATORY) ***
             - DUAL SUBJECT & POSITION INDEPENDENCE: Both ${maleSubjText} AND ${femaleSubjText} appear together in the scene. Their positions and poses are dynamic and natural (one on the left, one on the right, or one seated, one standing, walking, or staggered in depth).
-            - POSITION-INDEPENDENT MALE BINDING: Map 100% of MALE REFERENCE (Face & Outfit colors, suit/jacket cut, pants, embroidery) exclusively onto the Male subject, REGARDLESS of screen position.
-            - POSITION-INDEPENDENT FEMALE BINDING: Map 100% of FEMALE REFERENCE (Face & Outfit dress colors, bodice, sleeves, flared skirt, embroidery, and headdress) exclusively onto the Female subject, REGARDLESS of screen position.
-            - ZERO HALLUCINATION & ZERO CROSS-OVER: Strictly FORBIDDEN to change facial identity or alter clothing color/palette across scenes.
+            - POSITION-INDEPENDENT MALE BINDING: Map 100% of MALE REFERENCE OUTFIT from the FIRST attached photo (Image 1 - Nam) exclusively onto the Male subject (exact colors, jacket/suit cut, pants, embroidery), REGARDLESS of screen position.
+            - POSITION-INDEPENDENT FEMALE BINDING: Map 100% of FEMALE REFERENCE OUTFIT from the SECOND attached photo (Image 2 - Nữ) exclusively onto the Female subject (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress), REGARDLESS of screen position.
+            - ZERO HALLUCINATION & ZERO CROSS-OVER: Strictly FORBIDDEN to invent western clothes (no navy blazers, no generic suits). Clothes MUST be taken 100% from Image 1 and Image 2.
             - ANTI-STIFFNESS: Render natural candid posture, fluid body lines, and genuine human interaction instead of rigid mannequin stances.
             - COMPLETE REPLICATION: Faithfully reproduce all embroidery motifs, textile patterns, trims, and accessories from both reference photos with 100% fidelity.`
         : (refImages.female && refImages.female.length > 0)
         ? `*** FEMALE SOLO SCENE & STRICT IDENTITY/OUTFIT PROTOCOL ***
-            - FEMALE BINDING: Render ${femaleSubjText} wearing 100% of the exact FEMALE REFERENCE OUTFIT (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
-            - ZERO DRIFT: Strictly FORBIDDEN to alter her face or swap clothing colors/design away from the input reference.`
+            - FEMALE BINDING: Render ${femaleSubjText} wearing 100% of the exact FEMALE REFERENCE OUTFIT from the attached photo (Image 1 - Nữ) (exact dress colors, bodice, sleeves, flared skirt, embroidery, and headdress).
+            - ZERO DRIFT: Strictly FORBIDDEN to alter face or swap clothing colors/design away from the input reference.`
         : (refImages.male && refImages.male.length > 0)
         ? `*** MALE SOLO SCENE & STRICT IDENTITY/OUTFIT PROTOCOL ***
-            - MALE BINDING: Render ${maleSubjText} wearing 100% of the exact MALE REFERENCE OUTFIT (exact colors, suit/jacket cut, pants, embroidery).
-            - ZERO DRIFT: Strictly FORBIDDEN to alter his face or swap clothing colors/design away from the input reference.`
+            - MALE BINDING: Render ${maleSubjText} wearing 100% of the exact MALE REFERENCE OUTFIT from the attached photo (Image 1 - Nam) (exact colors, suit/jacket cut, pants, embroidery).
+            - ZERO DRIFT: Strictly FORBIDDEN to alter face or swap clothing colors/design away from the input reference.`
         : `*** VIRTUAL TRY-ON ENFORCEMENT ***
             - Clone 100% the patterns, colors, cuts, and every detail of the clothing directly from the input photo(s).`;
 
