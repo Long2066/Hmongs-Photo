@@ -941,7 +941,6 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
 
                     input.files = dt.files;
                     input.dispatchEvent(new Event('change', { bubbles: true }));
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
 
                     // Wait 1.0s matching muse2api driver.py
                     await new Promise(r => setTimeout(r, 1000));
@@ -964,9 +963,11 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
             console.log('[NativeMuse] Attached reference images result:', attachRes);
             if (!attachRes || !attachRes.ok) {
                 console.warn('[NativeMuse] Warning: Could not attach reference images:', attachRes?.error);
+                throw new Error(`Không thể đính kèm ảnh mẫu vào Muse: ${attachRes?.error || 'Lỗi đính kèm'}`);
             }
         } catch (err) {
             console.warn('[NativeMuse] Attach images exception:', err.message);
+            throw err;
         }
     }
 
@@ -1123,11 +1124,19 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                             (async () => {
                                 try {
                                     const r = await fetch(${JSON.stringify(status.url)});
+                                    if (!r.ok) return { ok: false, err: 'HTTP ' + r.status };
                                     const b = await r.blob();
-                                    const buf = new Uint8Array(await b.arrayBuffer());
-                                    let s = '';
-                                    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-                                    return { ok: true, mime: b.type || '', b64: btoa(s) };
+                                    const b64 = await new Promise((resolve, reject) => {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => {
+                                            const res = String(reader.result || '');
+                                            const comma = res.indexOf(',');
+                                            resolve(comma !== -1 ? res.substring(comma + 1) : res);
+                                        };
+                                        reader.onerror = () => reject(new Error('FileReader failed'));
+                                        reader.readAsDataURL(b);
+                                    });
+                                    return { ok: true, mime: b.type || 'image/png', b64 };
                                 } catch (e) { return { ok: false, err: String(e.message || e) }; }
                             })()
                         `);
@@ -1135,6 +1144,9 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                             return 'data:image/png;base64,' + dlRes.b64;
                         }
                     } catch (e) { }
+                    if (status.url.startsWith('blob:')) {
+                        throw new Error('Không thể tải dữ liệu ảnh từ Muse session (Blob URL không thể trích xuất).');
+                    }
                     return status.url;
                 }
             }
@@ -1148,11 +1160,19 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                         (async () => {
                             try {
                                 const r = await fetch(${JSON.stringify(targetUrl)});
+                                if (!r.ok) return { ok: false, err: 'HTTP ' + r.status };
                                 const b = await r.blob();
-                                const buf = new Uint8Array(await b.arrayBuffer());
-                                let s = '';
-                                for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-                                return { ok: true, mime: b.type || '', b64: btoa(s) };
+                                const b64 = await new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                        const res = String(reader.result || '');
+                                        const comma = res.indexOf(',');
+                                        resolve(comma !== -1 ? res.substring(comma + 1) : res);
+                                    };
+                                    reader.onerror = () => reject(new Error('FileReader failed'));
+                                    reader.readAsDataURL(b);
+                                });
+                                return { ok: true, mime: b.type || 'video/mp4', b64 };
                             } catch (e) { return { ok: false, err: String(e.message || e) }; }
                         })()
                     `);
@@ -1165,9 +1185,14 @@ async function runAutomationOnWorker(win, acc, prompt, kind, options = {}) {
                         const localMediaUrl = `http://127.0.0.1:18610/v1/media/${filename}`;
                         console.log(`[NativeMuse] Saved video (${(buf.length / 1024).toFixed(1)} KB) to ${filePath} -> ${localMediaUrl}`);
                         return localMediaUrl;
+                    } else if (dlRes && !dlRes.ok) {
+                        console.warn('[NativeMuse] In-page video fetch failed:', dlRes.err);
                     }
                 } catch (dlErr) {
                     console.warn('[NativeMuse] In-page video fetch failed:', dlErr.message);
+                }
+                if (targetUrl.startsWith('blob:')) {
+                    throw new Error('Không thể trích xuất video MP4 từ Muse session.');
                 }
                 return targetUrl;
             }

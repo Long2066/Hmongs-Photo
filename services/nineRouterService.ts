@@ -1545,7 +1545,14 @@ CRITICAL RULES:
         );
 
         const cleanScene = cleanPromptForMuse(request.prompt);
-        const finalMusePrompt = cleanScene || request.prompt;
+        const outfitEnforcement = refsPayload.length > 0
+            ? (taskType === 'create'
+                ? (identityMode === 'korean_idol'
+                    ? 'Clone 100% of the clothing, fabric, garment cut, colors, and authentic embroidery patterns directly from the attached reference photo(s). The character MUST wear this exact authentic reference outfit replicated with 100% original colors, cuts, and embroidery without substituting modern western clothes. '
+                    : 'Clone 100% of the exact original person identity, face, and clothing directly from the attached reference photo(s) without altering outfit or facial features. ')
+                : 'Reference the attached image(s) with 100% fidelity. ')
+            : '';
+        const finalMusePrompt = `${outfitEnforcement}${cleanScene || request.prompt}`;
 
         const musePayload: Record<string, any> = {
             model: 'muse-image',
