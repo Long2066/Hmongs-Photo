@@ -1291,6 +1291,9 @@ export const generateBatchPromptsText = async (
         ? 'the original female person from the FEMALE input photo (keeping 100% identical face, age, hair, and build)'
         : 'a 17-year-old exceptionally gorgeous Korean female (smooth radiant bright porcelain glass skin, enchanting pretty facial features, tall slender and graceful fashionable build)';
 
+    const hasMaleInput = (inputCounts?.male || 0) > 0;
+    const hasFemaleInput = (inputCounts?.female || 0) > 0;
+
     let modeInstruction = "";
     if (outputMode === 'couple') {
         modeInstruction = `OUTPUT MODE: COUPLE (MALE AND FEMALE TOGETHER).
@@ -1316,9 +1319,6 @@ export const generateBatchPromptsText = async (
         - ABSOLUTE PROHIBITION: DO NOT describe the female character in generic black/indigo clothing if the input outfit is different (e.g. red, pink, white). NEVER borrow patterns or colors from the male outfit for the female. BOTH outfits and faces MUST be explicitly anchored to their respective inputs in every single prompt!`;
     } else {
         // SINGLE MODE - Determine gender based on which input slots have images
-        const hasMaleInput = inputCounts.male > 0;
-        const hasFemaleInput = inputCounts.female > 0;
-
         if (hasMaleInput && !hasFemaleInput) {
             modeInstruction = `OUTPUT MODE: SINGLE (MALE ONLY).
             ALL ${safeTotalCount} prompts MUST feature ONLY ${maleLabel}.
