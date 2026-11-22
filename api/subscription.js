@@ -74,7 +74,7 @@ export default async function handler(req, res) {
 
 function entitlement(data) {
   return {
-    plan: data.plan === 'plus' || data.plan === 'pro' ? data.plan : 'free',
+    plan: data.plan === 'vip' ? 'vip' : (data.plan === 'plus' || data.plan === 'pro' ? data.plan : 'free'),
     remainingImages: data.remainingImages || 0,
     remainingVideoSeconds: Number.isSafeInteger(data.remainingVideoSeconds) ? data.remainingVideoSeconds : 0,
     planExpiresAt: data.planExpiresAt || null,
