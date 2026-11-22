@@ -99,161 +99,89 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
     const proDiscount = computeDiscountStats(proPlan.price, proPlan.originalPrice);
     const vipDiscount = computeDiscountStats(vipPlan.price, vipPlan.originalPrice);
 
-    const visibleCardCount = 1 + (plusPlan.enabled ? 1 : 0) + (proPlan.enabled ? 1 : 0) + (vipPlan.enabled ? 1 : 0);
-    const gridClassName = visibleCardCount === 4
-        ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch pt-4'
-        : visibleCardCount === 3
-            ? 'grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch pt-4'
-            : visibleCardCount === 2
-                ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-stretch pt-4 max-w-4xl mx-auto'
-                : 'grid grid-cols-1 gap-6 items-stretch pt-4 max-w-lg mx-auto';
+    const gridClassName = 'grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch pt-4 max-w-6xl mx-auto';
 
     return (
         <div className="mx-auto w-full max-w-7xl p-4 pb-20 sm:p-6 lg:p-8 animate-fade-in">
             <button type="button" onClick={onBack} className="mb-6 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-900/5 transition-all hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 active:scale-[0.98]">← Quay lại</button>
             <div className="mb-8">
-                <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">Gói dịch vụ & quyền lợi</h1>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">Theo dõi lượt ảnh, số giây tạo video và chọn gói phù hợp với nhu cầu sáng tạo.</p>
+                <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">Gói thời hạn & Quyền lợi sử dụng Tool</h1>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">Mua thời hạn sử dụng tool trọn gói. Tự động cấp mới hạn mức ảnh và video AI mỗi ngày lúc 00:00.</p>
             </div>
-            <section aria-label="Lượt sử dụng" className="mb-10">
-                <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">Lượt tạo ảnh miễn phí hôm nay</p>
-                        <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-slate-900">{freeRemaining} / {freeDailyLimit} ảnh hôm nay</p>
-                        {bonusImages > 0 && <p className="mt-1 text-sm font-medium text-indigo-700">Ảnh thưởng còn: <span className="font-mono tabular-nums">{bonusImages}</span></p>}
-                    </div>
-                    <div className="border-t sm:border-t-0 sm:border-l border-slate-100 pt-3 sm:pt-0 sm:pl-6">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">Thời lượng tạo Video AI còn lại</p>
-                        <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-amber-600">{remainingVideoSeconds} giây</p>
+
+            {/* Smart Status Dashboard */}
+            <section aria-label="Thông tin gói và lượt sử dụng" className="mb-10">
+                <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-900/5 sm:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+                        {/* Cột 1: Gói hiện tại */}
+                        <div>
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Gói dịch vụ hiện tại</p>
+                            <div className="mt-2 flex items-center gap-2.5">
+                                <span className={`w-2.5 h-2.5 rounded-full ${activePlan === 'vip' ? 'bg-purple-500 animate-pulse' : activePlan === 'pro' ? 'bg-amber-500' : activePlan === 'plus' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                <span className="text-xl font-bold text-slate-900">{activePlanCfg.name}</span>
+                                {activePlan !== 'free' && (
+                                    <span className={`px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider rounded-full ${activePlan === 'vip' ? 'bg-purple-100 text-purple-700' : activePlan === 'pro' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                        Đang hoạt động
+                                    </span>
+                                )}
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                                {activePlanCfg.subtitle || 'Tài khoản tiêu chuẩn'}
+                            </p>
+                        </div>
+
+                        {/* Cột 2: Thời hạn sử dụng */}
+                        <div className="pt-4 md:pt-0 md:pl-6">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Thời hạn sử dụng</p>
+                            <p className="mt-2 font-mono text-xl font-bold tabular-nums text-slate-900">
+                                {activePlan === 'vip'
+                                    ? 'Vĩnh viễn (Trọn đời)'
+                                    : planExpiresAt > 0
+                                        ? new Date(planExpiresAt).toLocaleDateString('vi-VN')
+                                        : 'Bản trải nghiệm miễn phí'}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                                {activePlan === 'vip'
+                                    ? 'Toàn quyền sử dụng vĩnh viễn'
+                                    : planExpiresAt > 0
+                                        ? `Còn ${Math.max(0, Math.ceil((planExpiresAt - Date.now()) / (1000 * 60 * 60 * 24)))} ngày sử dụng`
+                                        : 'Nâng cấp gói để mở khóa thời hạn và tính năng cao cấp'}
+                            </p>
+                        </div>
+
+                        {/* Cột 3: Hạn mức hôm nay */}
+                        <div className="pt-4 md:pt-0 md:pl-6">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Hạn mức hôm nay (Tự reset 00:00)</p>
+                            <div className="mt-2 flex items-baseline gap-2">
+                                <span className="font-mono text-xl font-bold tabular-nums text-indigo-700">
+                                    {activePlan === 'vip'
+                                        ? `${dailyFreeUsed} ảnh đã tạo (Không giới hạn)`
+                                        : `${dailyFreeUsed} / ${activePlanCfg.dailyImageLimit || (activePlan === 'pro' ? 300 : activePlan === 'plus' ? 100 : freeDailyLimit)} ảnh`}
+                                </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                                Xử lý song song: <strong className="font-semibold text-slate-800">{activePlanCfg.maxConcurrency || (activePlan === 'vip' ? 10 : activePlan === 'pro' ? 4 : activePlan === 'plus' ? 2 : 1)} luồng</strong> • Phân giải: <strong className="font-semibold text-slate-800">{activePlanCfg.maxResolution}</strong>
+                            </p>
+                        </div>
                     </div>
                 </div>
             </section>
-            <section aria-label="Gói dịch vụ">
-            {/* 3 Subscription Packages Section */}
-            <div className="mb-10">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
-                    <div>
-                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">
-                            Nâng cấp tài khoản & Quyền lợi
-                        </p>
-                        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">
-                            Chọn gói dịch vụ phù hợp với nhu cầu sáng tạo
-                        </h2>
-                    </div>
 
-                    <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-900/5 flex flex-wrap items-center gap-4 self-start">
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Gói đang dùng</p>
-                            <p className="font-semibold text-slate-900">{activePlanCfg.name}</p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Ảnh còn lại</p>
-                            <p className="text-right font-mono tabular-nums font-semibold text-indigo-700">
-                                {activePlan !== 'free' && activePlanCfg.unlimitedImages
-                                    ? 'Không giới hạn'
-                                    : activePlan === 'free'
-                                        ? `${freeRemaining}/${freeDailyLimit} hôm nay`
-                                        : `${remainingImages} ảnh`}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Video còn lại</p>
-                            <p className="text-right font-mono tabular-nums font-semibold text-amber-600">{remainingVideoSeconds} giây</p>
-                        </div>
-                        {bonusImages > 0 && (
-                            <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Ảnh thưởng (Google)</p>
-                                <p className="text-right font-mono tabular-nums font-semibold text-amber-600">
-                                    +{bonusImages} ảnh {bonusExpiresAt > 0 ? `(đến ${new Date(bonusExpiresAt).toLocaleDateString('vi-VN')})` : ''}
-                                </p>
-                            </div>
-                        )}
-                        {activePlan !== 'free' && planExpiresAt > 0 && (
-                            <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Hạn dùng ({activePlanCfg.durationDays || 30} ngày)</p>
-                                <p className="font-mono tabular-nums font-semibold text-slate-900">{new Date(planExpiresAt).toLocaleDateString('vi-VN')}</p>
-                            </div>
-                        )}
-                    </div>
+            <section aria-label="Gói dịch vụ">
+                <div className="mb-6 text-center max-w-2xl mx-auto">
+                    <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">
+                        Bảng giá & Gói cước
+                    </p>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">
+                        Chọn gói cước theo thời hạn sử dụng
+                    </h2>
+                    <p className="mt-2 text-xs sm:text-sm text-slate-500">
+                        Chỉ thanh toán một lần theo chu kỳ, không phát sinh chi phí theo lượt ảnh hay số giây video.
+                    </p>
                 </div>
 
-                {/* Pricing Grid: Free / Plus / Pro */}
+                {/* 3 Subscription Packages Grid */}
                 <div className={gridClassName}>
-                    {/* 1. GÓI FREE */}
-                    <div className={`bg-white rounded-2xl p-6 flex flex-col justify-between transition-all ${
-                        activePlan === 'free'
-                            ? 'ring-2 ring-slate-900/15 shadow-sm'
-                            : 'ring-1 ring-slate-900/5 shadow-xs'
-                    }`}>
-                        <div>
-                            <div className="flex items-center justify-between gap-2 mb-4">
-                                <div>
-                                    <h3 className="text-lg font-semibold text-slate-900 leading-tight">
-                                        {freePlan.name}
-                                    </h3>
-                                    {freePlan.subtitle && (
-                                        <p className="text-xs text-slate-500 mt-0.5">
-                                            {freePlan.subtitle}
-                                        </p>
-                                    )}
-                                </div>
-                                {freePlan.badge && (
-                                    <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider bg-slate-100 text-slate-700 flex-shrink-0">
-                                        {freePlan.badge}
-                                    </span>
-                                )}
-                            </div>
-
-                            <div className="mb-6 pb-5 border-b border-slate-100">
-                                <div className="flex items-baseline gap-2">
-                                    <span className="text-3xl font-bold text-slate-900 font-mono tabular-nums">
-                                        {formatVndCompact(freePlan.price)}
-                                    </span>
-                                    {freePlan.periodLabel && (
-                                        <span className="text-xs text-slate-500 font-medium">{freePlan.periodLabel}</span>
-                                    )}
-                                </div>
-                                {freePlan.quotaSummary && (
-                                    <p className="text-xs text-slate-600 mt-1.5 font-medium">
-                                        {freePlan.quotaSummary}
-                                    </p>
-                                )}
-                            </div>
-
-                            <ul className="space-y-3 text-sm text-slate-600 mb-6">
-                                {freePlan.featureItems.map((item: PlanFeatureItem) => (
-                                    <li key={item.id} className="flex items-start gap-2.5">
-                                        {item.icon === 'lock' ? (
-                                            <svg className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                            </svg>
-                                        )}
-                                        <span className={item.icon === 'lock' ? 'text-slate-500' : ''}>
-                                            {renderHighlightedFeatureText(item.text, item.highlight, 'text-slate-900 font-semibold')}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="pt-2">
-                            <div className="w-full py-3 px-4 rounded-xl bg-slate-100 text-slate-700 font-semibold text-xs sm:text-sm text-center min-h-[44px] flex items-center justify-center gap-2">
-                                {activePlan === 'free' ? (
-                                    <>
-                                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                                        <span>Đang kích hoạt ({freeRemaining}/{freeDailyLimit} ảnh • {remainingVideoSeconds}s video)</span>
-                                    </>
-                                ) : (
-                                    <span>{freePlan.ctaText || 'Gói cơ bản miễn phí'}</span>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
                     {/* 2. GÓI PLUS */}
                     {plusPlan.enabled && (
                     <div className={`bg-white rounded-2xl p-6 flex flex-col justify-between transition-all relative ${
@@ -597,8 +525,6 @@ export const PackagesPage: React.FC<PackagesPageProps> = ({ user, onBack, onBala
                     </div>
                     )}
                 </div>
-            </div>
-
             </section>
             {checkoutPlan && <PayOSCheckoutModal planId={checkoutPlan} userId={user.id} userName={user.name} userEmail={user.username} currentBalance={balance} onClose={() => setCheckoutPlan(null)} onSuccess={(newBal, activatedPlan) => { setBalance(newBal); setActivePlan(activatedPlan); loadSubscription(); }} />}
         </div>

@@ -264,23 +264,25 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
             const autoItems = buildAutoFeatureItems(tier, p, MODEL_LABEL_MAP);
             const disc = computeDiscountStats(p.price, p.originalPrice);
 
-            const autoSubtitle = tier === 'free'
-                ? `Dành cho người mới (${p.dailyFreeLimit} ảnh/ngày)`
-                : `${p.unlimitedImages ? 'Tạo ảnh không giới hạn' : `${p.totalImages} ảnh`} + ${p.videoSeconds}s Video AI • Tối đa ${p.maxResolution}`;
+            const concurrency = p.maxConcurrency || (tier === 'vip' ? 10 : tier === 'pro' ? 4 : 2);
+            const isVip = tier === 'vip';
+            const isLifetime = p.durationDays >= 3650 || isVip;
 
-            const autoSummary = tier === 'free'
-                ? `Tặng ${p.dailyFreeLimit} ảnh / ngày + ${p.videoSeconds}s video cho tài khoản mới`
-                : p.unlimitedImages
-                    ? `Tạo ảnh không giới hạn + ${p.videoSeconds} giây Video AI`
-                    : `${p.totalImages} ảnh + ${p.videoSeconds} giây Video AI (hạn ${p.durationDays} ngày)`;
+            const autoSubtitle = isVip
+                ? `${concurrency} luồng song song • Không giới hạn ảnh & video • Mở full tính năng`
+                : `${concurrency} luồng song song • ${p.dailyImageLimit || 100} ảnh + ${p.dailyVideoLimit || 20} video / ngày`;
 
-            const autoPeriod = tier === 'free' ? '/ ngày' : `/ ${p.durationDays} ngày`;
-            const autoCta = tier === 'free'
-                ? 'Gói cơ bản miễn phí'
+            const autoSummary = isVip
+                ? `Không giới hạn số lượt tạo ảnh và video AI • Sở hữu Vĩnh viễn`
+                : `${p.dailyImageLimit || 100} ảnh + ${p.dailyVideoLimit || 20} video / ngày (Reset 00:00) • Hạn ${p.durationDays} ngày`;
+
+            const autoPeriod = isLifetime ? '/ Vĩnh viễn' : `/ ${Math.round(p.durationDays / 30)} tháng`;
+            const autoCta = isVip
+                ? `Mua ${p.name} — ${formatVndCompact(p.price)}`
                 : `Mua ${p.name} — ${formatVndCompact(p.price)}`;
-            const autoTopUp = tier === 'free'
-                ? ''
-                : `Mua thêm ${p.name} — ${formatVndCompact(p.price)}`;
+            const autoTopUp = isVip
+                ? `Đã kích hoạt ${p.name}`
+                : `Gia hạn ${p.name} — ${formatVndCompact(p.price)}`;
 
             return {
                 ...prev,
@@ -298,7 +300,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
         });
         setStatusBanner({
             type: 'info',
-            message: `Đã tự động cập nhật mô tả, tiêu đề phụ, CTA và 4 dòng quyền lợi của ${TIER_META[tier].title} theo thông số vừa nhập. Nhớ bấm "Lưu & Đồng bộ Live" để áp dụng.`,
+            message: `Đã tự động cập nhật mô tả, tiêu đề phụ, CTA và quyền lợi của ${TIER_META[tier].title} theo mô hình thời hạn mới. Nhớ bấm "Lưu & Đồng bộ Live" để áp dụng.`,
         });
     };
 
@@ -384,7 +386,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                 }
                 .pkg-preview-cards {
                     display: grid;
-                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    grid-template-columns: repeat(3, minmax(0, 1fr));
                     gap: 12px;
                     align-items: stretch;
                     padding-top: 14px;
@@ -593,7 +595,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                     <div
                         style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
                             gap: '8px',
                             padding: '6px',
                             background: 'var(--bg-tertiary)',
@@ -601,7 +603,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                             marginBottom: '20px',
                         }}
                     >
-                        {(['plus', 'pro', 'vip', 'free'] as PlanId[]).map((tierId) => {
+                        {(['plus', 'pro', 'vip'] as PlanId[]).map((tierId) => {
                             const selected = activeTier === tierId;
                             const tierPlan = draft[tierId];
                             return (
@@ -756,85 +758,87 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                         )}
 
                         <div className="pkg-field-2col" style={{ marginBottom: '12px' }}>
-                            {activeTier === 'free' ? (
-                                <div>
-                                    <label style={labelStyle}>Số ảnh miễn phí / ngày</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        max={10000}
-                                        value={currentPlan.dailyFreeLimit}
-                                        onChange={(e) => updatePlanField('free', 'dailyFreeLimit', Math.max(0, Number(e.target.value) || 0))}
-                                        style={{ ...inputStyle, ...monoStyle }}
-                                    />
-                                </div>
-                            ) : (
-                                <div>
-                                    <label style={labelStyle}>Thời hạn gói (Số ngày)</label>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={3650}
-                                        value={currentPlan.durationDays}
-                                        onChange={(e) => updatePlanField(activeTier, 'durationDays', Math.max(1, Number(e.target.value) || 30))}
-                                        style={{ ...inputStyle, ...monoStyle }}
-                                    />
-                                </div>
-                            )}
-
                             <div>
-                                <label style={labelStyle}>Số giây Video AI được cấp (giây)</label>
+                                <label style={labelStyle}>Thời hạn gói (Số ngày: 365 = 12 tháng, 36500 = Vĩnh viễn)</label>
                                 <input
                                     type="number"
-                                    min={0}
-                                    max={100000}
-                                    value={currentPlan.videoSeconds}
-                                    onChange={(e) => updatePlanField(activeTier, 'videoSeconds', Math.max(0, Number(e.target.value) || 0))}
+                                    min={1}
+                                    max={36500}
+                                    value={currentPlan.durationDays}
+                                    onChange={(e) => updatePlanField(activeTier, 'durationDays', Math.max(1, Number(e.target.value) || 365))}
+                                    style={{ ...inputStyle, ...monoStyle }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={labelStyle}>Số luồng xử lý song song (Concurrency limit)</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={currentPlan.maxConcurrency ?? (activeTier === 'vip' ? 10 : activeTier === 'pro' ? 4 : 2)}
+                                    onChange={(e) => updatePlanField(activeTier, 'maxConcurrency', Math.max(1, Number(e.target.value) || 1))}
                                     style={{ ...inputStyle, ...monoStyle }}
                                 />
                             </div>
                         </div>
 
                         <div className="pkg-field-2col" style={{ marginBottom: '12px' }}>
-                            {activeTier !== 'free' ? (
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <label style={{ ...labelStyle, marginBottom: 0 }}>Hạn mức ảnh của gói</label>
-                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.76rem', fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={currentPlan.unlimitedImages}
-                                                onChange={(e) => {
-                                                    const checked = e.target.checked;
-                                                    updatePlanField(activeTier, 'unlimitedImages', checked);
-                                                    if (checked && currentPlan.totalImages < 999999) {
-                                                        updatePlanField(activeTier, 'totalImages', 999999);
-                                                    }
-                                                }}
-                                                style={{ accentColor: 'var(--accent-primary)' }}
-                                            />
-                                            <span>Không giới hạn ảnh</span>
-                                        </label>
-                                    </div>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={9999999}
-                                        disabled={currentPlan.unlimitedImages}
-                                        value={currentPlan.unlimitedImages ? 999999 : currentPlan.totalImages}
-                                        onChange={(e) => updatePlanField(activeTier, 'totalImages', Math.max(0, Number(e.target.value) || 0))}
-                                        style={{
-                                            ...inputStyle,
-                                            ...monoStyle,
-                                            background: currentPlan.unlimitedImages ? '#f8fafc' : '#ffffff',
-                                            color: currentPlan.unlimitedImages ? '#64748b' : 'var(--text-primary)',
-                                        }}
-                                    />
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <label style={{ ...labelStyle, marginBottom: 0 }}>Hạn mức ảnh / ngày (Reset 00:00)</label>
+                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.76rem', fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean(currentPlan.unlimitedImages || (currentPlan.dailyImageLimit && currentPlan.dailyImageLimit >= 999999))}
+                                            onChange={(e) => {
+                                                const checked = e.target.checked;
+                                                updatePlanField(activeTier, 'unlimitedImages', checked);
+                                                updatePlanField(activeTier, 'dailyImageLimit', checked ? 999999 : (activeTier === 'pro' ? 300 : 100));
+                                            }}
+                                            style={{ accentColor: 'var(--accent-primary)' }}
+                                        />
+                                        <span>Không giới hạn ảnh</span>
+                                    </label>
                                 </div>
-                            ) : (
-                                <div />
-                            )}
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={9999999}
+                                    disabled={Boolean(currentPlan.unlimitedImages || (currentPlan.dailyImageLimit && currentPlan.dailyImageLimit >= 999999))}
+                                    value={Boolean(currentPlan.unlimitedImages || (currentPlan.dailyImageLimit && currentPlan.dailyImageLimit >= 999999)) ? 999999 : (currentPlan.dailyImageLimit || currentPlan.totalImages || 100)}
+                                    onChange={(e) => {
+                                        const val = Math.max(0, Number(e.target.value) || 0);
+                                        updatePlanField(activeTier, 'dailyImageLimit', val);
+                                        updatePlanField(activeTier, 'totalImages', val);
+                                    }}
+                                    style={{
+                                        ...inputStyle,
+                                        ...monoStyle,
+                                        background: Boolean(currentPlan.unlimitedImages || (currentPlan.dailyImageLimit && currentPlan.dailyImageLimit >= 999999)) ? '#f8fafc' : '#ffffff',
+                                        color: Boolean(currentPlan.unlimitedImages || (currentPlan.dailyImageLimit && currentPlan.dailyImageLimit >= 999999)) ? '#64748b' : 'var(--text-primary)',
+                                    }}
+                                />
+                            </div>
 
+                            <div>
+                                <label style={labelStyle}>Hạn mức video / ngày (Reset 00:00)</label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={999999}
+                                    value={currentPlan.dailyVideoLimit ?? currentPlan.videoSeconds ?? 20}
+                                    onChange={(e) => {
+                                        const val = Math.max(0, Number(e.target.value) || 0);
+                                        updatePlanField(activeTier, 'dailyVideoLimit', val);
+                                        updatePlanField(activeTier, 'videoSeconds', val);
+                                    }}
+                                    style={{ ...inputStyle, ...monoStyle }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="pkg-field-2col" style={{ marginBottom: '12px' }}>
                             <div>
                                 <label style={labelStyle}>Độ phân giải tối đa cho phép</label>
                                 <select
@@ -847,6 +851,19 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                                     <option value="2K">2K Ultra Sharp</option>
                                     <option value="4K">4K Ultra Sharp (Tối đa)</option>
                                 </select>
+                            </div>
+
+                            <div>
+                                <label style={labelStyle}>Tính năng Phục hồi ảnh cũ mức độ Mạnh</label>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--border-color)', borderRadius: '10px', width: '100%', cursor: 'pointer', fontSize: '0.86rem', fontWeight: 600 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(currentPlan.allowStrongRestore ?? (activeTier === 'vip'))}
+                                        onChange={(e) => updatePlanField(activeTier, 'allowStrongRestore', e.target.checked)}
+                                        style={{ width: '16px', height: '16px', accentColor: 'var(--accent-primary)' }}
+                                    />
+                                    <span>Mở khóa tùy chọn "Mạnh"</span>
+                                </label>
                             </div>
                         </div>
 
@@ -1174,64 +1191,6 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                     </div>
 
                     <div className="pkg-preview-cards">
-                        {/* PREVIEW FREE */}
-                        {(() => {
-                            const p = draft.free;
-                            const isSelected = activeTier === 'free';
-                            return (
-                                <div
-                                    onClick={() => setActiveTier('free')}
-                                    style={{
-                                        ...previewCardCommon,
-                                        background: '#ffffff',
-                                        border: isSelected ? '2px solid #4f46e5' : '1px solid #e2e8f0',
-                                        boxShadow: isSelected ? '0 0 0 3px rgba(79,70,229,0.12)' : 'var(--shadow-xs)',
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px', marginBottom: '12px' }}>
-                                            <div>
-                                                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>{p.name}</div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>{p.subtitle}</div>
-                                            </div>
-                                            {p.badge && (
-                                                <span style={{ padding: '2px 7px', borderRadius: '999px', background: '#f1f5f9', color: '#334155', fontSize: '0.62rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                                    {p.badge}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <div style={{ paddingBottom: '12px', marginBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
-                                                <span style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', ...monoStyle }}>
-                                                    {formatVndCompact(p.price)}
-                                                </span>
-                                                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{p.periodLabel}</span>
-                                            </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '4px', fontWeight: 500 }}>
-                                                {p.quotaSummary}
-                                            </div>
-                                        </div>
-
-                                        <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
-                                            {p.featureItems.map((it) => (
-                                                <li key={it.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.73rem', color: it.icon === 'lock' ? '#64748b' : '#334155', lineHeight: 1.4 }}>
-                                                    <span style={{ marginTop: '2px', flexShrink: 0, color: it.icon === 'lock' ? '#94a3b8' : '#059669' }}>
-                                                        {it.icon === 'lock' ? <Lock size={13} /> : <Check size={13} />}
-                                                    </span>
-                                                    <span>{renderHighlightedText(it.text, it.highlight, { color: '#0f172a', fontWeight: 700 })}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-
-                                    <div style={{ padding: '9px 10px', borderRadius: '10px', background: '#f1f5f9', color: '#334155', fontSize: '0.74rem', fontWeight: 600, textAlign: 'center' }}>
-                                        {p.ctaText || 'Gói cơ bản miễn phí'}
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
                         {/* PREVIEW PLUS */}
                         {(() => {
                             const p = draft.plus;

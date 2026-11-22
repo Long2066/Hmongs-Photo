@@ -951,15 +951,13 @@ export const isPlanImagesUnlimited = (plan: SubscriptionPlan): boolean =>
 export const resolveEffectivePlan = (
     rawPlan?: string,
     _credits: number = 0,
-    remainingImages: number = 0,
+    _remainingImages: number = 0,
     planExpiresAt: number | null = null,
-    remainingVideoSeconds: number = 0
+    _remainingVideoSeconds: number = 0
 ): SubscriptionPlan => {
     if (rawPlan === 'vip') return 'vip';
     if (!planExpiresAt || planExpiresAt <= Date.now()) return 'free';
     if (rawPlan !== 'plus' && rawPlan !== 'pro') return 'free';
-    if (isPlanImagesUnlimited(rawPlan)) return rawPlan;
-    if (remainingImages <= 0 && remainingVideoSeconds <= 0) return 'free';
     return rawPlan;
 };
 
@@ -1263,9 +1261,11 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
             };
         }
         const newRemaining = Math.max(0, currentRemaining - count);
-        const newPlan: SubscriptionPlan = rawPlanKey !== 'free' && (newRemaining > 0 || currentVideoSec > 0)
-            ? rawPlanKey
-            : 'free';
+        const newPlan: SubscriptionPlan = rawPlanKey === 'vip'
+            ? 'vip'
+            : (rawPlanKey === 'plus' || rawPlanKey === 'pro')
+                ? (planExpiresAt && planExpiresAt > now ? rawPlanKey : 'free')
+                : 'free';
 
         await setDoc(docRef, {
             userId,
@@ -1334,7 +1334,7 @@ export const consumeUserVideoSecondsDirect = async (userId: string, seconds: num
         const isPaid = data.plan === 'vip' || data.plan === 'pro' || data.plan === 'plus';
         const unlimited = isPaid && isPlanImagesUnlimited(data.plan);
         const newPlan: SubscriptionPlan = isPaid
-            ? (unlimited || currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
+            ? (data.plan === 'vip' ? 'vip' : (planExpiresAt && planExpiresAt > now ? data.plan : 'free'))
             : 'free';
 
         await setDoc(docRef, {

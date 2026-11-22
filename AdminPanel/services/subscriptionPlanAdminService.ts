@@ -25,6 +25,10 @@ export interface PlanConfig {
     quotaSummary: string;
     durationDays: number;
     dailyFreeLimit: number;
+    dailyImageLimit?: number;
+    dailyVideoLimit?: number;
+    maxConcurrency?: number;
+    allowStrongRestore?: boolean;
     unlimitedImages: boolean;
     totalImages: number;
     videoSeconds: number;
@@ -124,6 +128,10 @@ export const DEFAULT_SUBSCRIPTION_PLANS_CONFIG: SubscriptionPlansConfig = {
         quotaSummary: 'Tặng 30 ảnh / ngày + 8s video cho tài khoản mới',
         durationDays: 0,
         dailyFreeLimit: 30,
+        dailyImageLimit: 30,
+        dailyVideoLimit: 2,
+        maxConcurrency: 1,
+        allowStrongRestore: false,
         unlimitedImages: false,
         totalImages: 0,
         videoSeconds: 8,
@@ -152,6 +160,10 @@ export const DEFAULT_SUBSCRIPTION_PLANS_CONFIG: SubscriptionPlansConfig = {
         periodLabel: '/ 12 tháng',
         quotaSummary: '100 ảnh + 20 video / ngày (Reset mỗi ngày) • Hạn 12 tháng',
         durationDays: 365,
+        dailyImageLimit: 100,
+        dailyVideoLimit: 20,
+        maxConcurrency: 2,
+        allowStrongRestore: false,
         dailyFreeLimit: 100,
         unlimitedImages: false,
         totalImages: 100,
@@ -182,6 +194,10 @@ export const DEFAULT_SUBSCRIPTION_PLANS_CONFIG: SubscriptionPlansConfig = {
         periodLabel: '/ 12 tháng',
         quotaSummary: '300 ảnh + 80 video / ngày (Reset mỗi ngày) • Hạn 12 tháng',
         durationDays: 365,
+        dailyImageLimit: 300,
+        dailyVideoLimit: 80,
+        maxConcurrency: 4,
+        allowStrongRestore: false,
         dailyFreeLimit: 300,
         unlimitedImages: false,
         totalImages: 300,
@@ -212,6 +228,10 @@ export const DEFAULT_SUBSCRIPTION_PLANS_CONFIG: SubscriptionPlansConfig = {
         periodLabel: '/ vĩnh viễn',
         quotaSummary: 'Mở toàn quyền truy cập Tool trọn đời',
         durationDays: 36500,
+        dailyImageLimit: 999999,
+        dailyVideoLimit: 999999,
+        maxConcurrency: 10,
+        allowStrongRestore: true,
         dailyFreeLimit: 999999,
         unlimitedImages: true,
         totalImages: 999999,
@@ -286,6 +306,10 @@ const sanitizePlanEntry = (planId: PlanId, raw: any, fallback: PlanConfig): Plan
         quotaSummary: toStr(src.quotaSummary, fallback.quotaSummary),
         durationDays: isPaid ? toInt(src.durationDays, fallback.durationDays, 1, 36500) : 0,
         dailyFreeLimit: planId === 'free' ? toInt(src.dailyFreeLimit, fallback.dailyFreeLimit, 0, 10000) : 0,
+        dailyImageLimit: toInt(src.dailyImageLimit, fallback.dailyImageLimit ?? (planId === 'vip' ? 999999 : planId === 'pro' ? 300 : planId === 'plus' ? 100 : 30), 0, 9_999_999),
+        dailyVideoLimit: toInt(src.dailyVideoLimit, fallback.dailyVideoLimit ?? (planId === 'vip' ? 999999 : planId === 'pro' ? 80 : planId === 'plus' ? 20 : 2), 0, 9_999_999),
+        maxConcurrency: toInt(src.maxConcurrency, fallback.maxConcurrency ?? (planId === 'vip' ? 10 : planId === 'pro' ? 4 : planId === 'plus' ? 2 : 1), 1, 30),
+        allowStrongRestore: Boolean(src.allowStrongRestore ?? (planId === 'vip')),
         unlimitedImages,
         totalImages: planId === 'free'
             ? 0
