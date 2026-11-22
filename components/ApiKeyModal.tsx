@@ -1,61 +1,74 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as nineRouterService from '../services/nineRouterService';
-import { KeyIcon } from './Icons';
 
 interface ApiKeyModalProps {
     onClose: () => void;
 }
 
-const ADMIN_PASSWORD = 'Long2006@123#00011@#';
-
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
-    // Admin Authentication State
-    const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-    const [adminPasswordInput, setAdminPasswordInput] = useState('');
-    const [showAdminPassword, setShowAdminPassword] = useState(false);
-    const [authError, setAuthError] = useState<string | null>(null);
-    const passwordInputRef = useRef<HTMLInputElement>(null);
-
     // Cấu hình State
     const [nineRouterEnabled, setNineRouterEnabledState] = useState(() => nineRouterService.isNineRouterEnabled());
     const [nineRouterUrl, setNineRouterUrlState] = useState(() => nineRouterService.getNineRouterUrl());
-    const [nineRouterApiKey, setNineRouterApiKeyState] = useState(() => nineRouterService.getNineRouterApiKey());
+    const [nineRouterApiKey] = useState(() => nineRouterService.getNineRouterApiKey());
     
     const [isConnected, setIsConnected] = useState(false);
     const [isChecking, setIsChecking] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [showKey, setShowKey] = useState(false);
     const [isSavedFeedback, setIsSavedFeedback] = useState(false);
 
     // Native Gateway & Muse in-process status
     const [nativeStatus, setNativeStatus] = useState<any>(null);
-    const [isMuseLoggingIn, setIsMuseLoggingIn] = useState(false);
     const [manualCookieInput, setManualCookieInput] = useState('');
-    const [showCookieInput, setShowCookieInput] = useState(false);
     const [showGoogleList, setShowGoogleList] = useState(false);
-    const [showMuseList, setShowMuseList] = useState(false);
+    const [showMuseList, setShowMuseList] = useState(true);
+    const [isDeletingAccId, setIsDeletingAccId] = useState<string | null>(null);
+
+    // Trạng thái kiểm tra toàn diện
+    const [testResult, setTestResult] = useState<{
+        status: 'idle' | 'testing' | 'success' | 'error';
+        message: string;
+        details?: string[];
+    }>({ status: 'idle', message: '' });
 
     const refreshNativeStatus = async () => {
         try {
             if (window.electronAPI?.getNativeGatewayStatus) {
                 const st = await window.electronAPI.getNativeGatewayStatus();
                 setNativeStatus(st);
-                return;
+                return st;
             }
             // Fallback for browser mode: check health via direct HTTP fetch
             const res8317 = await fetch('http://127.0.0.1:8317/health').then(r => r.json()).catch(() => null);
             const res18610 = await fetch('http://127.0.0.1:18610/health').then(r => r.json()).catch(() => null);
-            setNativeStatus({
+            let museAccounts: any[] = [];
+            try {
+                const accResp = await fetch('http://127.0.0.1:18610/admin/accounts', {
+                    headers: { 'Authorization': 'Bearer 123456' }
+                });
+                if (accResp.ok) {
+                    const accJson = await accResp.json();
+                    museAccounts = accJson.data || [];
+                }
+            } catch { }
+
+            const activeMuse = museAccounts.filter(a => a.status === 'active' || (a.enabled !== false && a.status !== 'invalid' && a.status !== 'expired')).length;
+
+            const fallbackSt = {
                 port8317: res8317?.status === 'ok',
                 port18610: res18610?.status === 'ok',
                 googleAccounts: new Array(res8317?.accounts || 0).fill({ email: 'Tài khoản Google' }),
                 museStatus: {
-                    configured: res18610?.configured || ((res18610?.accounts || 0) > 0),
-                    accountsCount: res18610?.accounts || 0,
-                    accounts: []
+                    configured: res18610?.configured || museAccounts.length > 0,
+                    accountsCount: museAccounts.length || res18610?.accounts || 0,
+                    activeAccountsCount: activeMuse,
+                    accounts: museAccounts
                 }
-            });
-        } catch { }
+            };
+            setNativeStatus(fallbackSt);
+            return fallbackSt;
+        } catch {
+            return null;
+        }
     };
 
     // Initial connection test
@@ -73,30 +86,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
         return () => { if (unsub) unsub(); };
     }, []);
 
-    const handleMuseLogin = async () => {
-        setIsMuseLoggingIn(true);
-        try {
-            if (window.electronAPI?.museLogin) {
-                const res = await window.electronAPI.museLogin();
-                if (res?.success) {
-                    await refreshNativeStatus();
-                }
-            } else {
-                window.open('https://muse.ai/login', '_blank');
-            }
-        } finally {
-            setIsMuseLoggingIn(false);
-        }
-    };
-
-    const handleMuseChromeIncognito = async () => {
-        if (window.electronAPI?.museOpenChromeIncognito) {
-            await window.electronAPI.museOpenChromeIncognito();
-        } else {
-            window.open('https://muse.ai/login', '_blank');
-        }
-    };
-
     const handleSaveManualCookie = async () => {
         if (!manualCookieInput.trim()) return;
         let jar: Record<string, string> = {};
@@ -110,12 +99,15 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                     jar = parsed;
                 }
             } catch { }
-        } else {
+        } else if (str.includes('=')) {
             str.split(';').forEach(pair => {
                 const [k, ...v] = pair.trim().split('=');
                 if (k && v.length) jar[k.trim()] = v.join('=').trim();
             });
+        } else if (str.length > 20) {
+            jar['hatch_sess'] = str;
         }
+
         if (Object.keys(jar).length > 0) {
             try {
                 if (window.electronAPI?.museSaveCookies) {
@@ -124,14 +116,53 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         alert(`Lỗi lưu cookie Muse: ${res.error}`);
                         return;
                     }
+                } else {
+                    const cookieStr = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+                    const resp = await fetch('http://127.0.0.1:18610/admin/accounts', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer 123456'
+                        },
+                        body: JSON.stringify({
+                            cookies: cookieStr,
+                            label: `ImageTool-${new Date().toLocaleDateString('vi-VN')}`
+                        })
+                    });
+                    if (!resp.ok) {
+                        const err = await resp.text();
+                        alert(`Lỗi lưu cookie: ${err}`);
+                        return;
+                    }
                 }
                 setManualCookieInput('');
-                setShowCookieInput(false);
                 await refreshNativeStatus();
                 alert('Đã lưu và kích hoạt tài khoản Muse thành công!');
             } catch (saveErr: any) {
                 alert(`Lỗi lưu cookie: ${saveErr?.message || saveErr}`);
             }
+        } else {
+            alert('Không thể nhận diện định dạng cookie. Vui lòng dán chuỗi cookie (có hatch_sess=...) hoặc chuỗi token hatch_sess.');
+        }
+    };
+
+    const handleDeleteMuseAccount = async (id: string, label?: string) => {
+        if (!confirm(`Bạn có chắc muốn xóa tài khoản Muse "${label || id}"?`)) return;
+        setIsDeletingAccId(id);
+        try {
+            if (window.electronAPI?.museDeleteAccount) {
+                await window.electronAPI.museDeleteAccount(id);
+            } else {
+                await fetch(`http://127.0.0.1:18610/admin/accounts/${encodeURIComponent(id)}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer 123456' }
+                });
+            }
+            await refreshNativeStatus();
+        } catch (e: any) {
+            alert(`Lỗi khi xóa tài khoản: ${e?.message || e}`);
+        } finally {
+            setIsDeletingAccId(null);
         }
     };
 
@@ -146,16 +177,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
         }, 2000);
         setTimeout(() => clearInterval(pollTimer), 30000);
     };
-
-    // Auto-focus admin password input on open if locked ("Bấm vào chìa khóa là yêu cầu nhập mật khẩu ngay")
-    useEffect(() => {
-        if (!isAdminUnlocked) {
-            const timer = setTimeout(() => {
-                passwordInputRef.current?.focus();
-            }, 80);
-            return () => clearTimeout(timer);
-        }
-    }, [isAdminUnlocked]);
 
     const checkConnection = async (targetUrl?: string, targetKey?: string) => {
         const urlToCheck = targetUrl !== undefined ? targetUrl : nineRouterUrl;
@@ -182,46 +203,80 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
         }
     };
 
+    // Kiểm tra toàn diện hệ thống (Google CLI, Muse Gateway, Tài khoản)
+    const handleRunFullCheck = async () => {
+        setTestResult({ status: 'testing', message: 'Đang kiểm tra toàn bộ hệ thống...' });
+
+        try {
+            const st = await refreshNativeStatus();
+            const routerStatus = await nineRouterService.checkConnection(nineRouterUrl, nineRouterApiKey);
+            setIsConnected(routerStatus.connected);
+
+            const errors: string[] = [];
+            const successes: string[] = [];
+
+            // 1. Google CLI (Port 8317)
+            if (st?.port8317) {
+                const googleCount = st.googleAccounts?.length || 0;
+                if (googleCount > 0) {
+                    successes.push(`Google CLI (Cổng 8317): Hoạt động tốt (${googleCount} tài khoản sẵn sàng)`);
+                } else {
+                    errors.push(`Google CLI (Cổng 8317): Đang mở nhưng chưa có tài khoản Google nào`);
+                }
+            } else {
+                errors.push(`Google CLI (Cổng 8317): Mất kết nối hoặc dịch vụ chưa khởi động`);
+            }
+
+            // 2. Muse Gateway (Port 18610)
+            if (st?.port18610) {
+                const totalMuse = st.museStatus?.accountsCount || 0;
+                const activeMuse = st.museStatus?.activeAccountsCount || 0;
+                if (totalMuse === 0) {
+                    errors.push(`Muse Gateway (Cổng 18610): Chưa có tài khoản Muse nào (hãy dán cookie)`);
+                } else if (activeMuse === 0) {
+                    errors.push(`Muse Gateway (Cổng 18610): Toàn bộ ${totalMuse} tài khoản Muse đã hết hạn hoặc lỗi`);
+                } else {
+                    successes.push(`Muse Gateway (Cổng 18610): Hoạt động tốt (${activeMuse}/${totalMuse} tài khoản hoạt động)`);
+                }
+            } else {
+                errors.push(`Muse Gateway (Cổng 18610): Mất kết nối hoặc cổng chưa khởi động`);
+            }
+
+            // 3. Định tuyến Router
+            if (routerStatus.connected) {
+                successes.push(`Định tuyến AI: Kết nối thành công`);
+            } else {
+                errors.push(`Định tuyến AI: ${routerStatus.errorMessage || 'Không thể kết nối'}`);
+            }
+
+            if (errors.length === 0) {
+                setTestResult({
+                    status: 'success',
+                    message: 'Thành công! Mọi kết nối đều hoạt động tốt.'
+                });
+            } else {
+                setTestResult({
+                    status: 'error',
+                    message: 'Kiểm tra phát hiện sự cố cần xử lý:',
+                    details: errors
+                });
+            }
+        } catch (err: any) {
+            setTestResult({
+                status: 'error',
+                message: 'Lỗi trong quá trình kiểm tra:',
+                details: [err?.message || 'Không thể hoàn tất kiểm tra hệ thống.']
+            });
+        }
+    };
+
     const handleToggleEnabled = () => {
         const next = !nineRouterEnabled;
         setNineRouterEnabledState(next);
         nineRouterService.setNineRouterEnabled(next);
     };
 
-    const handleUnlockAdmin = (e?: React.FormEvent) => {
-        if (e) e.preventDefault();
-        const trimmed = adminPasswordInput.trim();
-        if (trimmed === ADMIN_PASSWORD) {
-            setIsAdminUnlocked(true);
-            setAuthError(null);
-            setAdminPasswordInput('');
-        } else {
-            setAuthError('Mật khẩu quản trị viên không chính xác. Vui lòng thử lại!');
-            passwordInputRef.current?.focus();
-            passwordInputRef.current?.select();
-        }
-    };
-
-    const handleLockAdmin = () => {
-        setIsAdminUnlocked(false);
-        setAdminPasswordInput('');
-        setAuthError(null);
-        setShowKey(false);
-    };
-
-    const focusPasswordInput = () => {
-        if (!isAdminUnlocked) {
-            passwordInputRef.current?.focus();
-            passwordInputRef.current?.select();
-        }
-    };
-
     const handleSave = () => {
-        if (!isAdminUnlocked) {
-            focusPasswordInput();
-            return;
-        }
-
         nineRouterService.setNineRouterEnabled(nineRouterEnabled);
         nineRouterService.setNineRouterUrl(nineRouterUrl);
         nineRouterService.setNineRouterApiKey(nineRouterApiKey);
@@ -230,17 +285,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
         setTimeout(() => {
             setIsSavedFeedback(false);
             onClose();
-        }, 600);
+        }, 400);
     };
 
-    const applyUrlPreset = (presetUrl: string) => {
-        if (!isAdminUnlocked) {
-            focusPasswordInput();
-            return;
-        }
-        setNineRouterUrlState(presetUrl);
-        checkConnection(presetUrl, nineRouterApiKey);
-    };
+    const isCoreOnline = Boolean(nativeStatus?.port8317 && nativeStatus?.port18610);
 
     return (
         <div
@@ -309,7 +357,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                     </span>
                                     <p className="text-[11px] text-slate-500">
                                         {isConnected
-                                            ? 'Sẵn sàng xử lý tác vụ tạo ảnh'
+                                            ? 'Sẵn sàng xử lý tác vụ tạo ảnh & video'
                                             : nineRouterEnabled
                                                 ? 'Chưa kết nối tới máy chủ Cấu hình'
                                                 : 'Bật để kích hoạt kết nối'}
@@ -363,122 +411,32 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                         )}
                     </div>
 
-                    {/* MỤC YÊU CẦU MẬT KHẨU ADMIN ĐỂ HIỂN THỊ HẾT */}
-                    {!isAdminUnlocked ? (
-                        <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50/60 border border-amber-200/80 rounded-2xl ring-1 ring-amber-500/15 shadow-xs animate-fade-in">
-                            <div className="flex items-start gap-2.5 mb-2.5">
-                                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                    <KeyIcon className="w-4 h-4" />
-                                </div>
-                                <div className="flex-1">
-                                    <span className="text-xs font-bold text-amber-900 uppercase tracking-wider block">
-                                        Mục Yêu cầu Mật khẩu Admin
-                                    </span>
-                                    <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
-                                        Cấu hình này đang được bảo vệ dưới dạng mật mã ****. Nhập mật khẩu để hiển thị toàn bộ cho quản trị viên.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <form onSubmit={handleUnlockAdmin} className="mt-3">
-                                <div className="flex gap-2">
-                                    <div className="relative flex-1">
-                                        <input
-                                            ref={passwordInputRef}
-                                            type={showAdminPassword ? 'text' : 'password'}
-                                            value={adminPasswordInput}
-                                            onChange={(e) => {
-                                                setAdminPasswordInput(e.target.value);
-                                                if (authError) setAuthError(null);
-                                            }}
-                                            placeholder="Nhập mật khẩu admin..."
-                                            className={`w-full bg-white border ${
-                                                authError
-                                                    ? 'border-red-400 ring-2 ring-red-400/20'
-                                                    : 'border-amber-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20'
-                                            } rounded-xl pl-3 pr-9 py-2 text-xs font-mono text-slate-800 outline-none transition-all placeholder:text-slate-400`}
-                                            autoFocus
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowAdminPassword(!showAdminPassword)}
-                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                                            title={showAdminPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                                        >
-                                            {showAdminPassword ? (
-                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                                                </svg>
-                                            ) : (
-                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                </svg>
-                                            )}
-                                        </button>
-                                    </div>
-
-                                    <button
-                                        type="submit"
-                                        className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                                    >
-                                        <KeyIcon className="w-3.5 h-3.5" />
-                                        <span>Mở khóa</span>
-                                    </button>
-                                </div>
-
-                                {authError && (
-                                    <p className="text-red-600 text-[11px] font-semibold mt-2 flex items-center gap-1 animate-fade-in">
-                                        <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                        </svg>
-                                        <span>{authError}</span>
-                                    </p>
-                                )}
-                            </form>
-                        </div>
-                    ) : (
-                        <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl flex items-center justify-between ring-1 ring-emerald-500/10 shadow-xs animate-fade-in">
-                            <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                <span className="text-xs font-bold text-emerald-900">
-                                    Chế độ Quản trị viên (Admin) — Toàn bộ cấu hình đã hiển thị
-                                </span>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleLockAdmin}
-                                className="px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-red-600 hover:bg-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                                title="Khóa lại"
-                            >
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                </svg>
-                                <span>Khóa lại</span>
-                            </button>
-                        </div>
-                    )}
-
                     {/* CỔNG TÍCH HỢP NỘI BỘ ALL-IN-ONE */}
                     <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-slate-50 to-teal-50/50 border border-indigo-200/70 rounded-2xl ring-1 ring-indigo-500/15 shadow-xs">
+                        
+                        {/* Header Lõi Nội Bộ: Tối giản, chỉ hiển thị đúng 1 nút xanh (đỏ nếu lỗi) */}
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                                 <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
                                     ⚡
                                 </div>
-                                <div>
-                                    <h3 className="text-xs font-bold text-slate-900 leading-tight">
-                                        Lõi Nội Bộ All-in-One (Nhúng sẵn trong App)
-                                    </h3>
-                                    <p className="text-[10px] text-slate-500 mt-0.5">
-                                        Tự động kích hoạt cổng 8317 & 18610 — Không cần mở app thứ 3
-                                    </p>
-                                </div>
+                                <h3 className="text-xs font-bold text-slate-900 leading-tight">
+                                    Lõi Nội Bộ All-in-One (Nhúng sẵn trong App)
+                                </h3>
                             </div>
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                                ĐÃ KÍCH HOẠT
-                            </span>
+                            <div className="flex items-center">
+                                {isCoreOnline ? (
+                                    <span
+                                        className="w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100 shadow-sm inline-block cursor-help"
+                                        title="Lõi nội bộ đang kết nối tốt (Cổng 8317 & 18610 online)"
+                                    />
+                                ) : (
+                                    <span
+                                        className="w-3.5 h-3.5 rounded-full bg-rose-500 ring-4 ring-rose-100 shadow-sm inline-block cursor-help"
+                                        title="Lõi nội bộ mất kết nối hoặc cổng chưa khởi động"
+                                    />
+                                )}
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -517,7 +475,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
 
                                     {/* Danh sách acc Google chi tiết */}
                                     {showGoogleList && nativeStatus?.googleAccounts && (
-                                        <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200/70 max-h-32 overflow-y-auto space-y-1 text-[11px] animate-fade-in">
+                                        <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200/70 max-h-32 overflow-y-auto space-y-1 text-[11px] animate-fade-in custom-scrollbar">
                                             {nativeStatus.googleAccounts.map((acc: any, idx: number) => (
                                                 <div key={idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs">
                                                     <span className="truncate max-w-[170px] font-mono text-[10px] font-medium" title={acc.email}>{acc.email || `Tài khoản ${idx + 1}`}</span>
@@ -585,266 +543,120 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                                         )}
                                     </div>
 
-                                    {/* Danh sách acc Muse chi tiết */}
+                                    {/* Danh sách acc Muse: Acc lỗi báo màu cam và có nút xóa acc */}
                                     {showMuseList && nativeStatus?.museStatus?.accounts && (
-                                        <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200/70 max-h-32 overflow-y-auto space-y-1 text-[11px] animate-fade-in">
-                                            {nativeStatus.museStatus.accounts.map((acc: any, idx: number) => (
-                                                <div key={idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs">
-                                                    <span className="truncate max-w-[170px] font-mono text-[10px] font-medium" title={acc.label || acc.id}>{acc.label || acc.id}</span>
-                                                    {acc.status === 'active' ? (
-                                                        <span className="text-[9px] font-bold text-emerald-600 shrink-0">🟢 Hoạt động</span>
-                                                    ) : (
-                                                        <span className="text-[9px] font-bold text-amber-600 shrink-0" title={acc.last_error || 'Hết hạn'}>🔴 Hết hạn</span>
-                                                    )}
-                                                </div>
-                                            ))}
+                                        <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200/70 max-h-36 overflow-y-auto space-y-1 text-[11px] animate-fade-in custom-scrollbar">
+                                            {nativeStatus.museStatus.accounts.map((acc: any, idx: number) => {
+                                                const isErr = acc.status !== 'active';
+                                                return (
+                                                    <div key={acc.id || idx} className="flex items-center justify-between text-slate-700 bg-white px-2 py-1 rounded border border-slate-100 shadow-2xs gap-2">
+                                                        <span className="truncate flex-1 font-mono text-[10px] font-medium" title={acc.label || acc.id}>
+                                                            {acc.label || acc.id}
+                                                        </span>
+                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                            {isErr ? (
+                                                                <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded flex items-center gap-1" title={acc.last_error || 'Tài khoản lỗi hoặc hết hạn'}>
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                                                    Lỗi
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                                                    Hoạt động
+                                                                </span>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteMuseAccount(acc.id, acc.label)}
+                                                                disabled={isDeletingAccId === acc.id}
+                                                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                                                title="Xóa tài khoản này khỏi hệ thống"
+                                                            >
+                                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
-                                <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1.5">
-                                    <div className="flex items-center justify-between gap-1.5">
+
+                                {/* Duy nhất chỗ dán cookie Muse trên giao diện */}
+                                <div className="mt-2.5 pt-2 border-t border-slate-100">
+                                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                                        Dán Cookie Muse:
+                                    </label>
+                                    <div className="flex gap-1.5">
+                                        <input
+                                            type="text"
+                                            value={manualCookieInput}
+                                            onChange={(e) => setManualCookieInput(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveManualCookie(); }}
+                                            placeholder="hatch_sess=... hoặc chuỗi cookie"
+                                            className="flex-1 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                        />
                                         <button
                                             type="button"
-                                            onClick={handleMuseLogin}
-                                            disabled={isMuseLoggingIn}
-                                            className="flex-1 py-1 px-2 text-[10.5px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer text-center"
-                                            title="Mở trình duyệt ẩn danh mới hoàn toàn, tự động lưu cookie khi đăng nhập xong"
+                                            onClick={handleSaveManualCookie}
+                                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[11px] font-bold rounded-lg transition-all shadow-2xs cursor-pointer shrink-0"
                                         >
-                                            {isMuseLoggingIn ? 'Đang mở...' : '+ Thêm Acc Muse (Ẩn danh)'}
+                                            Lưu
                                         </button>
-                                        <button
-                                            type="button"
-                                            onClick={handleMuseChromeIncognito}
-                                            className="py-1 px-2 text-[10.5px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
-                                            title="Mở trình duyệt Google Chrome ngoài chế độ ẩn danh"
-                                        >
-                                            🌐 Chrome Ẩn danh
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center justify-between text-[10px]">
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowCookieInput(!showCookieInput)}
-                                            className="text-slate-400 hover:text-indigo-600 underline cursor-pointer"
-                                        >
-                                            {showCookieInput ? 'Ẩn ô dán cookie' : 'Dán Cookie thủ công'}
-                                        </button>
-                                        <span className="text-indigo-600 font-bold">Auto Heartbeat & Rotation</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
-
-                        {/* Ô nhập Cookie thủ công (nếu người dùng muốn dán) */}
-                        {showCookieInput && (
-                            <div className="mt-2.5 p-2.5 bg-white rounded-xl border border-indigo-200 shadow-xs animate-fade-in">
-                                <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                                    Dán Cookie Muse (hatch_sess hoặc chuỗi Cookie / JSON):
-                                </label>
-                                <div className="flex gap-1.5">
-                                    <input
-                                        type="text"
-                                        value={manualCookieInput}
-                                        onChange={(e) => setManualCookieInput(e.target.value)}
-                                        placeholder="hatch_sess=...; hatch_native_auth_device=..."
-                                        className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono outline-none focus:border-indigo-500"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleSaveManualCookie}
-                                        className="px-3 py-1 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
-                                    >
-                                        Lưu
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Preset nhanh trỏ về Localhost */}
-                        <div className="mt-2.5 pt-2 border-t border-indigo-100/80 flex items-center justify-between">
-                            <span className="text-[11px] text-slate-600 font-medium">
-                                Định tuyến nội bộ siêu nhẹ:
-                            </span>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setNineRouterUrlState('http://127.0.0.1:8317/v1');
-                                    nineRouterService.setNineRouterUrl('http://127.0.0.1:8317/v1');
-                                    checkConnection('http://127.0.0.1:8317/v1', nineRouterApiKey);
-                                }}
-                                className="px-2.5 py-1 text-[10px] font-bold bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg transition-colors cursor-pointer"
-                            >
-                                🚀 Trỏ ngay về Localhost:8317
-                            </button>
-                        </div>
                     </div>
 
-                    {/* Inputs Section */}
-                    <div className="space-y-4">
-                        {/* 1. Endpoint URL */}
-                        <div>
-                            <div className="flex items-center justify-between mb-1.5">
-                                <div className="flex items-center gap-1.5">
-                                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                                        Cấu hình API Endpoint
-                                    </label>
-                                    {!isAdminUnlocked && (
-                                        <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200">
-                                            <KeyIcon className="w-2.5 h-2.5" />
-                                            <span>Mật mã ****</span>
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-1.5 text-[10px]">
-                                    <button
-                                        type="button"
-                                        onClick={() => isAdminUnlocked ? applyUrlPreset('https://753c-158-178-235-87.ngrok-free.app/v1') : focusPasswordInput()}
-                                        disabled={!isAdminUnlocked}
-                                        className={`font-semibold px-2 py-0.5 rounded-md transition-colors ${
-                                            isAdminUnlocked
-                                                ? 'text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 cursor-pointer'
-                                                : 'text-slate-400 bg-slate-100 cursor-not-allowed opacity-60'
-                                        }`}
-                                    >
-                                        Cloudflare
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => isAdminUnlocked ? applyUrlPreset('http://127.0.0.1:8317/v1') : focusPasswordInput()}
-                                        disabled={!isAdminUnlocked}
-                                        className={`font-semibold px-2 py-0.5 rounded-md transition-colors ${
-                                            isAdminUnlocked
-                                                ? 'text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 cursor-pointer'
-                                                : 'text-slate-400 bg-slate-100 cursor-not-allowed opacity-60'
-                                        }`}
-                                    >
-                                        Localhost
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={isAdminUnlocked ? nineRouterUrl : '************************************************'}
-                                    onChange={(e) => isAdminUnlocked && setNineRouterUrlState(e.target.value)}
-                                    onClick={!isAdminUnlocked ? focusPasswordInput : undefined}
-                                    readOnly={!isAdminUnlocked}
-                                    placeholder="https://753c-158-178-235-87.ngrok-free.app/v1"
-                                    className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-mono transition-all ${
-                                        isAdminUnlocked
-                                            ? 'bg-slate-50/70 border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 placeholder:text-slate-400'
-                                            : 'bg-slate-100/80 border-slate-200 text-slate-400 tracking-widest cursor-pointer select-none'
-                                    }`}
-                                />
-                                {!isAdminUnlocked && (
-                                    <button
-                                        type="button"
-                                        onClick={focusPasswordInput}
-                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-500 hover:text-amber-600 p-1 cursor-pointer"
-                                        title="Bấm vào chìa khóa để nhập mật khẩu"
-                                    >
-                                        <KeyIcon className="w-4 h-4" />
-                                    </button>
-                                )}
-                            </div>
+                    {/* Hộp hiển thị kết quả kiểm tra hệ thống */}
+                    {testResult.status === 'testing' && (
+                        <div className="p-3 bg-blue-50/80 border border-blue-200/80 rounded-xl text-blue-700 text-xs flex items-center gap-2 animate-fade-in">
+                            <svg className="w-4 h-4 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                            </svg>
+                            <span className="font-semibold">Đang kiểm tra toàn bộ kết nối CLI, Muse và tài khoản...</span>
                         </div>
+                    )}
 
-                        {/* 2. API Key */}
-                        <div>
-                            <div className="flex items-center justify-between mb-1.5">
-                                <div className="flex items-center gap-1.5">
-                                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                                        Cấu hình API Key
-                                    </label>
-                                    {!isAdminUnlocked && (
-                                        <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200">
-                                            <KeyIcon className="w-2.5 h-2.5" />
-                                            <span>Mật mã ****</span>
-                                        </span>
-                                    )}
-                                </div>
-                                <span className="text-[10px] text-slate-400 italic">Bắt buộc đối với kết nối từ xa / VPS</span>
+                    {testResult.status === 'success' && (
+                        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs animate-fade-in space-y-1.5">
+                            <div className="flex items-center gap-2 font-bold text-emerald-900 text-[13px]">
+                                <svg className="w-4 h-4 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>{testResult.message}</span>
                             </div>
-                            <div className="relative">
-                                <input
-                                    type={!isAdminUnlocked ? 'text' : (showKey ? 'text' : 'password')}
-                                    value={isAdminUnlocked ? nineRouterApiKey : '****************'}
-                                    onChange={(e) => isAdminUnlocked && setNineRouterApiKeyState(e.target.value)}
-                                    onClick={!isAdminUnlocked ? focusPasswordInput : undefined}
-                                    readOnly={!isAdminUnlocked}
-                                    placeholder="Nhập API Key Cấu hình..."
-                                    className={`w-full border rounded-xl pl-3.5 pr-10 py-2.5 text-xs font-mono transition-all ${
-                                        isAdminUnlocked
-                                            ? 'bg-slate-50/70 border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 placeholder:text-slate-400'
-                                            : 'bg-slate-100/80 border-slate-200 text-slate-400 tracking-widest cursor-pointer select-none'
-                                    }`}
-                                />
-                                {isAdminUnlocked ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowKey(!showKey)}
-                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                                        title={showKey ? 'Ẩn key' : 'Hiện key'}
-                                    >
-                                        {showKey ? (
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                        )}
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        onClick={focusPasswordInput}
-                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-500 hover:text-amber-600 p-1 cursor-pointer"
-                                        title="Bấm vào chìa khóa để nhập mật khẩu"
-                                    >
-                                        <KeyIcon className="w-4 h-4" />
-                                    </button>
-                                )}
-                            </div>
+                            {testResult.details && testResult.details.length > 0 && (
+                                <ul className="pl-6 list-disc space-y-0.5 text-[11px] text-emerald-700 font-medium">
+                                    {testResult.details.map((item, idx) => (
+                                        <li key={idx}>{item}</li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
+                    )}
 
-                        {/* Open Dashboard Link */}
-                        <div className="pt-2">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (!isAdminUnlocked) {
-                                        focusPasswordInput();
-                                        return;
-                                    }
-                                    const base = (nineRouterUrl || '').replace(/\/v1\/?$/, '');
-                                    const dashboardUrl = base ? `${base}/management.html#/auth-files/` : 'https://753c-158-178-235-87.ngrok-free.app/management.html#/auth-files/';
-                                    window.open(dashboardUrl, '_blank');
-                                }}
-                                className={`w-full py-2.5 px-4 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border ${
-                                    isAdminUnlocked
-                                        ? 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-700 border-slate-200/60 active:scale-[0.98] cursor-pointer'
-                                        : 'bg-slate-50 text-slate-400 border-slate-200/40 hover:bg-slate-100/60 cursor-pointer'
-                                }`}
-                            >
-                                {!isAdminUnlocked ? (
-                                    <KeyIcon className="w-4 h-4 text-amber-500" />
-                                ) : (
-                                    <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                    </svg>
-                                )}
-                                <span>{isAdminUnlocked ? 'Mở trang Cấu hình Dashboard' : 'Mở trang Cấu hình Dashboard (Cần mật khẩu Admin)'}</span>
-                                {isAdminUnlocked && (
-                                    <svg className="w-3.5 h-3.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                )}
-                            </button>
+                    {testResult.status === 'error' && (
+                        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs animate-fade-in space-y-1.5">
+                            <div className="flex items-center gap-2 font-bold text-rose-900 text-[13px]">
+                                <svg className="w-4 h-4 text-rose-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <span>{testResult.message}</span>
+                            </div>
+                            {testResult.details && testResult.details.length > 0 && (
+                                <ul className="pl-6 list-disc space-y-0.5 text-[11px] text-rose-700 font-medium">
+                                    {testResult.details.map((item, idx) => (
+                                        <li key={idx}>{item}</li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Footer Actions */}
@@ -852,34 +664,53 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose }) => {
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl transition-all active:scale-95 cursor-pointer"
+                        className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl transition-all active:scale-95 cursor-pointer"
                     >
-                        Hủy bỏ
+                        Đóng
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={isAdminUnlocked ? handleSave : focusPasswordInput}
-                        className={`px-6 py-2.5 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${
-                            isAdminUnlocked
-                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/20 hover:shadow-emerald-500/30'
-                                : 'bg-slate-500 hover:bg-slate-600'
-                        }`}
-                    >
-                        {isSavedFeedback ? (
-                            <>
-                                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span>Đã lưu!</span>
-                            </>
-                        ) : (
-                            <>
-                                {!isAdminUnlocked && <KeyIcon className="w-3.5 h-3.5" />}
-                                <span>{isAdminUnlocked ? 'Lưu cấu hình' : 'Nhập mật khẩu để lưu'}</span>
-                            </>
-                        )}
-                    </button>
+                    <div className="flex items-center gap-2.5">
+                        <button
+                            type="button"
+                            onClick={handleRunFullCheck}
+                            disabled={testResult.status === 'testing'}
+                            className="px-4 py-2.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50 cursor-pointer shadow-2xs"
+                        >
+                            {testResult.status === 'testing' ? (
+                                <>
+                                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                                    </svg>
+                                    <span>Đang kiểm tra...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span>Kiểm Tra</span>
+                                </>
+                            )}
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleSave}
+                            className="px-6 py-2.5 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/20"
+                        >
+                            {isSavedFeedback ? (
+                                <>
+                                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span>Đã lưu!</span>
+                                </>
+                            ) : (
+                                <span>Lưu cấu hình</span>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

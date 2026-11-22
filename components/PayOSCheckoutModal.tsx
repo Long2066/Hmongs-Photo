@@ -10,7 +10,7 @@ import {
 import { formatVND, getSelectedResolution, setSelectedResolution } from '../services/geminiCoreService';
 
 interface PayOSCheckoutModalProps {
-    planId: 'plus' | 'pro';
+    planId: 'plus' | 'pro' | 'vip';
     userId: string;
     userName: string;
     userEmail: string;

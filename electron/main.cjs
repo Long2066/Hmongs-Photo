@@ -1,7 +1,23 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
 const path = require('path');
-const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
+
+const startupLog = (msg) => {
+    try {
+        fs.appendFileSync('D:\\ToolMedia\\main_startup.log', `[${new Date().toISOString()}] ${msg}\n`);
+    } catch { }
+};
+
+startupLog('main.cjs loaded, pid=' + process.pid);
+
+process.on('uncaughtException', (err) => {
+    startupLog('uncaughtException: ' + (err.stack || err));
+});
+process.on('unhandledRejection', (reason) => {
+    startupLog('unhandledRejection: ' + (reason?.stack || reason));
+});
+
+const { autoUpdater } = require('electron-updater');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
@@ -421,6 +437,7 @@ function startLocalServer(distDir) {
 }
 
 async function createWindow() {
+    startupLog('createWindow called');
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
@@ -436,6 +453,25 @@ async function createWindow() {
         title: 'ImageTool - AI Studio',
         show: false,
         backgroundColor: '#f8fafc'
+    });
+    startupLog('BrowserWindow instance created');
+
+    mainWindow.webContents.on('did-fail-load', (e, code, desc, url) => {
+        startupLog(`webContents did-fail-load: code=${code}, desc=${desc}, url=${url}`);
+    });
+    mainWindow.webContents.on('render-process-gone', (e, details) => {
+        startupLog(`webContents render-process-gone: reason=${details.reason}, exitCode=${details.exitCode}`);
+    });
+    mainWindow.on('close', (e) => {
+        startupLog('mainWindow close event triggered');
+    });
+
+    // Capture all renderer logs directly to app_debug.log
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        try {
+            const userDataPath = app.getPath('userData');
+            fs.appendFileSync(path.join(userDataPath, 'app_debug.log'), `[${new Date().toISOString()}] [L${level}] ${message} (${sourceId}:${line})\n`);
+        } catch {}
     });
 
     // Only the official Flow home and validated shared tool URLs may be attached as guests. No guest preload or Node access.
@@ -476,26 +512,30 @@ async function createWindow() {
         mainWindow.webContents.openDevTools();
     } else {
         try {
+            startupLog('Starting local server for dist...');
             const port = await startLocalServer(path.join(__dirname, '../dist'));
+            startupLog('Local server started on port: ' + port);
             if (port) {
                 mainWindow.loadURL(`http://localhost:${port}`);
             } else {
                 mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
             }
         } catch (e) {
-            console.error('Failed to start local server, fallback to loadFile:', e);
+            startupLog('Local server error: ' + e);
             mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
         }
     }
 
     // Show window when ready
     mainWindow.once('ready-to-show', () => {
+        startupLog('mainWindow ready-to-show event fired, showing window');
         mainWindow.show();
         // Check for updates after window shows
         checkForUpdates();
     });
 
     mainWindow.on('closed', () => {
+        startupLog('mainWindow closed event fired');
         mainWindow = null;
     });
 }
@@ -1149,6 +1189,14 @@ ipcMain.handle('muse:save-cookies', async (_e, cookies) => {
     }
 });
 
+ipcMain.handle('muse:delete-account', async (_e, accountId) => {
+    try {
+        return await museProcessManager.deleteMuseAccount(accountId);
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('muse:open-chrome-incognito', async () => {
     try {
         return museProcessManager.openExternalChromeIncognito('https://muse.ai/login');
@@ -1178,16 +1226,19 @@ ipcMain.handle('native-gateway:status', async () => {
 
 // ============ APP LIFECYCLE ============
 app.whenReady().then(() => {
+    startupLog('app.whenReady() resolved');
     // Start Native In-Process Gateways (8317) and Standalone Muse Gateway (18610)
     try {
         nativeGateway.startAll();
+        startupLog('nativeGateway.startAll() completed');
     } catch (gwErr) {
-        console.error('[NativeGateway] Failed to start:', gwErr);
+        startupLog('nativeGateway.startAll() error: ' + gwErr);
     }
     try {
         museProcessManager.start();
+        startupLog('museProcessManager.start() called');
     } catch (museErr) {
-        console.error('[MuseManager] Failed to start muse-gateway:', museErr);
+        startupLog('museProcessManager.start() error: ' + museErr);
     }
     // Intercept web requests to ensure Chrome headers and remove Electron markers
     if (session && session.defaultSession) {
@@ -1219,6 +1270,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+    startupLog('window-all-closed fired');
     try {
         museProcessManager.stop();
     } catch (e) { }
@@ -1232,6 +1284,7 @@ app.on('window-all-closed', () => {
         try { quotaOAuthServer.close(); } catch (e) { }
     }
     if (process.platform !== 'darwin') {
+        startupLog('Calling app.quit()');
         app.quit();
     }
 });

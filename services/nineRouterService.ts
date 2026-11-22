@@ -16,7 +16,7 @@ export { canFallbackToTextOnlyImageGeneration };
 const DEFAULT_NINEROUTER_URL = 'http://127.0.0.1:8317/v1';
 const DEFAULT_NINEROUTER_API_KEY = '123456';
 const DEFAULT_IMAGE_MODEL = 'muse-image';
-const DEFAULT_TEXT_MODEL = 'gemini-3.8-flash-high';
+const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 
 const NINEROUTER_ENABLED_KEY = 'ninerouter_enabled';
 const NINEROUTER_URL_KEY = 'ninerouter_url';
@@ -151,13 +151,16 @@ export const getModelPricing = (): Record<string, boolean> => {
 export const PLUS_IMAGE_MODEL_IDS = ['gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2'] as const;
 
 export const isImageModelAllowedForPlan = (modelId: string, plan: 'free' | 'plus' | 'pro'): boolean => {
+    const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim().toLowerCase();
+    if (cleanId.includes('muse')) {
+        return true;
+    }
     const plansConfig = getCachedSubscriptionPlansConfig();
     if (isImageModelAllowedByConfig(modelId, plan, plansConfig)) {
         return true;
     }
     // Keep backwards compatibility if Admin toggled AiConfigManager paid status cleanly for Free when config hasn't been customized yet
     if (plan === 'free' && !plansConfig.updatedAt) {
-        const cleanId = (modelId || '').replace(/^ag\//i, '').replace(/^openrouter\//i, '').trim().toLowerCase();
         return SUPPORTED_IMAGE_MODELS.some(model => model.id === cleanId) && !isModelPaid(cleanId);
     }
     return false;
@@ -526,7 +529,7 @@ const extractImageFromChatResponse = (parsed: ParsedNineRouterResponse): string 
 };
 
 /**
- * Check connection to 9Router with auto-fallback to local All-in-One port 8317
+ * Check connection to 9Router with auto-fallback to local All-in-One port 8317 and Muse Gateway 18610
  */
 export const checkConnection = async (customUrl?: string, customApiKey?: string): Promise<NineRouterStatus> => {
     let baseUrl = customUrl !== undefined ? normalizeNineRouterUrl(customUrl) : getNineRouterUrl();
@@ -539,13 +542,17 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const testUrl = async (targetUrl: string) => {
+    const testUrl = async (targetUrl: string, overrideKey?: string) => {
         const cleanTarget = targetUrl.replace(/\/+$/, '');
         const endpoint = cleanTarget.endsWith('/v1') ? `${cleanTarget}/models` : `${cleanTarget}/v1/models`;
+        const reqHeaders: Record<string, string> = { ...headers };
+        if (overrideKey) {
+            reqHeaders['Authorization'] = `Bearer ${overrideKey}`;
+        }
         const resp = await fetchWithTimeout(endpoint, {
             method: 'GET',
-            headers
-        }, 8000);
+            headers: reqHeaders
+        }, 5000);
         if (!resp.ok) {
             throw new Error(`HTTP ${resp.status}`);
         }
@@ -553,37 +560,47 @@ export const checkConnection = async (customUrl?: string, customApiKey?: string)
         return Array.isArray(data?.data) ? data.data.map((m: any) => String(m.id || m)) : [];
     };
 
+    let allModels: string[] = [];
+    let isConnected = false;
+
+    // 1. Check local Muse Gateway (18610)
     try {
-        console.log('[9Router] Checking connection to:', `${baseUrl}/models`);
-        const models = await testUrl(baseUrl);
-        return {
-            connected: true,
-            models,
-            lastChecked: Date.now()
-        };
-    } catch (primaryErr: any) {
-        // Auto-heal fallback: if target URL is dead or remote, try local port 8317 immediately
-        if (baseUrl !== DEFAULT_NINEROUTER_URL) {
+        const museModels = await testUrl('http://127.0.0.1:18610/v1', '123456');
+        allModels.push(...museModels);
+        isConnected = true;
+    } catch {
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.museGetStatus) {
             try {
-                console.log('[9Router] Primary URL failed, auto-healing to local 8317:', DEFAULT_NINEROUTER_URL);
-                const localModels = await testUrl(DEFAULT_NINEROUTER_URL);
-                setNineRouterUrl(DEFAULT_NINEROUTER_URL);
-                return {
-                    connected: true,
-                    models: localModels,
-                    lastChecked: Date.now()
-                };
+                await (window as any).electronAPI.museGetStatus();
+                await new Promise(r => setTimeout(r, 1200));
+                const retryModels = await testUrl('http://127.0.0.1:18610/v1', '123456');
+                allModels.push(...retryModels);
+                isConnected = true;
             } catch { }
         }
+    }
 
-        console.error('[9Router] Connection error:', primaryErr);
+    // 2. Check local Antigravity Gateway (8317)
+    try {
+        const agModels = await testUrl(baseUrl || DEFAULT_NINEROUTER_URL);
+        allModels.push(...agModels);
+        isConnected = true;
+    } catch { }
+
+    if (isConnected) {
         return {
-            connected: false,
-            errorType: 'network',
-            errorMessage: 'Không thể kết nối tới máy chủ Cấu hình. Vui lòng kiểm tra lại URL endpoint.',
+            connected: true,
+            models: Array.from(new Set(allModels)),
             lastChecked: Date.now()
         };
     }
+
+    return {
+        connected: false,
+        errorType: 'network',
+        errorMessage: 'Chưa kết nối tới Gateway AI nội bộ (Cổng 18610 / 8317).',
+        lastChecked: Date.now()
+    };
 };
 
 /**
@@ -858,7 +875,10 @@ export const generateTextViaNineRouter = async (
     referenceImages?: NineRouterLabeledReferenceImage[],
     abortSignal?: AbortSignal
 ): Promise<string | null> => {
-    const baseUrl = getNineRouterUrl();
+    let baseUrl = getNineRouterUrl();
+    if (baseUrl.includes(':18610')) {
+        baseUrl = 'http://127.0.0.1:8317/v1';
+    }
     const apiKey = getNineRouterApiKey();
     const activeModel = model || getNineRouterTextModel();
 
@@ -972,13 +992,12 @@ export const mapTextModelToCandidates = (preferred?: string): string[] => {
     const raw = (preferred || '').trim();
     const clean = raw.replace(/^openrouter\//i, '').replace(/^ag\//i, '').trim();
 
-    // Mặc định hoặc Auto hoặc Gemini Flash: Ưu tiên Gemini 3.8 Flash High -> Flash -> 2.5 Flash
-    if (!clean || clean === 'auto' || clean.includes('flash') || clean.includes('gemini') || clean.includes('3.8')) {
+    // Mặc định hoặc Auto hoặc Gemini Flash: Ưu tiên Gemini 2.5 Flash (~1.5s siêu tốc) -> 3.8 Flash High -> 2.5 Pro
+    if (!clean || clean === 'auto' || clean.includes('flash') || clean.includes('gemini') || clean.includes('2.5') || clean.includes('3.8')) {
         return [
-            'gemini-3.8-flash-high',
-            'gemini-3.8-flash',
-            'gemini-3-flash',
             'gemini-2.5-flash',
+            'gemini-3.8-flash-high',
+            'gemini-2.5-pro',
             'claude-opus-5-5-high',
             'gpt-6.1-terra'
         ];
@@ -1078,7 +1097,10 @@ export const generateChatCompletionViaNineRouter = async (
     systemInstruction?: string,
     abortSignal?: AbortSignal
 ): Promise<ChatResponseResult> => {
-    const baseUrl = getNineRouterUrl();
+    let baseUrl = getNineRouterUrl();
+    if (baseUrl.includes(':18610')) {
+        baseUrl = 'http://127.0.0.1:8317/v1';
+    }
     const apiKey = getNineRouterApiKey();
 
     const headers: Record<string, string> = {
@@ -1292,13 +1314,17 @@ export const cleanPromptForMuse = (raw: string): string => {
 export const generateImageViaNineRouter = async (
     request: NineRouterImageRequest
 ): Promise<string | null> => {
-    const baseUrl = getNineRouterUrl();
+    let baseUrl = getNineRouterUrl();
+    if (baseUrl.includes(':18610')) {
+        baseUrl = 'http://127.0.0.1:8317/v1';
+    }
     const apiKey = getNineRouterApiKey();
     const abortSignal = request.abortSignal;
     const activeModel = (request.model || getNineRouterImageModel())
         .replace(/^ag\//i, '')
         .replace(/^openrouter\//i, '')
         .trim();
+    const identityMode = request.identityMode || 'strict_original';
 
     const rawRefImages = request.referenceImages || [];
     // Automatically downscale and compress reference images (saving ~90% bandwidth)
@@ -1544,44 +1570,12 @@ CRITICAL RULES:
             `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
         );
 
-        // Ensure dense authentic outfit description is extracted if not already in the prompt
-        let outfitDnaText = '';
-        if (refsPayload.length > 0 && taskType === 'create') {
-            const hasDnaInPrompt = /\[Locked Subject & Wardrobe DNA:[^\]]+\]/i.test(request.prompt) ||
-                /Authentic reference outfit details/i.test(request.prompt) ||
-                /Authentic outfit details from reference/i.test(request.prompt);
-            if (!hasDnaInPrompt) {
-                try {
-                    const validRefs = referenceImages.filter(r => r && r.data && r.data.length > 50).slice(0, 2);
-                    if (validRefs.length > 0) {
-                        const isStrict = identityMode !== 'korean_idol';
-                        const dnaPrompt = isStrict
-                            ? `Analyze the attached ${validRefs.length} reference image(s) and output ONE concise specification (under 100 words): exact subject face & hair identity, exact clothing pieces, colors, fabrics, and embroidery patterns. Output ONLY factual descriptors.`
-                            : `Analyze the clothing, textiles, embroidery, and accessories in the attached reference image(s) and output ONE concise garment & accessory specification (under 90 words): exact garment pieces, exact primary/secondary colors, embroidery motifs, fabrics, and items. Output ONLY factual descriptors.`;
-                        const dnaSpec = await analyzeMultimodalVisionViaNineRouter({
-                            prompt: dnaPrompt,
-                            images: validRefs,
-                            temperature: 0.1,
-                            maxTokens: 250,
-                            timeoutMs: 15000,
-                            abortSignal
-                        });
-                        if (dnaSpec && dnaSpec.trim()) {
-                            outfitDnaText = `Authentic outfit details from reference: ${dnaSpec.replace(/\s+/g, ' ').trim()}. `;
-                        }
-                    }
-                } catch (dnaErr) {
-                    console.warn('[MuseAI] Quick outfit DNA extraction warning:', dnaErr);
-                }
-            }
-        }
-
         const cleanScene = cleanPromptForMuse(request.prompt);
         const outfitEnforcement = refsPayload.length > 0
             ? (taskType === 'create'
                 ? (identityMode === 'korean_idol'
-                    ? `Clone 100% of the clothing, fabric, garment cut, colors, and authentic embroidery patterns directly from the attached reference photo(s). ${outfitDnaText}The character MUST wear this exact authentic reference outfit replicated with 100% original colors, cuts, and embroidery without substituting modern western clothes. `
-                    : `Clone 100% of the exact original person identity, face, and clothing directly from the attached reference photo(s) without altering outfit or facial features. ${outfitDnaText}`)
+                    ? 'Clone 100% of the clothing, fabric, garment cut, colors, and authentic embroidery patterns directly from the attached reference photo(s). The character MUST wear this exact authentic reference outfit replicated with 100% original colors, cuts, and embroidery without substituting modern western clothes. '
+                    : 'Clone 100% of the exact original person identity, face, and clothing directly from the attached reference photo(s) without altering outfit or facial features. ')
                 : 'Reference the attached image(s) with 100% fidelity. ')
             : '';
         const finalMusePrompt = `${outfitEnforcement}${cleanScene || request.prompt}`;
@@ -1591,16 +1585,17 @@ CRITICAL RULES:
             prompt: finalMusePrompt,
             size: ratio,
             n: 1,
-            response_format: 'b64_json',
-            images: refsPayload
+            response_format: 'b64_json'
         };
         if (refsPayload.length > 0) {
-            musePayload.image = refsPayload[0];
+            musePayload.image = refsPayload.length === 1 ? refsPayload[0] : refsPayload;
+            musePayload.images = refsPayload;
         }
 
         console.log(`[MuseAI] Generating image via ${museUrl}/images/generations (ratio: ${ratio}, refs: ${refsPayload.length})`);
+        const maxMuseAttempts = 5;
         let lastMuseErr: Error | null = null;
-        for (let museAttempt = 0; museAttempt < 3; museAttempt++) {
+        for (let museAttempt = 0; museAttempt < maxMuseAttempts; museAttempt++) {
             if (abortSignal?.aborted) {
                 throw new Error('ABORTED');
             }
@@ -1614,40 +1609,49 @@ CRITICAL RULES:
 
                 if (!respMuse.ok) {
                     const errText = await respMuse.text().catch(() => '');
-                    let errMessage = `Muse AI Gateway tạo ảnh lỗi (HTTP ${respMuse.status}): ${errText || respMuse.statusText}`;
-                    if (errText.includes('upstream_auth_failed') || errText.includes('cookies are no longer valid') || respMuse.status === 502) {
-                        errMessage = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
+                    const isAuthError = errText.includes('upstream_auth_failed') || errText.includes('cookies are no longer valid');
+                    
+                    if (isAuthError) {
+                        console.warn(`[MuseAI] Một tài khoản Muse cần cập nhật cookie, tự động chuyển tài khoản khác (${museAttempt + 1}/${maxMuseAttempts})...`);
+                    } else {
+                        console.warn(`[MuseAI] Tài khoản Muse bận hoặc phản hồi chậm (HTTP ${respMuse.status}: ${errText.slice(0, 80)}...), tự động chuyển sang tài khoản khác (${museAttempt + 1}/${maxMuseAttempts})...`);
                     }
-                    if (!errMessage.includes('hết hạn cookie') && isTransientHttpOrNetworkError(respMuse.status, errMessage) && museAttempt < 2) {
-                        const waitMs = computeJitteredBackoffMs(museAttempt, 1500, 7000);
-                        console.warn(`[MuseAI] Transient HTTP ${respMuse.status}, retrying (${museAttempt + 2}/3) after ${waitMs}ms...`);
+
+                    if (museAttempt < maxMuseAttempts - 1) {
+                        const waitMs = computeJitteredBackoffMs(museAttempt, 1000, 3000);
                         await sleepWithAbort(waitMs, abortSignal);
-                        continue;
+                        continue; // Automatically retries; pool leases the next available account!
                     }
-                    throw new Error(errMessage);
+
+                    const finalMessage = isAuthError
+                        ? 'Tất cả tài khoản Muse.ai trong pool đều bận hoặc cần cập nhật cookie.'
+                        : `Muse AI Gateway tạo ảnh không thành công sau ${maxMuseAttempts} lần đổi tài khoản: ${errText || respMuse.statusText}`;
+                    throw new Error(finalMessage);
                 }
 
                 const parsedMuse = await parseNineRouterResponse(respMuse);
                 const museImage = await extractAnyImageFromResponse(parsedMuse, museUrl);
                 if (museImage) {
-                    console.log('[MuseAI] Successfully generated image via /v1/images/generations');
+                    console.log(`[MuseAI] Successfully generated image via /v1/images/generations (attempt ${museAttempt + 1})`);
                     return museImage;
                 }
-                lastMuseErr = new Error('Muse AI Gateway không trả về dữ liệu ảnh.');
-                if (museAttempt < 2) {
-                    const waitMs = computeJitteredBackoffMs(museAttempt, 1200, 5000);
+                
+                // If response did not contain an image, auto-failover to next account
+                console.warn(`[MuseAI] Phản hồi không có dữ liệu ảnh, tự động chuyển sang tài khoản khác (${museAttempt + 1}/${maxMuseAttempts})...`);
+                if (museAttempt < maxMuseAttempts - 1) {
+                    const waitMs = computeJitteredBackoffMs(museAttempt, 1000, 3000);
                     await sleepWithAbort(waitMs, abortSignal);
                     continue;
                 }
-                throw lastMuseErr;
+                throw new Error('Muse AI Gateway không trả về dữ liệu ảnh sau khi đã thử qua các tài khoản.');
             } catch (museErr: any) {
                 if (abortSignal?.aborted || museErr?.name === 'AbortError' || museErr?.message === 'ABORTED') {
                     throw new Error('ABORTED');
                 }
                 lastMuseErr = museErr instanceof Error ? museErr : new Error(String(museErr));
-                if (museAttempt < 2 && isTransientHttpOrNetworkError(undefined, lastMuseErr.message)) {
-                    const waitMs = computeJitteredBackoffMs(museAttempt, 1500, 7000);
-                    console.warn(`[MuseAI] Network/transient error (${lastMuseErr.message}), retrying (${museAttempt + 2}/3) after ${waitMs}ms...`);
+                if (museAttempt < maxMuseAttempts - 1) {
+                    const waitMs = computeJitteredBackoffMs(museAttempt, 1200, 3500);
+                    console.warn(`[MuseAI] Lỗi kết nối (${lastMuseErr.message}), tự động chuyển tài khoản khác (${museAttempt + 1}/${maxMuseAttempts})...`);
                     await sleepWithAbort(waitMs, abortSignal);
                     continue;
                 }
@@ -1971,7 +1975,10 @@ export const analyzeMultimodalVisionViaNineRouter = async (options: {
 }): Promise<string | null> => {
     if (!isNineRouterEnabled()) return null;
 
-    const baseUrl = getNineRouterUrl();
+    let baseUrl = getNineRouterUrl();
+    if (baseUrl.includes(':18610')) {
+        baseUrl = 'http://127.0.0.1:8317/v1';
+    }
     const apiKey = getNineRouterApiKey();
     const headers: Record<string, string> = {
         'Content-Type': 'application/json'

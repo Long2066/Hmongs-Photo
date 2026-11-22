@@ -34,7 +34,62 @@ function findBinary() {
     return null;
 }
 
+function getAllPossibleDataDirs() {
+    const dirs = new Set();
+    try {
+        if (app && typeof app.getPath === 'function') {
+            dirs.add(path.join(app.getPath('userData'), 'muse-data'));
+        }
+    } catch { }
+    const appData = process.env.APPDATA || '.';
+    dirs.add(path.join(appData, 'ImageTool', 'muse-data'));
+    dirs.add(path.join(appData, 'Hmongs Photo', 'muse-data'));
+    return Array.from(dirs);
+}
+
+function syncAccountsAcrossDataDirs() {
+    const allDirs = getAllPossibleDataDirs();
+    let mergedAccounts = [];
+    const seenSess = new Set();
+
+    for (const d of allDirs) {
+        const accPath = path.join(d, 'accounts.json');
+        if (fs.existsSync(accPath)) {
+            try {
+                const list = JSON.parse(fs.readFileSync(accPath, 'utf8'));
+                if (Array.isArray(list)) {
+                    for (const acc of list) {
+                        const sess = acc.cookies?.hatch_sess || acc.id;
+                        if (!seenSess.has(sess)) {
+                            seenSess.add(sess);
+                            mergedAccounts.push(acc);
+                        } else {
+                            const existingIdx = mergedAccounts.findIndex(a => (a.cookies?.hatch_sess || a.id) === sess);
+                            if (existingIdx >= 0 && mergedAccounts[existingIdx].status !== 'active' && acc.status === 'active') {
+                                mergedAccounts[existingIdx] = acc;
+                            }
+                        }
+                    }
+                }
+            } catch { }
+        }
+    }
+
+    if (mergedAccounts.length > 0) {
+        for (const d of allDirs) {
+            try {
+                if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                const accPath = path.join(d, 'accounts.json');
+                fs.writeFileSync(accPath, JSON.stringify(mergedAccounts, null, 2), 'utf8');
+                const keyPath = path.join(d, 'api_key');
+                if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, '123456\n', 'utf8');
+            } catch { }
+        }
+    }
+}
+
 function getDataDir() {
+    syncAccountsAcrossDataDirs();
     let base = '';
     try {
         base = (app && typeof app.getPath === 'function')
@@ -98,10 +153,15 @@ function killPort18610() {
                 execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
             } catch (e) { }
         }
+        if (pids.size > 0) {
+            try {
+                execSync('ping 127.0.0.1 -n 2 > nul', { stdio: 'ignore' });
+            } catch { }
+        }
     } catch { }
 }
 
-function checkModelsEndpoint(timeoutMs = 1500) {
+function checkModelsEndpoint(timeoutMs = 2500) {
     return new Promise((resolve) => {
         const req = http.get('http://127.0.0.1:18610/v1/models', {
             timeout: timeoutMs,
@@ -131,7 +191,7 @@ async function start() {
 
     try {
         // First check if already responding
-        const alreadyRunning = await checkModelsEndpoint(800);
+        const alreadyRunning = await checkModelsEndpoint(2500);
         if (alreadyRunning.ok) {
             console.log('[MuseManager] muse-gateway is already running and active on port 18610.');
             isStarting = false;
@@ -186,12 +246,18 @@ async function start() {
         museProcess.on('exit', (code, sig) => {
             console.log(`[MuseManager] muse-gateway exited with code=${code}, sig=${sig}`);
             museProcess = null;
+            if (!isStopping) {
+                console.log('[MuseManager] muse-gateway exited unexpectedly, watchdog auto-restarting in 2s...');
+                setTimeout(() => {
+                    start().catch(() => {});
+                }, 2000);
+            }
         });
 
         // Wait up to 30 seconds for port 18610 to become ready
         for (let attempt = 1; attempt <= 60; attempt++) {
             await new Promise(r => setTimeout(r, 500));
-            const check = await checkModelsEndpoint(600);
+            const check = await checkModelsEndpoint(800);
             if (check.ok) {
                 console.log(`[MuseManager] muse-gateway ready on http://127.0.0.1:18610 (models=${check.models.length})`);
                 isStarting = false;
@@ -236,15 +302,19 @@ function normalizeCookies(input) {
                 return normalizeCookies(JSON.parse(trimmed));
             } catch (e) { }
         }
-        // Header string: key=value; key2=value2
-        const parts = trimmed.split(/[;\n]+/);
-        for (const part of parts) {
-            const trimmedPart = part.trim();
-            if (!trimmedPart || !trimmedPart.includes('=')) continue;
-            const eqIdx = trimmedPart.indexOf('=');
-            const k = trimmedPart.slice(0, eqIdx).trim();
-            const v = trimmedPart.slice(eqIdx + 1).trim();
-            if (k) cookieMap[k] = v;
+        // Header string: key=value; key2=value2, or single raw token string
+        if (!trimmed.includes('=') && trimmed.length > 20) {
+            cookieMap['hatch_sess'] = trimmed;
+        } else {
+            const parts = trimmed.split(/[;\n]+/);
+            for (const part of parts) {
+                const trimmedPart = part.trim();
+                if (!trimmedPart || !trimmedPart.includes('=')) continue;
+                const eqIdx = trimmedPart.indexOf('=');
+                const k = trimmedPart.slice(0, eqIdx).trim();
+                const v = trimmedPart.slice(eqIdx + 1).trim();
+                if (k) cookieMap[k] = v;
+            }
         }
     } else if (Array.isArray(input)) {
         for (const item of input) {
@@ -272,6 +342,10 @@ function normalizeCookies(input) {
 
 async function getStatus() {
     const check = await checkModelsEndpoint(1000);
+    if (!check.ok && !isStarting && !isStopping) {
+        console.log('[MuseManager] getStatus: gateway is down, auto-healing in background...');
+        start().catch(() => {});
+    }
     const dataDir = getDataDir();
     const accPath = path.join(dataDir, 'accounts.json');
 
@@ -385,8 +459,17 @@ async function saveMuseCookies(cookieInput) {
     }
 
     try {
-        fs.writeFileSync(accPath, JSON.stringify(list, null, 2), 'utf8');
-        console.log(`[MuseManager] Saved ${list.length} accounts to ${accPath}`);
+        const allDirs = getAllPossibleDataDirs();
+        for (const d of allDirs) {
+            try {
+                if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                const p = path.join(d, 'accounts.json');
+                fs.writeFileSync(p, JSON.stringify(list, null, 2), 'utf8');
+                const kp = path.join(d, 'api_key');
+                if (!fs.existsSync(kp)) fs.writeFileSync(kp, '123456\n', 'utf8');
+            } catch { }
+        }
+        console.log(`[MuseManager] Saved ${list.length} accounts across ${allDirs.length} data directories`);
     } catch (writeErr) {
         console.error('[MuseManager] Failed to write accounts.json:', writeErr);
     }
@@ -427,6 +510,54 @@ async function saveMuseCookies(cookieInput) {
     }
 
     return { success: true, message: 'Đã lưu và kích hoạt tài khoản Muse thành công!' };
+}
+
+async function deleteMuseAccount(accountId) {
+    if (!accountId) return { success: false, error: 'Thiếu mã tài khoản để xóa' };
+
+    // 1. Delete from all possible accounts.json
+    try {
+        const allDirs = getAllPossibleDataDirs();
+        for (const d of allDirs) {
+            try {
+                const p = path.join(d, 'accounts.json');
+                if (fs.existsSync(p)) {
+                    const list = JSON.parse(fs.readFileSync(p, 'utf8'));
+                    if (Array.isArray(list)) {
+                        const filtered = list.filter(a => a.id !== accountId && a.label !== accountId);
+                        fs.writeFileSync(p, JSON.stringify(filtered, null, 2), 'utf8');
+                    }
+                }
+            } catch { }
+        }
+        console.log(`[MuseManager] Deleted account ${accountId} from accounts.json files`);
+    } catch (e) {
+        console.error('[MuseManager] Error deleting account from accounts.json:', e);
+    }
+
+    // 2. Notify admin API via DELETE if running
+    try {
+        await new Promise((resolve, reject) => {
+            const req = http.request(`http://127.0.0.1:18610/admin/accounts/${encodeURIComponent(accountId)}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': 'Bearer 123456'
+                },
+                timeout: 3000
+            }, (res) => {
+                let body = '';
+                res.on('data', c => body += c);
+                res.on('end', () => resolve(body));
+            });
+            req.on('error', reject);
+            req.end();
+        });
+        console.log(`[MuseManager] Admin API confirmed account deletion: ${accountId}`);
+    } catch (apiErr) {
+        console.warn('[MuseManager] muse2api admin API delete notice:', apiErr.message);
+    }
+
+    return { success: true };
 }
 
 function openExternalChromeIncognito(url = 'https://muse.ai/login') {
@@ -514,11 +645,30 @@ function openLoginWindow(parentWindow) {
     });
 }
 
+async function ensureRunning() {
+    const check = await checkModelsEndpoint(1500);
+    if (check.ok) return true;
+    return await start();
+}
+
+// Proactive Background Watchdog: checks port 18610 every 8 seconds and auto-revives gateway if down
+setInterval(async () => {
+    if (!isStarting && !isStopping) {
+        const check = await checkModelsEndpoint(1200);
+        if (!check.ok) {
+            console.log('[MuseWatchdog] Port 18610 is unreachable, auto-spawning muse-gateway...');
+            start().catch(() => { });
+        }
+    }
+}, 8000);
+
 module.exports = {
     start,
     stop,
+    ensureRunning,
     getStatus,
     saveMuseCookies,
+    deleteMuseAccount,
     openLoginWindow,
     openExternalChromeIncognito,
     getDataDir,

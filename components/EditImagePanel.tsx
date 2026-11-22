@@ -49,16 +49,6 @@ export const EditImagePanel: React.FC<EditImagePanelProps> = ({ onGenerate, isLo
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="bg-emerald-50/80 p-4 rounded-xl border border-emerald-200/80 flex gap-3 shadow-xs ring-1 ring-emerald-500/10">
-                <div className="bg-white p-2 rounded-full shadow-sm">
-                    <MagicWandIcon className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div>
-                    <h3 className="text-sm font-bold text-emerald-900">Studio Chỉnh Sửa AI</h3>
-                    <p className="text-[10px] text-emerald-700/80 mt-0.5 font-medium">Ánh xạ 1:1 Hàng loạt (Tối đa 10 ảnh)</p>
-                </div>
-            </div>
-
             {/* Sub Tabs */}
             <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto scrollbar-hide">
                 <button onClick={() => setTab('general')} className={`flex-1 min-w-[80px] py-2 text-xs font-bold rounded-lg transition-all ${tab === 'general' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Chỉnh sửa</button>

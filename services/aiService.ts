@@ -1777,8 +1777,11 @@ export const generateImagesFromPromptsList = async (
 
     const bundle = await buildCreativeRefBundle(refImages, identityMode);
 
+    const activeImageModel = nineRouterService.getNineRouterImageModel();
+    const isMuseActive = activeImageModel.toLowerCase().includes('muse');
+
     let resolvedCharacterDna = (options?.characterDna || '').trim();
-    if (!resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected && autoQaEnabled) {
+    if (!isMuseActive && !resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected && autoQaEnabled) {
         resolvedCharacterDna = await extractCharacterDnaSpec({
             referenceImages: bundle.labeledNineRouterReferences,
             outputMode,
@@ -1788,7 +1791,6 @@ export const generateImagesFromPromptsList = async (
     }
 
     const sessionSeed = Math.floor(Math.random() * 1000000);
-    const activeImageModel = nineRouterService.getNineRouterImageModel();
     const concurrency = resolveEffectiveConcurrency('image', prompts.length, {
         modelId: activeImageModel,
         isNineRouter: nineRouterConnected,
@@ -1870,8 +1872,11 @@ export const regenerateSingleCreativeImage = async (
     const ai = await getEffectiveGeminiClient(geminiApiKey);
 
     const bundle = await buildCreativeRefBundle(params.refImages, identityMode);
+    const activeImageModel = nineRouterService.getNineRouterImageModel();
+    const isMuseActive = activeImageModel.toLowerCase().includes('muse');
+
     let resolvedCharacterDna = (params.characterDna || '').trim();
-    if (!resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected) {
+    if (!isMuseActive && !resolvedCharacterDna && bundle.labeledNineRouterReferences.length > 0 && nineRouterConnected) {
         resolvedCharacterDna = await extractCharacterDnaSpec({
             referenceImages: bundle.labeledNineRouterReferences,
             outputMode: params.outputMode,
@@ -1942,6 +1947,8 @@ const executeCreativeImageSlotWithQa = async (
 
     const { labeledNineRouterReferences, optimizedAllRefImages, allRefParts } = bundle;
     const { fullPrompt: baseFullPrompt, isCouple, hasMaleAccessories, hasFemaleAccessories } = buildCreativeImageBasePrompt(rawScenePrompt, ctx);
+
+    let lastSlotAttemptError: Error | null = null;
 
     const runSingleRenderAttempt = async (effectivePrompt: string): Promise<string | null> => {
         if (abortSignal?.aborted) return null;
@@ -2217,6 +2224,7 @@ const executeCreativeImageSlotWithQa = async (
 
             return base64Image;
         } catch (error) {
+            lastSlotAttemptError = error instanceof Error ? error : new Error(String(error));
             console.error(`Error generating image ${index}:`, error);
             return null;
         }
@@ -2225,6 +2233,9 @@ const executeCreativeImageSlotWithQa = async (
     try {
         const firstImage = await runSingleRenderAttempt(baseFullPrompt);
         if (!firstImage || abortSignal?.aborted) {
+            if (!firstImage && lastSlotAttemptError && !abortSignal?.aborted) {
+                ctx.onItemStatus?.(index, `Lỗi: ${lastSlotAttemptError.message}`);
+            }
             return firstImage;
         }
 
@@ -2234,6 +2245,7 @@ const executeCreativeImageSlotWithQa = async (
         const shouldRunAutoQa =
             autoQaEnabled &&
             nineRouterConnected &&
+            !activeImageModel.toLowerCase().includes('muse') &&
             labeledNineRouterReferences.length > 0;
 
         if (!shouldRunAutoQa) {
@@ -2318,6 +2330,70 @@ const executeCreativeImageSlotWithQa = async (
 };
 
 // --- ID PHOTOS ---
+export const resolveIdPhotoHairstylePrompt = (gender: string, hairstyleId: string): string => {
+    const isFemale = String(gender).toLowerCase().includes('female') || String(gender).toLowerCase().includes('nữ');
+    const id = (hairstyleId || 'original').toLowerCase().trim();
+
+    if (id === 'original' || id.includes('gốc') || id.includes('nguyên')) {
+        return `*** HAIRSTYLE SPECIFICATION: PRESERVE ORIGINAL HAIR ***
+    - Keep 100% of the authentic haircut, natural hairline, texture, volume, and color from the input image.
+    - Tidy up stray flyaway hairs for a clean, professional studio portrait appearance while retaining original cut.`;
+    }
+
+    const maleStyles: Record<string, string> = {
+        side_part: `*** MANDATORY HAIRSTYLE TRANSFORMATION: 7/3 SIDE PART ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a crisp, classic professional 7/3 Side Part haircut.
+    - Deep neat parting on the side, smoothly combed to the opposite side with gentle pomade/wax texture.
+    - Clean crisp hairline, sideburns neatly trimmed, both ears and neckline fully visible, executive gentleman grooming.`,
+        undercut: `*** MANDATORY HAIRSTYLE TRANSFORMATION: MODERN UNDERCUT ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a sharp, neat professional Undercut haircut.
+    - Closely faded/tapered short sides and back, medium-length top hair neatly swept backward and to the side.
+    - Ears, temples, and neck completely unobstructed, clean and disciplined studio aesthetic.`,
+        pompadour: `*** MANDATORY HAIRSTYLE TRANSFORMATION: POLISHED POMPADOUR ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a dignified professional Pompadour haircut.
+    - Voluminous top hair swept upward and combed backward with clean contour.
+    - Clean tapered sides, forehead and ears clearly visible, sophisticated and formal.`,
+        buzz_cut: `*** MANDATORY HAIRSTYLE TRANSFORMATION: DISCIPLINED BUZZ CUT ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a sharp military Buzz Cut (crew cut).
+    - Even, short, tidy hair length throughout, razor-sharp clean hairline.
+    - Fully reveals the entire head contour, forehead, temples, and ears.`,
+        korean_layer: `*** MANDATORY HAIRSTYLE TRANSFORMATION: KOREAN TEXTURED LAYER ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a stylish Korean Layer haircut.
+    - Soft textured layers, clean bangs trimmed neatly just above eyebrows, sides groomed cleanly around ears.
+    - Neat, modern, youthful yet strictly professional for official photo use.`
+    };
+
+    const femaleStyles: Record<string, string> = {
+        long_straight: `*** MANDATORY HAIRSTYLE TRANSFORMATION: SLEEK LONG STRAIGHT ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with elegant, sleek long straight hair.
+    - Smooth, glossy, silky dark hair neatly parted in center or slight side, falling gracefully behind shoulders or neatly framing the sides without obscuring face.
+    - Ears, jawline, and collarbones clearly visible, tidy studio finish.`,
+        bob_cut: `*** MANDATORY HAIRSTYLE TRANSFORMATION: CHIC PROFESSIONAL BOB ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a chin-length sleek Bob haircut.
+    - Even, clean baseline cut around the jawline, neatly tucked behind ears or curved gently inward.
+    - Face completely open and visible, sophisticated modern professional woman.`,
+        bun: `*** MANDATORY HAIRSTYLE TRANSFORMATION: SLEEK HIGH BUN ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a neat, formal high or mid ballet bun.
+    - Hair smoothly pulled back from the face, firmly pinned, no flyaways.
+    - Forehead, temples, ears, and neck 100% uncovered for official passport and ID credentials.`,
+        ponytail: `*** MANDATORY HAIRSTYLE TRANSFORMATION: SLEEK HIGH PONYTAIL ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with a polished, sleek high ponytail.
+    - All hair cleanly swept upward and away from the face, tied securely behind.
+    - Full facial contour, temples, and ears unobstructed.`,
+        wavy: `*** MANDATORY HAIRSTYLE TRANSFORMATION: SOFT ELEGANT WAVES ***
+    - CRITICAL REQUIREMENT: YOU MUST OVERRIDE AND REPLACE THE PERSON'S ORIGINAL HAIR with soft, loose, elegant waves.
+    - Beautifully defined subtle waves, gently styled and pulled back behind ears so that both ears, jawline, and clothing remain fully visible.`
+    };
+
+    if (isFemale && femaleStyles[id]) return femaleStyles[id];
+    if (!isFemale && maleStyles[id]) return maleStyles[id];
+    if (femaleStyles[id]) return femaleStyles[id];
+    if (maleStyles[id]) return maleStyles[id];
+
+    return `*** MANDATORY HAIRSTYLE TRANSFORMATION ***
+    - Neatly groomed, professional studio haircut matching the requested style: ${hairstyleId}. Clean hairline, both ears clearly exposed.`;
+};
+
 export const generateIdPhotos = async (
     apiKey: string,
     imagePart: ImagePart,
@@ -2356,6 +2432,9 @@ export const generateIdPhotos = async (
     const geminiApiKey = getStoredApiKey('gemini');
     const ai = await getEffectiveGeminiClient(geminiApiKey);
 
+    // Resolve detailed hairstyle instruction
+    const hairstyleDirective = resolveIdPhotoHairstylePrompt(gender, hairstyle);
+
     // Different prompt based on whether we have a reference image
     const hasClothingRef = !!clothingRef?.data;
 
@@ -2368,24 +2447,34 @@ export const generateIdPhotos = async (
     - Do NOT modify, interpret, or "improve" the clothing - replicate it EXACTLY
     - The person in the input photo MUST be shown wearing this EXACT clothing
     
-    *** MANDATORY POSE CORRECTION ***
-    - The person MUST face the camera DIRECTLY (perfectly frontal view)
-    - Head MUST be perfectly straight and level (no tilt left/right/forward/backward)
-    - Eyes MUST look directly at the camera lens
-    - Shoulders MUST be square to the camera and level
-    - If the input image shows the person at an angle, CORRECT IT to frontal view
-    - This is an official document photo - PERFECT ALIGNMENT is mandatory
+    *** MANDATORY POSE & EXPRESSION (OFFICIAL ID / PASSPORT STANDARD) ***
+    - The person MUST face the camera DIRECTLY (perfect frontal eye-level view, 0-degree angle).
+    - Head MUST be perfectly straight and level (absolutely NO tilting left/right/forward/backward).
+    - Eyes MUST look directly into the camera lens with clear, focused, sharp pupils.
+    - Shoulders MUST be square to the camera, balanced, even, and level.
+    - EXPRESSION: STRICT FORMAL, SERIOUS, CONFIDENT ID PHOTO EXPRESSION. Mouth gently closed, lips relaxed, neutral formal confidence. No open mouth, no broad smile, no goofy or casual face.
+    
+    *** STRICT 100% FACIAL IDENTITY PRESERVATION ***
+    - You MUST preserve 100% of the subject's unique facial identity from the input photo.
+    - Retain identical facial bone structure, jawline, chin, eye shape, eyelid creases, nose bridge, nostril shape, and lip geometry.
+    - The generated portrait MUST be instantly, unquestionably recognized as the exact same person.
+    
+    *** PROFESSIONAL STUDIO SKIN BEAUTY RETOUCH (PRINT-READY) ***
+    - Flawless studio skin retouching: smooth, luminous, natural porcelain-clear complexion.
+    - COMPLETELY REMOVE all acne, pimples, blemishes, dark freckles, scars, red spots, and dark under-eye circles.
+    - Naturally brighten skin tone (+15-20% brighter, healthy radiant glow, professional softbox studio lighting).
+    - Gently soften rough skin texture and visible pores while keeping natural micro-skin realism (not artificial plastic or wax).
+    - The output photo MUST be ready for instant high-resolution printing for passport, national ID card, visa, and professional credentials.
+    
+    ${hairstyleDirective}
     
     SUBJECT DETAILS:
     - Gender: ${gender}
     - Clothing: ${clothing} (MUST match the reference image exactly)
-    - Hairstyle: ${hairstyle} (neat, well-groomed, professional)
     
     TECHNICAL REQUIREMENTS:
     - Background Color: ${bgColor} (solid, uniform, no gradients)
     - Lighting: Professional studio lighting, even and soft, no harsh shadows
-    - Expression: Neutral to slight smile, professional confidence, relaxed
-    - Face: High fidelity to facial features from input - KEEP 100% IDENTICAL
     - Framing: Head and shoulders centered, 70% face fill
     - Aspect Ratio: ${aspectRatio} (MANDATORY - MUST MATCH EXACTLY)
     
@@ -2400,24 +2489,34 @@ export const generateIdPhotos = async (
     ${ULTRA_SHARP_QUALITY}`
         : `PROFESSIONAL ID PHOTO GENERATION - STRICT REQUIREMENTS:
     
-    *** MANDATORY POSE CORRECTION ***
-    - The person MUST face the camera DIRECTLY (perfectly frontal view)
-    - Head MUST be perfectly straight and level (no tilt left/right/forward/backward)
-    - Eyes MUST look directly at the camera lens
-    - Shoulders MUST be square to the camera and level
-    - If the input image shows the person at an angle, CORRECT IT to frontal view
-    - This is an official document photo - PERFECT ALIGNMENT is mandatory
+    *** MANDATORY POSE & EXPRESSION (OFFICIAL ID / PASSPORT STANDARD) ***
+    - The person MUST face the camera DIRECTLY (perfect frontal eye-level view, 0-degree angle).
+    - Head MUST be perfectly straight and level (absolutely NO tilting left/right/forward/backward).
+    - Eyes MUST look directly into the camera lens with clear, focused, sharp pupils.
+    - Shoulders MUST be square to the camera, balanced, even, and level.
+    - EXPRESSION: STRICT FORMAL, SERIOUS, CONFIDENT ID PHOTO EXPRESSION. Mouth gently closed, lips relaxed, neutral formal confidence. No open mouth, no broad smile, no goofy or casual face.
+    
+    *** STRICT 100% FACIAL IDENTITY PRESERVATION ***
+    - You MUST preserve 100% of the subject's unique facial identity from the input photo.
+    - Retain identical facial bone structure, jawline, chin, eye shape, eyelid creases, nose bridge, nostril shape, and lip geometry.
+    - The generated portrait MUST be instantly, unquestionably recognized as the exact same person.
+    
+    *** PROFESSIONAL STUDIO SKIN BEAUTY RETOUCH (PRINT-READY) ***
+    - Flawless studio skin retouching: smooth, luminous, natural porcelain-clear complexion.
+    - COMPLETELY REMOVE all acne, pimples, blemishes, dark freckles, scars, red spots, and dark under-eye circles.
+    - Naturally brighten skin tone (+15-20% brighter, healthy radiant glow, professional softbox studio lighting).
+    - Gently soften rough skin texture and visible pores while keeping natural micro-skin realism (not artificial plastic or wax).
+    - The output photo MUST be ready for instant high-resolution printing for passport, national ID card, visa, and professional credentials.
+    
+    ${hairstyleDirective}
     
     SUBJECT DETAILS:
     - Gender: ${gender}
     - Clothing: ${clothing} (professional, wrinkle-free, perfectly fitted)
-    - Hairstyle: ${hairstyle} (neat, well-groomed, professional)
     
     TECHNICAL REQUIREMENTS:
     - Background Color: ${bgColor} (solid, uniform, no gradients)
     - Lighting: Professional studio lighting, even and soft, no harsh shadows
-    - Expression: Neutral to slight smile, professional confidence, relaxed
-    - Face: High fidelity to facial features - KEEP 100% IDENTICAL TO INPUT
     - Framing: Head and shoulders centered, 70% face fill
     - Aspect Ratio: ${aspectRatio} (MANDATORY - MUST MATCH EXACTLY)
     
@@ -2432,10 +2531,7 @@ export const generateIdPhotos = async (
     ${ULTRA_SHARP_QUALITY}`;
 
     const prompts = [
-        basePrompt + " Variation 1: Standard professional look with perfect frontal alignment.",
-        basePrompt + " Variation 2: Slightly brighter lighting, maintaining perfect straight pose.",
-        basePrompt + " Variation 3: Subtle lighting variation, ensuring professional straight posture.",
-        basePrompt + " Variation 4: High contrast professional look with perfect head alignment."
+        basePrompt + " Master quality official ID photo, maximum sharpness, flawless print-ready studio portrait."
     ];
 
     const inputPart = {
@@ -2465,7 +2561,7 @@ export const generateIdPhotos = async (
         isVipMode: useVipMode,
         isAntigravity: antigravityConnected
     });
-    onStatusUpdate(`🚀 Đang xử lý ${prompts.length} biến thể ảnh thẻ song song (x${idConcurrency} luồng)${hasClothingRef ? ' 👔' : ''}...`);
+    onStatusUpdate(`🚀 Đang tạo ảnh thẻ chuẩn nét (giữ khuôn mặt gốc, làm đẹp da, chuẩn in ấn)${hasClothingRef ? ' 👔' : ''}...`);
 
     const generateSingleIdPhoto = async (index: number): Promise<string | null> => {
         const prompt = prompts[index];

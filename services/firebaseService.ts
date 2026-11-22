@@ -807,15 +807,16 @@ const USER_CREDITS_COLLECTION = "userCredits";
 const APPROVED_BILLS_COLLECTION = "approvedBills";
 const FAILED_BILLS_COLLECTION = "failedBills";
 
-export type SubscriptionPlan = 'free' | 'plus' | 'pro';
+export type SubscriptionPlan = 'free' | 'plus' | 'pro' | 'vip';
 
 export const IMAGE_COST_VND = 500;
-export const FREE_DAILY_IMAGE_LIMIT = 50;
+export const FREE_DAILY_IMAGE_LIMIT = 30;
 export const FREE_ACCOUNT_VIDEO_SECONDS = 8;
 export const PLAN_VIDEO_ALLOWANCE: Record<SubscriptionPlan, number> = {
     free: 8,
-    plus: 60,
-    pro: 180
+    plus: 20,
+    pro: 80,
+    vip: 999999
 };
 export const FREE_ALLOWED_MODEL = 'gpt-image-1.5';
 
@@ -954,6 +955,7 @@ export const resolveEffectivePlan = (
     planExpiresAt: number | null = null,
     remainingVideoSeconds: number = 0
 ): SubscriptionPlan => {
+    if (rawPlan === 'vip') return 'vip';
     if (!planExpiresAt || planExpiresAt <= Date.now()) return 'free';
     if (rawPlan !== 'plus' && rawPlan !== 'pro') return 'free';
     if (isPlanImagesUnlimited(rawPlan)) return rawPlan;
@@ -1243,7 +1245,7 @@ export const consumeUserPlanImagesDirect = async (userId: string, count: number 
 
         const currentRemaining = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
         const currentVideoSec = Number.isSafeInteger(data.remainingVideoSeconds) ? data.remainingVideoSeconds : 0;
-        const rawPlanKey: SubscriptionPlan = data.plan === 'plus' || data.plan === 'pro' ? data.plan : 'free';
+        const rawPlanKey: SubscriptionPlan = data.plan === 'vip' ? 'vip' : (data.plan === 'plus' || data.plan === 'pro' ? data.plan : 'free');
         const isUnlimited = isPlanImagesUnlimited(rawPlanKey);
         if (isUnlimited) {
             // Unlimited plan: never inflate remainingImages (which could breach security rules <= resource.data.remainingImages)
@@ -1329,7 +1331,7 @@ export const consumeUserVideoSecondsDirect = async (userId: string, seconds: num
         if (currentVideoSec < seconds) return null;
 
         const newVideoSec = Math.max(0, currentVideoSec - seconds);
-        const isPaid = data.plan === 'pro' || data.plan === 'plus';
+        const isPaid = data.plan === 'vip' || data.plan === 'pro' || data.plan === 'plus';
         const unlimited = isPaid && isPlanImagesUnlimited(data.plan);
         const newPlan: SubscriptionPlan = isPaid
             ? (unlimited || currentImages > 0 || newVideoSec > 0 ? data.plan : 'free')
@@ -1466,9 +1468,9 @@ export const subscribeToUserCredits = (
             const data = docSnap.data();
             const credits = data.credits || 0;
             const rawPlan = data.plan;
-            const isPaidRaw = rawPlan === 'plus' || rawPlan === 'pro';
+            const isPaidRaw = rawPlan === 'vip' || rawPlan === 'plus' || rawPlan === 'pro';
             const planExpiresAt = Number.isSafeInteger(data.planExpiresAt) ? data.planExpiresAt : null;
-            const isExpiredPaid = isPaidRaw && (!planExpiresAt || planExpiresAt <= now);
+            const isExpiredPaid = (rawPlan === 'plus' || rawPlan === 'pro') && (!planExpiresAt || planExpiresAt <= now);
 
             let remainingImages = Number.isSafeInteger(data.remainingImages) ? data.remainingImages : 0;
             const defaultPlanVideo = isPaidRaw ? getPlanVideoAllowance(rawPlan) : freeVideoSec;

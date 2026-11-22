@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { SparklesIcon, MagicWandIcon } from './Icons';
 import { ModelSelector } from './ModelSelector';
+import { getCachedUserPlan } from '../services/firebaseService';
+import { auth } from '../src/firebaseConfig';
+import { isAdmin } from '../services/storageService';
 
 interface RestorePhotoPanelProps {
     onGenerate: (options: {
@@ -35,6 +38,9 @@ export const RestorePhotoPanel: React.FC<RestorePhotoPanelProps> = ({
     const [enhancementLevel, setEnhancementLevel] = useState<'light' | 'medium' | 'strong'>('medium');
     const [colorMode, setColorMode] = useState<'auto' | 'warm' | 'cool' | 'sepia'>('auto');
     const [faceEnhance, setFaceEnhance] = useState(true);
+
+    const currentUserPlan = getCachedUserPlan(auth?.currentUser?.uid || undefined);
+    const isCaoCap = currentUserPlan === 'vip' || isAdmin();
 
     const handleGenerate = () => {
         onGenerate({
@@ -73,22 +79,40 @@ export const RestorePhotoPanel: React.FC<RestorePhotoPanelProps> = ({
                     Mức Độ Phục Hồi
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                    {enhancementLevels.map((level) => (
-                        <button
-                            key={level.id}
-                            onClick={() => setEnhancementLevel(level.id)}
-                            className={`p-3 rounded-xl border transition-all text-center ${enhancementLevel === level.id
-                                ? 'bg-amber-50 border-amber-400 shadow-sm ring-2 ring-amber-200'
-                                : 'bg-white border-slate-200 hover:border-amber-300'
+                    {enhancementLevels.map((level) => {
+                        const isLocked = level.id === 'strong' && !isCaoCap;
+                        return (
+                            <button
+                                key={level.id}
+                                disabled={isLocked}
+                                onClick={() => {
+                                    if (isLocked) return;
+                                    setEnhancementLevel(level.id);
+                                }}
+                                className={`p-3 rounded-xl border transition-all text-center relative ${
+                                    isLocked
+                                        ? 'opacity-40 bg-slate-50 border-slate-200 cursor-not-allowed select-none'
+                                        : enhancementLevel === level.id
+                                            ? 'bg-amber-50 border-amber-400 shadow-sm ring-2 ring-amber-200 cursor-pointer'
+                                            : 'bg-white border-slate-200 hover:border-amber-300 cursor-pointer'
                                 }`}
-                        >
-                            <span className={`text-sm font-bold block ${enhancementLevel === level.id ? 'text-amber-700' : 'text-slate-600'
-                                }`}>
-                                {level.label}
-                            </span>
-                            <span className="text-[10px] text-slate-500 mt-1 block">{level.desc}</span>
-                        </button>
-                    ))}
+                            >
+                                <div className="flex items-center justify-center gap-1">
+                                    <span className={`text-sm font-bold ${
+                                        isLocked
+                                            ? 'text-slate-400'
+                                            : enhancementLevel === level.id
+                                                ? 'text-amber-700'
+                                                : 'text-slate-600'
+                                    }`}>
+                                        {level.label}
+                                    </span>
+                                    {isLocked && <span className="text-xs">🔒</span>}
+                                </div>
+                                <span className="text-[10px] text-slate-500 mt-1 block">{level.desc}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 

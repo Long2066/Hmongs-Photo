@@ -1055,9 +1055,11 @@ const executeMuseAiVideoCall = async (
     aspectRatio: '16:9' | '9:16' | '1:1',
     duration: number
 ): Promise<string> => {
-    const rawBaseUrl = (config.museAiBaseUrl || 'http://127.0.0.1:18610/v1').trim();
+    const rawBaseUrl = (config.museAiBaseUrl && (config.museAiBaseUrl.includes('127.0.0.1') || config.museAiBaseUrl.includes('localhost')))
+        ? config.museAiBaseUrl.trim()
+        : 'http://127.0.0.1:18610/v1';
     const baseUrl = rawBaseUrl.replace(/\/+$/, '');
-    const apiKey = (config.museAiApiKey || '').trim();
+    const apiKey = (config.museAiApiKey || '').trim() || '123456';
 
     // Clean prompt for Muse video generation matching muse2api driver (NO bloat wrappers)
     const cleanPrompt = (options.prompt || '')
@@ -1102,7 +1104,8 @@ const executeMuseAiVideoCall = async (
     }
 
     let submitData: any = null;
-    for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
+    const maxSubmitAttempts = 5;
+    for (let submitAttempt = 0; submitAttempt < maxSubmitAttempts; submitAttempt++) {
         if (options.abortSignal?.aborted) {
             throw new Error('ABORTED');
         }
@@ -1116,17 +1119,19 @@ const executeMuseAiVideoCall = async (
 
             if (!submitResp.ok) {
                 const errText = await submitResp.text().catch(() => '');
-                let errMsg = `Muse AI Gateway lỗi (HTTP ${submitResp.status}): ${errText || submitResp.statusText}`;
-                if (errText.includes('upstream_auth_failed') || errText.includes('cookies are no longer valid') || submitResp.status === 502) {
-                    errMsg = 'Tài khoản Muse.ai đã hết hạn cookie. Vui lòng bấm vào "Tài khoản AI" ở góc trên để Đăng nhập hoặc dán Cookie mới từ muse.ai.';
-                }
-                if (submitAttempt < 2 && !errMsg.includes('hết hạn cookie') && isTransientHttpOrNetworkError(submitResp.status, errMsg)) {
-                    const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
-                    options.onProgress?.(`Gateway Muse đang bận, thử lại sau ${Math.round(waitMs / 1000)}s (${submitAttempt + 2}/3)...`);
+                const isAuthError = errText.includes('upstream_auth_failed') || errText.includes('cookies are no longer valid');
+                
+                if (submitAttempt < maxSubmitAttempts - 1) {
+                    const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 4000);
+                    options.onProgress?.(`Tài khoản Muse bận, tự động chuyển sang tài khoản khác (${submitAttempt + 2}/${maxSubmitAttempts})...`);
                     await sleepWithAbort(waitMs, options.abortSignal);
                     continue;
                 }
-                throw new Error(errMsg);
+                
+                const finalErrMsg = isAuthError
+                    ? 'Tất cả tài khoản Muse.ai trong pool đều bận hoặc cần cập nhật cookie.'
+                    : `Muse AI Gateway tạo video không thành công sau ${maxSubmitAttempts} lần đổi tài khoản: ${errText || submitResp.statusText}`;
+                throw new Error(finalErrMsg);
             }
 
             submitData = await submitResp.json();
@@ -1135,9 +1140,9 @@ const executeMuseAiVideoCall = async (
             if (options.abortSignal?.aborted || err?.name === 'AbortError' || err?.message === 'ABORTED') {
                 throw new Error('ABORTED');
             }
-            if (submitAttempt < 2 && isTransientHttpOrNetworkError(undefined, err?.message || String(err))) {
-                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 7000);
-                options.onProgress?.(`Kết nối Muse gián đoạn, thử lại (${submitAttempt + 2}/3)...`);
+            if (submitAttempt < maxSubmitAttempts - 1) {
+                const waitMs = computeJitteredBackoffMs(submitAttempt, 1500, 4000);
+                options.onProgress?.(`Tài khoản Muse bận, tự động chuyển sang tài khoản khác (${submitAttempt + 2}/${maxSubmitAttempts})...`);
                 await sleepWithAbort(waitMs, options.abortSignal);
                 continue;
             }

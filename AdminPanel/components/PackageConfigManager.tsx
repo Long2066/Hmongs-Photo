@@ -116,15 +116,16 @@ const monoStyle: React.CSSProperties = {
 };
 
 const TIER_META: Record<PlanId, { title: string; accent: string; softBg: string }> = {
+    plus: { title: 'Gói Cơ bản', accent: '#059669', softBg: '#ecfdf5' },
+    pro: { title: 'Gói Nâng cao', accent: '#4f46e5', softBg: '#eef2ff' },
+    vip: { title: 'Gói Cao cấp', accent: '#d97706', softBg: '#fffbeb' },
     free: { title: 'Gói Free', accent: '#475569', softBg: '#f1f5f9' },
-    plus: { title: 'Gói Plus', accent: '#059669', softBg: '#ecfdf5' },
-    pro: { title: 'Gói Pro', accent: '#4f46e5', softBg: '#eef2ff' },
 };
 
 const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) => {
     const [draft, setDraft] = useState<SubscriptionPlansConfig>(DEFAULT_SUBSCRIPTION_PLANS_CONFIG);
     const [savedSnapshot, setSavedSnapshot] = useState<string>('');
-    const [activeTier, setActiveTier] = useState<PlanId>('pro');
+    const [activeTier, setActiveTier] = useState<PlanId>('plus');
     const [loading, setLoading] = useState<boolean>(true);
     const [saving, setSaving] = useState<boolean>(false);
     const [confirmReset, setConfirmReset] = useState<boolean>(false);
@@ -136,7 +137,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
             .then((loaded) => {
                 if (!mounted) return;
                 setDraft(loaded);
-                setSavedSnapshot(JSON.stringify({ free: loaded.free, plus: loaded.plus, pro: loaded.pro }));
+                setSavedSnapshot(JSON.stringify({ free: loaded.free, plus: loaded.plus, pro: loaded.pro, vip: loaded.vip }));
             })
             .catch((err) => {
                 if (!mounted) return;
@@ -155,7 +156,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
 
     const isDirty = useMemo(() => {
         if (!savedSnapshot) return false;
-        const current = JSON.stringify({ free: draft.free, plus: draft.plus, pro: draft.pro });
+        const current = JSON.stringify({ free: draft.free, plus: draft.plus, pro: draft.pro, vip: draft.vip });
         return current !== savedSnapshot;
     }, [draft, savedSnapshot]);
 
@@ -309,7 +310,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
             const cleanToSave = sanitizeSubscriptionPlansConfig(draft);
             const saved = await saveSubscriptionPlansConfig(cleanToSave, adminEmail);
             setDraft(saved);
-            setSavedSnapshot(JSON.stringify({ free: saved.free, plus: saved.plus, pro: saved.pro }));
+            setSavedSnapshot(JSON.stringify({ free: saved.free, plus: saved.plus, pro: saved.pro, vip: saved.vip }));
             setStatusBanner({
                 type: 'success',
                 message: 'Đã lưu cấu hình gói dịch vụ thành công! Tool người dùng, PayOS Checkout và Bot Hỗ trợ đã được đồng bộ realtime.',
@@ -332,7 +333,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
             const adminEmail = admin.email || admin.displayName || 'admin';
             const saved = await resetSubscriptionPlansConfig(adminEmail);
             setDraft(saved);
-            setSavedSnapshot(JSON.stringify({ free: saved.free, plus: saved.plus, pro: saved.pro }));
+            setSavedSnapshot(JSON.stringify({ free: saved.free, plus: saved.plus, pro: saved.pro, vip: saved.vip }));
             setStatusBanner({
                 type: 'success',
                 message: 'Đã khôi phục toàn bộ thông số 3 gói về cấu hình mặc định ban đầu và đồng bộ live.',
@@ -383,8 +384,8 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                 }
                 .pkg-preview-cards {
                     display: grid;
-                    grid-template-columns: repeat(3, minmax(0, 1fr));
-                    gap: 14px;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    gap: 12px;
                     align-items: stretch;
                     padding-top: 14px;
                 }
@@ -398,6 +399,11 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                 .pkg-editor-grid button:focus-visible {
                     outline: 2px solid var(--accent-primary);
                     outline-offset: 1px;
+                }
+                @media (max-width: 1400px) {
+                    .pkg-preview-cards {
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
                 }
                 @media (max-width: 1280px) {
                     .pkg-editor-grid {
@@ -587,7 +593,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                     <div
                         style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gridTemplateColumns: 'repeat(4, 1fr)',
                             gap: '8px',
                             padding: '6px',
                             background: 'var(--bg-tertiary)',
@@ -595,7 +601,7 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                             marginBottom: '20px',
                         }}
                     >
-                        {(['free', 'plus', 'pro'] as PlanId[]).map((tierId) => {
+                        {(['plus', 'pro', 'vip', 'free'] as PlanId[]).map((tierId) => {
                             const selected = activeTier === tierId;
                             const tierPlan = draft[tierId];
                             return (
@@ -1439,6 +1445,133 @@ const PackageConfigManager: React.FC<PackageConfigManagerProps> = ({ admin }) =>
                                             padding: '10px 12px',
                                             borderRadius: '10px',
                                             background: 'linear-gradient(90deg, #fbbf24, #f59e0b, #eab308)',
+                                            color: '#0f172a',
+                                            fontSize: '0.74rem',
+                                            fontWeight: 800,
+                                            textAlign: 'center',
+                                        }}
+                                    >
+                                        {p.ctaText || `Mua ${p.name} — ${formatVndCompact(p.price)}`} →
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
+                        {/* PREVIEW VIP */}
+                        {(() => {
+                            const p = draft.vip;
+                            const disc = computeDiscountStats(p.price, p.originalPrice);
+                            const isSelected = activeTier === 'vip';
+                            return (
+                                <div
+                                    onClick={() => setActiveTier('vip')}
+                                    style={{
+                                        ...previewCardCommon,
+                                        background: 'linear-gradient(180deg, #0f172a 0%, #3b0764 50%, #0f172a 100%)',
+                                        color: '#ffffff',
+                                        border: isSelected ? '2px solid #e879f9' : '2px solid #c084fc',
+                                        boxShadow: isSelected ? '0 0 0 3px rgba(232,121,249,0.35), 0 14px 28px rgba(192,132,252,0.28)' : '0 14px 28px rgba(192,132,252,0.22)',
+                                        opacity: p.enabled ? 1 : 0.55,
+                                    }}
+                                >
+                                    {!p.enabled && (
+                                        <div style={{ position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', background: '#dc2626', color: '#fff', fontSize: '0.62rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', zIndex: 3 }}>
+                                            ĐANG ẨN
+                                        </div>
+                                    )}
+                                    {p.topRibbon.trim() && (
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                top: '-11px',
+                                                left: '50%',
+                                                transform: 'translateX(-50%)',
+                                                background: 'linear-gradient(90deg, #c084fc, #e879f9, #f472b6)',
+                                                color: '#0f172a',
+                                                fontSize: '0.6rem',
+                                                fontWeight: 800,
+                                                padding: '3px 10px',
+                                                borderRadius: '999px',
+                                                whiteSpace: 'nowrap',
+                                                boxShadow: '0 4px 10px rgba(232, 121, 249, 0.35)',
+                                            }}
+                                        >
+                                            {p.topRibbon}
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px', marginBottom: '10px', paddingTop: '4px' }}>
+                                            <div>
+                                                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#ffffff' }}>{p.name}</div>
+                                                <div style={{ fontSize: '0.7rem', color: 'rgba(245,208,254,0.9)', marginTop: '2px' }}>{p.subtitle}</div>
+                                            </div>
+                                            {p.badge && (
+                                                <span style={{ padding: '3px 7px', borderRadius: '999px', background: '#c084fc', color: '#0f172a', fontSize: '0.6rem', fontWeight: 800, textAlign: 'center', lineHeight: 1.2 }}>
+                                                    {p.badge}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {p.highlightBanner.trim() && (
+                                            <div style={{ marginBottom: '10px', padding: '6px 9px', borderRadius: '8px', background: 'rgba(192,132,252,0.18)', border: '1px solid rgba(192,132,252,0.35)', color: '#f5d0fe', fontSize: '0.68rem', fontWeight: 700 }}>
+                                                {p.highlightBanner}
+                                            </div>
+                                        )}
+
+                                        <div style={{ paddingBottom: '12px', marginBottom: '12px', borderBottom: '1px solid rgba(192,132,252,0.25)' }}>
+                                            {disc.hasDiscount && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px', flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', textDecoration: 'line-through', ...monoStyle }}>
+                                                        {formatVndCompact(p.originalPrice)}
+                                                    </span>
+                                                    <span style={{ fontSize: '0.64rem', fontWeight: 700, color: '#f5d0fe', background: 'rgba(192,132,252,0.2)', border: '1px solid rgba(192,132,252,0.35)', padding: '1px 5px', borderRadius: '4px' }}>
+                                                        Giảm {disc.discountPercent}% (-{formatVndCompact(disc.savingsAmount)})
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+                                                <span style={{ fontSize: '1.55rem', fontWeight: 800, color: '#e879f9', ...monoStyle }}>
+                                                    {formatVndCompact(p.price)}
+                                                </span>
+                                                <span style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>{p.periodLabel}</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.7rem', color: '#f5d0fe', marginTop: '4px', fontWeight: 700, ...monoStyle }}>
+                                                • {p.quotaSummary}
+                                            </div>
+                                        </div>
+
+                                        <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+                                            {p.featureItems.map((it) => (
+                                                <li key={it.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.73rem', color: '#e2e8f0', lineHeight: 1.4 }}>
+                                                    <span
+                                                        style={{
+                                                            width: '16px',
+                                                            height: '16px',
+                                                            borderRadius: '999px',
+                                                            background: it.icon === 'lock' ? 'rgba(148,163,184,0.2)' : 'rgba(232,121,249,0.2)',
+                                                            border: it.icon === 'lock' ? '1px solid rgba(148,163,184,0.4)' : '1px solid rgba(232,121,249,0.4)',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            flexShrink: 0,
+                                                            marginTop: '1px',
+                                                            color: it.icon === 'lock' ? '#cbd5e1' : '#e879f9',
+                                                        }}
+                                                    >
+                                                        {it.icon === 'lock' ? <Lock size={10} /> : <Check size={10} />}
+                                                    </span>
+                                                    <span>{renderHighlightedText(it.text, it.highlight, { color: '#e879f9', fontWeight: 700 })}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+
+                                    <div
+                                        style={{
+                                            padding: '10px 12px',
+                                            borderRadius: '10px',
+                                            background: 'linear-gradient(90deg, #c084fc, #e879f9, #f472b6)',
                                             color: '#0f172a',
                                             fontSize: '0.74rem',
                                             fontWeight: 800,

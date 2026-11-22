@@ -6,12 +6,10 @@ import {
     Bell,
     LogOut,
     Shirt,
-    Cpu,
-    Gift,
     Package
 } from 'lucide-react';
 import { AdminUser, logoutAdmin } from '../services/adminAuthService';
-import { subscribeToFeedback, subscribeToQuotaApprovalRequests } from '../services/adminFirebaseService';
+import { subscribeToFeedback } from '../services/adminFirebaseService';
 
 interface SidebarProps {
     currentPage: string;
@@ -23,19 +21,10 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin, isOpen = false, onClose }) => {
     const [unreadFeedbackCount, setUnreadFeedbackCount] = useState<number>(0);
-    const [pendingQuotaCount, setPendingQuotaCount] = useState<number>(0);
 
     useEffect(() => {
         const unsub = subscribeToFeedback((_, unread) => {
             setUnreadFeedbackCount(unread);
-        });
-        return () => unsub();
-    }, []);
-
-    useEffect(() => {
-        const unsub = subscribeToQuotaApprovalRequests((requests) => {
-            const pending = requests.filter((r) => r.status === 'pending').length;
-            setPendingQuotaCount(pending);
         });
         return () => unsub();
     }, []);
@@ -48,13 +37,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, admin, isO
 
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'quota-approvals', label: 'Phê duyệt ưu đãi user', icon: Gift, badge: pendingQuotaCount },
         { id: 'users', label: 'Quản lý Users', icon: Users },
         { id: 'feedback', label: 'Hòm thư góp ý', icon: Inbox, badge: unreadFeedbackCount },
         { id: 'notifications', label: 'Gửi thông báo', icon: Bell },
         { id: 'clothing', label: 'Thư viện Trang phục', icon: Shirt },
         { id: 'package-config', label: 'Cấu hình Gói', icon: Package },
-        { id: 'ai-config', label: 'Cấu hình AI Tool', icon: Cpu },
     ];
 
     return (

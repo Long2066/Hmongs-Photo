@@ -119,7 +119,7 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
     ideaAiApiKey: '',
     museAiEnabled: true,
     museAiBaseUrl: 'http://127.0.0.1:18610/v1',
-    museAiApiKey: 'm2a-QLC1SthwZ5ET3IcvOToDVlvql-LwrXGG',
+    museAiApiKey: '123456',
     primaryModel: 'muse.ai/muse-video',
     fallbackModel: 'muse.ai/muse-video',
     pricePerVideoVnd: 2000,
@@ -133,6 +133,9 @@ export const DEFAULT_VIDEO_CONFIG: OpenRouterVideoConfig = {
  * Chuẩn hóa model ID và trạng thái bật/tắt provider từ Firestore
  */
 const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVideoConfig => {
+    // Muse Gateway runs embedded locally inside the desktop process on 127.0.0.1:18610
+    const localMuseBaseUrl = 'http://127.0.0.1:18610/v1';
+
     const merged: OpenRouterVideoConfig = {
         ...DEFAULT_VIDEO_CONFIG,
         ...raw,
@@ -143,9 +146,9 @@ const sanitizeVideoConfig = (raw: Partial<OpenRouterVideoConfig>): OpenRouterVid
         ideaAiEnabled: raw.ideaAiEnabled !== undefined ? Boolean(raw.ideaAiEnabled) : true,
         openRouterApiKey: raw.openRouterApiKey || '',
         ideaAiApiKey: raw.ideaAiApiKey || '',
-        museAiEnabled: raw.museAiEnabled !== undefined ? Boolean(raw.museAiEnabled) : true,
-        museAiBaseUrl: (raw.museAiBaseUrl && !raw.museAiBaseUrl.includes('ngrok')) ? raw.museAiBaseUrl : DEFAULT_VIDEO_CONFIG.museAiBaseUrl,
-        museAiApiKey: raw.museAiApiKey !== undefined ? raw.museAiApiKey : DEFAULT_VIDEO_CONFIG.museAiApiKey
+        museAiEnabled: true,
+        museAiBaseUrl: (raw.museAiBaseUrl && (raw.museAiBaseUrl.includes('127.0.0.1') || raw.museAiBaseUrl.includes('localhost'))) ? raw.museAiBaseUrl : localMuseBaseUrl,
+        museAiApiKey: (raw.museAiApiKey && raw.museAiApiKey.trim()) ? raw.museAiApiKey.trim() : '123456'
     };
     const validModelIds = OPENROUTER_VIDEO_MODELS.map(m => m.id);
     if (!merged.primaryModel || !validModelIds.includes(merged.primaryModel)) {

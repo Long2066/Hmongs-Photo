@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     museOpenChromeIncognito: () => ipcRenderer.invoke('muse:open-chrome-incognito'),
     museGetStatus: () => ipcRenderer.invoke('muse:status'),
     museSaveCookies: (cookies) => ipcRenderer.invoke('muse:save-cookies', cookies),
+    museDeleteAccount: (id) => ipcRenderer.invoke('muse:delete-account', id),
     getNativeGatewayStatus: () => ipcRenderer.invoke('native-gateway:status'),
 
     // ============ PLATFORM INFO ============

@@ -173,6 +173,7 @@ const App: React.FC = () => {
     const [hasUnmergedVideoChanges, setHasUnmergedVideoChanges] = useState(false);
     const [isMergingVideoScenes, setIsMergingVideoScenes] = useState(false);
     const [retryingImageIndices, setRetryingImageIndices] = useState<number[]>([]);
+    const [creativeSlotErrors, setCreativeSlotErrors] = useState<(string | null)[]>([]);
     const lastCreativeRunConfigRef = useRef<{
         prompts: string[];
         aspectRatio: string;
@@ -491,6 +492,12 @@ const App: React.FC = () => {
     const validateSubscriptionBeforeGenerate = useCallback(async (requestedImages: number): Promise<boolean> => {
         if (!currentUser) return false;
         if (storage.isAdmin()) return true;
+
+        // Muse AI runs via local in-process gateway with user's own cookies -> always 100% available
+        const currentModel = nineRouterService.getNineRouterImageModel();
+        if (currentModel.toLowerCase().includes('muse')) {
+            return true;
+        }
         if (currentSubscriptionPlan !== 'free') {
             const localPlanCfg = plansConfig[currentSubscriptionPlan];
             let entitlement;
@@ -636,13 +643,13 @@ const App: React.FC = () => {
 
         setCurrentOutputTitlePrefix('Anh_The');
         setIsLoading(true); setError(null); setIsMenuOpen(false);
-        updateModeState(() => ({ outputs: Array(4).fill(null), prompts: [] }));
+        updateModeState(() => ({ outputs: [null], prompts: [] }));
 
         try {
             const imagePart = { data: currentInputs[0].base64, mimeType: currentInputs[0].mimeType };
             setLoadingStatus('Đang xử lý ảnh thẻ...');
 
-            const localResults: (string | null)[] = Array(4).fill(null);
+            const localResults: (string | null)[] = [null];
 
             const { prompts } = await generateIdPhotos(
                 apiKey, imagePart, clothing, bgColor, aspectRatio, gender, hairstyle,
@@ -652,7 +659,7 @@ const App: React.FC = () => {
                         const n = [...prev.outputs]; n[index] = base64; return { outputs: n };
                     });
                     localResults[index] = base64;
-                    if (autoDownload && base64) triggerDownload(base64, `Anh_The_${index + 1}.png`);
+                    if (autoDownload && base64) triggerDownload(base64, `Anh_The.png`);
                 },
                 clothingRef // Pass the reference image from Firestore
             );
@@ -722,6 +729,7 @@ const App: React.FC = () => {
 
         setIsLoading(true); setError(null); setIsMenuOpen(false);
         setRetryingImageIndices([]);
+        setCreativeSlotErrors([]);
         setModeStates(prev => ({
             ...prev,
             creative: {
@@ -746,7 +754,10 @@ const App: React.FC = () => {
             const refImages: CreativeRefImages = { male: maleParts, female: femaleParts, maleAccessories: maleAccParts, femaleAccessories: femaleAccParts };
             let characterDna = '';
 
-            if (nineRouterService.isNineRouterEnabled()) {
+            const activeImageModel = nineRouterService.getNineRouterImageModel();
+            const isMuseActive = activeImageModel.toLowerCase().includes('muse');
+
+            if (nineRouterService.isNineRouterEnabled() && !isMuseActive) {
                 const dnaRefs: nineRouterService.NineRouterLabeledReferenceImage[] = [
                     ...maleParts.slice(0, 2).map((img, idx) => ({ ...img, label: `MALE REF ${idx + 1}` })),
                     ...femaleParts.slice(0, 2).map((img, idx) => ({ ...img, label: `FEMALE REF ${idx + 1}` })),
@@ -803,6 +814,13 @@ const App: React.FC = () => {
                     identityMode,
                     autoQaEnabled,
                     characterDna,
+                    onItemStatus: (index, text) => {
+                        setCreativeSlotErrors(prev => {
+                            const next = [...prev];
+                            next[index] = text;
+                            return next;
+                        });
+                    },
                     onQaReport: (index, report) => {
                         setModeStates(prev => {
                             const nextReports = [...(prev.creative.qaReports || [])];
@@ -821,6 +839,7 @@ const App: React.FC = () => {
                 saveHistory(cleanPrefix, prompts[0], validImages, outputMode);
             } else {
                 console.warn('[Creative] Chưa tạo thành công ảnh nào trong đợt này.');
+                throw new Error('Chưa tạo thành công ảnh nào trong đợt này. Vui lòng kiểm tra lại trạng thái kết nối hoặc thử lại.');
             }
 
         } catch (e: any) {
@@ -1313,7 +1332,7 @@ const App: React.FC = () => {
         const autoQaEnabled = fidelityOptions?.autoQaEnabled ?? true;
         const strictMotionLock = fidelityOptions?.strictMotionLock ?? true;
 
-        if (!storage.isAdmin()) {
+        if (!storage.isAdmin() && modelMeta.provider !== 'muse_ai') {
             let effectiveVideoSec = remainingVideoSeconds;
             try {
                 const refreshed = await refreshSubscription();
@@ -1579,7 +1598,7 @@ const App: React.FC = () => {
         const targetScene = videoSceneItems.find(item => item.index === sceneIndex);
         if (!targetScene || targetScene.isRegenerating) return;
 
-        if (!storage.isAdmin()) {
+        if (!storage.isAdmin() && modelMeta.provider !== 'muse_ai') {
             let effectiveVideoSec = remainingVideoSeconds;
             try {
                 const refreshed = await refreshSubscription();
@@ -2263,6 +2282,7 @@ MASTERFUL MULTI-LAYER GRAPHIC COMPOSITION:
                                         onDismissError={() => setError(null)}
                                         titlePrefix={currentOutputTitlePrefix}
                                         qaReports={mode === 'creative' ? currentData.qaReports : undefined}
+                                        slotErrors={mode === 'creative' ? creativeSlotErrors : undefined}
                                         retryingIndices={mode === 'creative' ? retryingImageIndices : undefined}
                                         onRetryImage={mode === 'creative' && !isLoading ? handleRetryCreativeImage : undefined}
                                     />

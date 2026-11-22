@@ -1,3 +1,7 @@
+import { auth } from '../src/firebaseConfig';
+import { getCachedUserPlan } from './firebaseService';
+import { isAdmin } from './storageService';
+
 export type ConcurrencySetting = 'auto' | 2 | 4 | 6 | 8 | 10;
 export type ConcurrencyKind = 'image' | 'video';
 
@@ -51,10 +55,21 @@ export interface ResolveConcurrencyOptions {
     settingOverride?: ConcurrencySetting;
 }
 
+export const getPlanConcurrencyLimit = (plan?: string): number => {
+    if (isAdmin()) return 10;
+    const p = plan || getCachedUserPlan(auth?.currentUser?.uid || undefined);
+    if (p === 'vip') return 10;
+    if (p === 'pro') return 4;
+    if (p === 'plus') return 2;
+    return 1;
+};
+
 /**
  * Resolve effective parallel worker count (1..10) based on user setting and active backend gateway.
- * - Multi-account Muse VPS pool (8 accounts behind muse2api) & 9Router support 8-10 concurrent threads smoothly.
- * - Single-account Google Antigravity OAuth stays capped at 4 in 'auto' mode to avoid instant throttling.
+ * Strictly capped by user's subscription tier:
+ * - Gói Cơ bản (plus): max 2
+ * - Gói Nâng cao (pro): max 4
+ * - Gói Cao cấp (vip) & Admin: max 10
  */
 export const resolveEffectiveConcurrency = (
     kind: ConcurrencyKind,
@@ -64,29 +79,32 @@ export const resolveEffectiveConcurrency = (
     const total = Math.max(1, Math.floor(Number(itemCount) || 1));
     const setting = options.settingOverride ?? getConcurrencySetting(kind);
     const modelLower = String(options.modelId || '').toLowerCase();
+    const planLimit = getPlanConcurrencyLimit();
+
+    let effective = total;
 
     if (setting !== 'auto') {
-        return Math.min(total, Math.max(1, Math.min(10, Number(setting))));
-    }
-
-    if (kind === 'video') {
+        effective = Math.min(total, Math.max(1, Math.min(10, Number(setting))));
+    } else if (kind === 'video') {
         if (modelLower.startsWith('muse/')) {
-            return Math.min(total, 10);
+            effective = Math.min(total, 10);
+        } else {
+            effective = Math.min(total, 8);
         }
-        return Math.min(total, 8);
+    } else {
+        // Image generation
+        if (options.isAntigravity && !options.isNineRouter && !modelLower.includes('muse')) {
+            effective = Math.min(total, 4);
+        } else if (modelLower.includes('muse') || options.isNineRouter) {
+            effective = Math.min(total, 10);
+        } else if (options.isVipMode) {
+            effective = Math.min(total, 6);
+        } else {
+            effective = Math.min(total, 8);
+        }
     }
 
-    // Image generation
-    if (options.isAntigravity && !options.isNineRouter && !modelLower.includes('muse')) {
-        return Math.min(total, 4);
-    }
-    if (modelLower.includes('muse') || options.isNineRouter) {
-        return Math.min(total, 10);
-    }
-    if (options.isVipMode) {
-        return Math.min(total, 6);
-    }
-    return Math.min(total, 8);
+    return Math.min(effective, planLimit);
 };
 
 export const isTransientHttpOrNetworkError = (status?: number, message?: string): boolean => {

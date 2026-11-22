@@ -18,6 +18,7 @@ interface OutputDisplayProps {
     qaReports?: (ConsistencyQaReport | null)[];
     retryingIndices?: number[];
     onRetryImage?: (index: number) => void;
+    slotErrors?: (string | null)[];
 }
 
 const isVideoUrl = (url: string | null): boolean => {
@@ -316,14 +317,15 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
     onDismissError,
     qaReports,
     retryingIndices,
-    onRetryImage
+    onRetryImage,
+    slotErrors
 }) => {
     const [batchDownloading, setBatchDownloading] = useState(false);
     const [batchProgress, setBatchProgress] = useState<string | null>(null);
 
     const hasCompletedImages = outputImages.some(img => img !== null);
     const completedImages = outputImages.filter((img): img is string => img !== null && !isVideoUrl(img));
-    const isActive = isLoading ? outputImages.length > 0 : hasCompletedImages;
+    const isActive = outputImages.length > 0 || hasCompletedImages;
 
     const handleBatchDownloadAll = async () => {
         if (batchDownloading || completedImages.length === 0) return;
@@ -466,7 +468,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             {outputImages.length > 0 && (
                 <div className={`
                     grid gap-4 
-                    ${outputImages.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : ''}
+                    ${outputImages.length === 1 ? 'grid-cols-1 max-w-xl w-full mx-auto' : ''}
                     ${outputImages.length === 2 ? 'grid-cols-2 max-w-2xl mx-auto' : ''}
                     ${outputImages.length === 3 ? 'grid-cols-3 max-w-3xl mx-auto' : ''}
                     ${outputImages.length === 4 ? 'grid-cols-2 md:grid-cols-4 max-w-4xl mx-auto' : ''}
@@ -486,7 +488,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                                     <div className="w-full aspect-square bg-rose-50/40 rounded-lg flex flex-col items-center justify-center border border-rose-100 text-center p-3 gap-2">
                                         <span className="text-2xl" aria-hidden="true">⚠️</span>
                                         <p className="text-xs font-bold text-rose-700 leading-tight">Chưa tạo được ảnh #{index + 1}</p>
-                                        <p className="text-[11px] text-slate-500">Hệ thống có thể đã bận hoặc gặp sự cố mạng.</p>
+                                        <p className="text-[11px] text-rose-600 font-medium px-2 text-center line-clamp-3 leading-snug">{slotErrors?.[index] || "Hệ thống có thể đã bận hoặc gặp sự cố mạng."}</p>
                                     </div>
                                     {onRetryImage && (
                                         <button

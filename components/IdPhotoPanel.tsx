@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { UserCircleIcon } from './Icons';
 import { ModelSelector } from './ModelSelector';
 import { getActiveTemplates, ClothingTemplate, GENDER_LABELS, CATEGORY_LABELS } from '../services/clothingTemplateService';
 
@@ -139,23 +138,6 @@ export const IdPhotoPanel: React.FC<IdPhotoPanelProps> = ({ onGenerate, isLoadin
 
     return (
         <div className="flex flex-col gap-5">
-            <div className="bg-indigo-50/80 p-4 rounded-xl border border-indigo-200/80 flex gap-3 shadow-xs ring-1 ring-indigo-500/10">
-                <div className="bg-white p-2 rounded-full shadow-sm">
-                    <UserCircleIcon className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div>
-                    <h3 className="text-sm font-bold text-indigo-900">Chế độ Ảnh thẻ Pro</h3>
-                    <p className="text-[10px] text-indigo-700/80 mt-0.5 font-medium">
-                        Giữ nguyên khuôn mặt • Thay đổi trang phục & Tóc
-                        {hasFirestoreTemplates && (
-                            <span className="ml-2 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[9px]">
-                                ✓ {filteredTemplates.length} mẫu trang phục
-                            </span>
-                        )}
-                    </p>
-                </div>
-            </div>
-
             {/* 1. Gender */}
             <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">1. Giới tính</label>
