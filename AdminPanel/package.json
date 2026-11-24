@@ -1,7 +1,7 @@
 {
   "name": "admin-panel-toolphoto",
   "private": true,
-  "version": "2.25.95",
+  "version": "2.25.96",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5174",
