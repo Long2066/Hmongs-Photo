@@ -1578,12 +1578,36 @@ CRITICAL RULES:
                     : 'Clone 100% of the exact original person identity, face, and clothing directly from the attached reference photo(s) without altering outfit or facial features. ')
                 : 'Reference the attached image(s) with 100% fidelity. ')
             : '';
-        const finalMusePrompt = `${outfitEnforcement}${cleanScene || request.prompt}`;
+
+        let framingDirectiveForMuse = '';
+        if (ratio === '16:9') {
+            framingDirectiveForMuse = 'Composition: Horizontal widescreen 16:9 cinematic landscape format (NOT portrait, NOT square). Wide panoramic environmental staging. ';
+        } else if (ratio === '9:16') {
+            framingDirectiveForMuse = 'Composition: Vertical 9:16 portrait format. ';
+        } else if (ratio === '4:3' || ratio === '3:2') {
+            framingDirectiveForMuse = `Composition: Horizontal ${ratio} landscape format. `;
+        } else if (ratio === '3:4' || ratio === '2:3') {
+            framingDirectiveForMuse = `Composition: Vertical ${ratio} portrait format. `;
+        } else if (ratio === '1:1') {
+            framingDirectiveForMuse = 'Composition: Square 1:1 format. ';
+        }
+
+        const requestedRes = (request.resolution || 'FHD').toUpperCase();
+        let resDirective = '';
+        if (requestedRes === '4K') {
+            resDirective = 'Quality: Ultra-HD 4K (3840x2160) master photography, ultra-sharp focus, crisp intricate textile fabric weave, detailed skin pores, zero compression blur. ';
+        } else if (requestedRes === '2K') {
+            resDirective = 'Quality: Quad-HD 2K (2560x1440) master photography, high-definition crisp contours, highly defined textures, zero blur. ';
+        }
+
+        const finalMusePrompt = `${framingDirectiveForMuse}${resDirective}${outfitEnforcement}${cleanScene || request.prompt}`.trim();
 
         const musePayload: Record<string, any> = {
             model: 'muse-image',
             prompt: finalMusePrompt,
             size: ratio,
+            resolution: requestedRes,
+            quality: requestedRes,
             n: 1,
             response_format: 'b64_json'
         };
@@ -1592,7 +1616,7 @@ CRITICAL RULES:
             musePayload.images = refsPayload;
         }
 
-        console.log(`[MuseAI] Generating image via ${museUrl}/images/generations (ratio: ${ratio}, refs: ${refsPayload.length})`);
+        console.log(`[MuseAI] Generating image via ${museUrl}/images/generations (ratio: ${ratio}, res: ${requestedRes}, refs: ${refsPayload.length})`);
         const maxMuseAttempts = 5;
         let lastMuseErr: Error | null = null;
         for (let museAttempt = 0; museAttempt < maxMuseAttempts; museAttempt++) {

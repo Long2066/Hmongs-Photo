@@ -514,7 +514,12 @@ export const enforceResolutionAndAspect = async (
     }
 
     const isDataUri = base64Image.startsWith('data:');
-    const imageSrc = isDataUri ? base64Image : `data:image/jpeg;base64,${base64Image}`;
+    let mimeType = 'image/jpeg';
+    if (!isDataUri) {
+        if (base64Image.startsWith('iVBORw0KGgo')) mimeType = 'image/png';
+        else if (base64Image.startsWith('UklGR')) mimeType = 'image/webp';
+    }
+    const imageSrc = isDataUri ? base64Image : `data:${mimeType};base64,${base64Image}`;
 
     return new Promise((resolve) => {
         const img = new Image();
@@ -522,24 +527,13 @@ export const enforceResolutionAndAspect = async (
             const target = getTargetPixelDimensions(aspectRatio, resolution);
             const targetRatio = target.width / target.height;
             const currentRatio = img.width / img.height;
+            const ratioDiff = Math.abs(currentRatio - targetRatio);
 
-            let cropWidth = img.width;
-            let cropHeight = img.height;
-            let cropX = 0;
-            let cropY = 0;
-
-            if (Math.abs(currentRatio - targetRatio) > 0.01) {
-                if (currentRatio > targetRatio) {
-                    cropHeight = img.height;
-                    cropWidth = Math.round(cropHeight * targetRatio);
-                    cropX = Math.round((img.width - cropWidth) / 2);
-                    cropY = 0;
-                } else {
-                    cropWidth = img.width;
-                    cropHeight = Math.round(cropWidth / targetRatio);
-                    cropX = 0;
-                    cropY = Math.round((img.height - cropHeight) / 2);
-                }
+            // If already at target dimensions with exact aspect ratio, preserve pristine source
+            if (img.width === target.width && img.height === target.height) {
+                console.log(`[Resolution] Image already at exact target ${target.width}x${target.height}, keeping original.`);
+                resolve(base64Image);
+                return;
             }
 
             const canvas = document.createElement('canvas');
@@ -555,30 +549,57 @@ export const enforceResolutionAndAspect = async (
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
 
-            // Stepped scaling if enlarging by > 2x to preserve micro-textures
-            const scaleFactor = Math.max(target.width / cropWidth, target.height / cropHeight);
-            if (scaleFactor > 2.0) {
-                const intermediateCanvas = document.createElement('canvas');
-                const interWidth = Math.round(cropWidth * 1.8);
-                const interHeight = Math.round(cropHeight * 1.8);
-                intermediateCanvas.width = interWidth;
-                intermediateCanvas.height = interHeight;
-                const interCtx = intermediateCanvas.getContext('2d');
-                if (interCtx) {
-                    interCtx.imageSmoothingEnabled = true;
-                    interCtx.imageSmoothingQuality = 'high';
-                    interCtx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, interWidth, interHeight);
-                    ctx.drawImage(intermediateCanvas, 0, 0, interWidth, interHeight, 0, 0, target.width, target.height);
-                } else {
-                    ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, target.width, target.height);
-                }
+            // Check if there is an extreme aspect ratio mismatch (e.g. 16:9 requested but got 9:16 portrait)
+            const isSevereMismatch = ratioDiff > 0.35;
+
+            if (isSevereMismatch) {
+                console.warn(`[Resolution] Severe aspect ratio mismatch detected (expected ${aspectRatio} [${targetRatio.toFixed(2)}], received ${img.width}x${img.height} [${currentRatio.toFixed(2)}]). Applying Smart Ambient Framing to prevent mutilation.`);
+                // Background: Blurred ambient extension of scene to fill 16:9 widescreen
+                ctx.save();
+                ctx.filter = 'blur(45px) brightness(0.7)';
+                ctx.drawImage(img, 0, 0, target.width, target.height);
+                ctx.restore();
+
+                // Foreground: Uncropped crisp subject fitted centered
+                const fitScale = Math.min(target.width / img.width, target.height / img.height);
+                const fitW = Math.round(img.width * fitScale);
+                const fitH = Math.round(img.height * fitScale);
+                const fitX = Math.round((target.width - fitW) / 2);
+                const fitY = Math.round((target.height - fitH) / 2);
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 35;
+                ctx.drawImage(img, fitX, fitY, fitW, fitH);
+                ctx.restore();
             } else {
+                // Mild crop to align exact ratio without losing scene framing
+                let cropWidth = img.width;
+                let cropHeight = img.height;
+                let cropX = 0;
+                let cropY = 0;
+
+                if (ratioDiff > 0.02) {
+                    if (currentRatio > targetRatio) {
+                        cropHeight = img.height;
+                        cropWidth = Math.round(cropHeight * targetRatio);
+                        cropX = Math.round((img.width - cropWidth) / 2);
+                        cropY = 0;
+                    } else {
+                        cropWidth = img.width;
+                        cropHeight = Math.round(cropWidth / targetRatio);
+                        cropX = 0;
+                        cropY = Math.round((img.height - cropHeight) / 2);
+                    }
+                }
+
+                // Single direct high-quality bicubic resample directly from sharp source pixels (no double-pass blur)
                 ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, target.width, target.height);
             }
 
-            // High-pass Unsharp Masking Kernel based on target resolution
+            // High-pass Unsharp Masking Kernel on Luminance for crystal-clear edges without color fringing
             const resUpper = (resolution || 'FHD').toUpperCase();
-            const strength = resUpper === '4K' ? 0.16 : resUpper === '2K' ? 0.12 : resUpper === 'FHD' ? 0.06 : 0;
+            const strength = resUpper === '4K' ? 0.18 : resUpper === '2K' ? 0.15 : resUpper === 'FHD' ? 0.08 : 0;
             if (strength > 0) {
                 try {
                     const imgData = ctx.getImageData(0, 0, target.width, target.height);
@@ -615,10 +636,10 @@ export const enforceResolutionAndAspect = async (
                 }
             }
 
-            const outputQuality = resUpper === '4K' ? 0.95 : resUpper === '2K' ? 0.93 : 0.90;
-            const resultDataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+            // Export as lossless PNG to completely eliminate lossy JPEG block compression and artifacts
+            const resultDataUrl = canvas.toDataURL('image/png');
             const base64Out = resultDataUrl.includes(',') ? resultDataUrl.split(',')[1] : resultDataUrl;
-            console.log(`[Resolution] Output enforced to ${resUpper} (${target.width}x${target.height})`);
+            console.log(`[Resolution] Output enforced to ${resUpper} (${target.width}x${target.height}) in lossless PNG format.`);
             resolve(isDataUri ? resultDataUrl : base64Out);
         };
 
